@@ -1,15 +1,4 @@
-# Keep private runtime data and source-release material out of git.
-
-# Steam retail/runtime data (proprietary)
-/steam/*
-!/steam/.gitkeep
-!/steam/README.md
-
-# Original id Software source-release material is supplied locally by the user.
-# This template documents the expected location but does not redistribute it.
-/source/*
-!/source/.gitkeep
-!/source/README.md
+# Keep secrets and generated build artifacts out of git.
 
 # Secrets and local environment
 auth/
