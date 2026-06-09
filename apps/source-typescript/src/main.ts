@@ -14,6 +14,17 @@ type SourceTypescriptStatus = {
 };
 
 type SourceDifficulty = "baby" | "easy" | "medium" | "hard";
+type SourcePlayState =
+  | "ex_abort"
+  | "ex_completed"
+  | "ex_demodone"
+  | "ex_died"
+  | "ex_loadedgame"
+  | "ex_resetgame"
+  | "ex_secretlevel"
+  | "ex_stillplaying"
+  | "ex_victorious"
+  | "ex_warped";
 
 type DemoPlan = {
   name: string;
@@ -1331,6 +1342,7 @@ class WLMain {
         }))
       },
       pageManager: this.id_pm.StateSnapshot(),
+      playstate: this.wl_game.playstate,
       runner: "source-typescript",
       ticcount: this.wl_game.gamestate.ticcount
     };
@@ -1458,7 +1470,7 @@ class WLMain {
   private RenderUi(): void {
     mapState.textContent = this.wl_game.mapMetadata;
     objectState.textContent = this.wl_game.objectMetadata;
-    runtimeState.textContent = `tic ${this.wl_game.gamestate.ticcount} / ${this.wl_game.gamestate.x.toFixed(2)}, ${this.wl_game.gamestate.y.toFixed(2)} / hp ${this.wl_game.gamestate.health} ammo ${this.wl_game.gamestate.ammo} wp ${this.wl_game.gamestate.weapon}:${this.wl_game.gamestate.weaponframe} atk ${this.wl_game.gamestate.attackframe}:${this.wl_game.gamestate.attackcount} keys ${this.wl_game.gamestate.keys}`;
+    runtimeState.textContent = `tic ${this.wl_game.gamestate.ticcount} time ${this.wl_game.gamestate.timecount} / ${this.wl_game.gamestate.x.toFixed(2)}, ${this.wl_game.gamestate.y.toFixed(2)} / hp ${this.wl_game.gamestate.health} ammo ${this.wl_game.gamestate.ammo} wp ${this.wl_game.gamestate.weapon}:${this.wl_game.gamestate.weaponframe} atk ${this.wl_game.gamestate.attackframe}:${this.wl_game.gamestate.attackcount} keys ${this.wl_game.gamestate.keys} state ${this.wl_game.playstate}`;
     demoState.textContent = this.demoPlan
       ? this.demoRunning
         ? `Running ${this.demoPlan.name} ${this.demoStepIndex === null ? "" : `${this.demoStepIndex + 1}/`}${this.demoPlan.steps.length}`
@@ -1493,6 +1505,7 @@ class WLPlay {
     this.wl_game.MoveActors(tics);
     this.wl_game.MoveProjectiles(tics);
     this.wl_draw.ThreeDRefresh(this.wl_game);
+    this.wl_game.AdvanceTime(tics);
     this.id_sd.SD_Service(moved, ticMs);
   }
 }
@@ -1503,6 +1516,7 @@ class WLGame {
   thrustSpeed = 0;
   lastAttacker: DamageSource | null = null;
   killer: DamageSource | null = null;
+  playstate: SourcePlayState = "ex_stillplaying";
   private attackButtonHeld = false;
   private rndIndex = 0;
 
@@ -1514,20 +1528,28 @@ class WLGame {
     bestweapon: WP_PISTOL,
     chosenweapon: WP_PISTOL,
     difficulty: "medium" as SourceDifficulty,
+    episode: 0,
+    faceframe: 0,
     health: MAX_HEALTH,
     keys: 0,
+    killx: 0,
+    killy: 0,
     killcount: 0,
     killtotal: 0,
     level: 0,
     lives: 3,
+    mapon: 0,
     nextextra: EXTRAPOINTS,
-    playstate: "playing" as "playing" | "died",
+    oldscore: 0,
+    playstate: "ex_stillplaying" as SourcePlayState,
     score: 0,
     secretcount: 0,
     secrettotal: 0,
+    timecount: 0,
     treasurecount: 0,
     treasuretotal: 0,
     ticcount: 0,
+    victoryflag: false,
     weapon: WP_PISTOL,
     weaponframe: 0,
     x: 3.5,
@@ -1552,6 +1574,11 @@ class WLGame {
   BeginActorThinking(): void {
     // WL_PLAY.C clears madenoise once per play-loop pass before actor thinking.
     this.madeNoise = false;
+  }
+
+  AdvanceTime(tics: number): void {
+    // WL_PLAY.C PlayLoop adds tics to gamestate.TimeCount once per rendered loop.
+    this.gamestate.timecount += tics;
   }
 
   SetupGameLevel(level: number, wolfMap: WolfMap | null = null): void {
@@ -1604,20 +1631,28 @@ class WLGame {
     this.rndIndex = 0;
     this.gamestate.bestweapon = WP_PISTOL;
     this.gamestate.chosenweapon = WP_PISTOL;
+    this.gamestate.episode = Math.floor(level / 10);
+    this.gamestate.faceframe = 0;
     this.gamestate.health = MAX_HEALTH;
     this.gamestate.keys = 0;
+    this.gamestate.killx = 0;
+    this.gamestate.killy = 0;
     this.gamestate.killcount = 0;
     this.gamestate.killtotal = this.map.killTotal;
     this.gamestate.level = level;
     this.gamestate.lives = 3;
+    this.gamestate.mapon = level % 10;
     this.gamestate.nextextra = EXTRAPOINTS;
-    this.gamestate.playstate = "playing";
+    this.gamestate.oldscore = 0;
+    this.SetPlayState("ex_stillplaying");
     this.gamestate.score = 0;
     this.gamestate.secretcount = 0;
     this.gamestate.secrettotal = this.map.secretTotal;
+    this.gamestate.timecount = 0;
     this.gamestate.treasurecount = 0;
     this.gamestate.treasuretotal = this.map.treasureTotal;
     this.gamestate.ticcount = 0;
+    this.gamestate.victoryflag = false;
     this.gamestate.weapon = WP_PISTOL;
     this.gamestate.weaponframe = 0;
     this.gamestate.x = spawn.x;
@@ -3283,13 +3318,22 @@ class WLGame {
 
   private TakeDamage(points: number, attacker: PortActor | PortProjectile | null = null): void {
     this.lastAttacker = attacker ? this.DamageSource(attacker) : null;
+    if (this.gamestate.victoryflag) {
+      return;
+    }
+
     const sourcePoints = Math.max(0, Math.trunc(points));
     const actualPoints = this.gamestate.difficulty === "baby" ? sourcePoints >> 2 : sourcePoints;
     this.gamestate.health = Math.max(0, this.gamestate.health - actualPoints);
     if (this.gamestate.health === 0) {
-      this.gamestate.playstate = "died";
+      this.SetPlayState("ex_died");
       this.killer = this.lastAttacker;
     }
+  }
+
+  private SetPlayState(playstate: SourcePlayState): void {
+    this.playstate = playstate;
+    this.gamestate.playstate = playstate;
   }
 
   private DamageSource(attacker: PortActor | PortProjectile): DamageSource {
