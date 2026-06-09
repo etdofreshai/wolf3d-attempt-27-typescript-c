@@ -42,12 +42,57 @@ type DemoPlanStep =
     };
 
 type PortMap = {
+  actors: PortActor[];
+  blockingStaticKeys: Set<string>;
+  doors: PortDoor[];
   height: number;
+  killTotal: number;
   name: string;
   objects: Uint16Array;
+  secretTotal: number;
   source: "fallback" | "wl6";
+  statics: PortStatic[];
+  treasureTotal: number;
   walls: Uint16Array;
   width: number;
+};
+
+type PortDoor = {
+  action: "closed" | "open" | "opening" | "closing";
+  index: number;
+  lock: number;
+  position: number;
+  tile: number;
+  vertical: boolean;
+  x: number;
+  y: number;
+};
+
+type PortStatic = {
+  blocking: boolean;
+  bonus: boolean;
+  treasure: boolean;
+  type: number;
+  x: number;
+  y: number;
+};
+
+type PortActor = {
+  dir: number;
+  kind: string;
+  mode: "boss" | "dead" | "ghost" | "patrol" | "stand";
+  tile: number;
+  x: number;
+  y: number;
+};
+
+type ScanInfoPlaneResult = {
+  actors: PortActor[];
+  killTotal: number;
+  secretTotal: number;
+  spawn: PlayerSpawn | null;
+  statics: PortStatic[];
+  treasureTotal: number;
 };
 
 const KEY_CODES: Record<string, number> = {
@@ -74,8 +119,77 @@ const KEY_CODES: Record<string, number> = {
 };
 
 const DEMO_DEFAULT_HOLD_MS = 90;
+const AREATILE = 107;
+const PUSHABLETILE = 98;
 const SCREEN_WIDTH = 320;
 const SCREEN_HEIGHT = 200;
+const STATIC_INFO_TYPES = [
+  "dressing",
+  "block",
+  "block",
+  "block",
+  "dressing",
+  "block",
+  "bo_alpo",
+  "block",
+  "block",
+  "dressing",
+  "block",
+  "block",
+  "block",
+  "block",
+  "dressing",
+  "dressing",
+  "block",
+  "block",
+  "block",
+  "dressing",
+  "bo_key1",
+  "bo_key2",
+  "block",
+  "dressing",
+  "bo_food",
+  "bo_firstaid",
+  "bo_clip",
+  "bo_machinegun",
+  "bo_chaingun",
+  "bo_cross",
+  "bo_chalice",
+  "bo_bible",
+  "bo_crown",
+  "bo_fullheal",
+  "bo_gibs",
+  "block",
+  "block",
+  "block",
+  "bo_gibs",
+  "block",
+  "block",
+  "dressing",
+  "dressing",
+  "dressing",
+  "dressing",
+  "block",
+  "block",
+  "dressing",
+  "bo_clip2"
+] as const;
+const TREASURE_STAT_TYPES = new Set(["bo_cross", "bo_chalice", "bo_bible", "bo_crown", "bo_fullheal"]);
+const BOSS_INFO_TILES: Record<number, string> = {
+  160: "fake_hitler",
+  178: "hitler",
+  179: "fat",
+  196: "schabbs",
+  197: "gretel",
+  214: "boss",
+  215: "gift"
+};
+const GHOST_INFO_TILES: Record<number, string> = {
+  224: "blinky",
+  225: "clyde",
+  226: "pinky",
+  227: "inky"
+};
 
 const root = document.querySelector<HTMLElement>("#app");
 if (!root) {
@@ -117,6 +231,10 @@ root.innerHTML = `
             <dd id="map-state">fallback</dd>
           </div>
           <div>
+            <dt>Objects</dt>
+            <dd id="object-state">--</dd>
+          </div>
+          <div>
             <dt>Runtime</dt>
             <dd id="runtime-state">--</dd>
           </div>
@@ -139,6 +257,7 @@ const statusLine = requireElement<HTMLElement>("#status-line");
 const sourceCount = requireElement<HTMLElement>("#source-count");
 const assetCount = requireElement<HTMLElement>("#asset-count");
 const mapState = requireElement<HTMLElement>("#map-state");
+const objectState = requireElement<HTMLElement>("#object-state");
 const runtimeState = requireElement<HTMLElement>("#runtime-state");
 const demoState = requireElement<HTMLElement>("#demo-state");
 const classGrid = requireElement<HTMLElement>("#class-grid");
@@ -262,6 +381,12 @@ class WLMain {
         audioSamples: this.id_sd.sampleCount,
         game: this.wl_game.gamestate,
         map: this.wl_game.mapMetadata,
+        objects: {
+          actors: this.wl_game.map.actors.length,
+          blockingStatics: this.wl_game.map.blockingStaticKeys.size,
+          doors: this.wl_game.map.doors.length,
+          statics: this.wl_game.map.statics.length
+        },
         runner: "source-typescript",
         ticcount: this.wl_game.gamestate.ticcount
       })
@@ -340,6 +465,7 @@ class WLMain {
 
   private RenderUi(): void {
     mapState.textContent = this.wl_game.mapMetadata;
+    objectState.textContent = this.wl_game.objectMetadata;
     runtimeState.textContent = `tic ${this.wl_game.gamestate.ticcount} / ${this.wl_game.gamestate.x.toFixed(2)}, ${this.wl_game.gamestate.y.toFixed(2)}`;
     demoState.textContent = this.demoPlan
       ? this.demoRunning
@@ -372,9 +498,16 @@ class WLGame {
 
   readonly gamestate = {
     angle: 0,
+    difficulty: "medium" as "easy" | "medium" | "hard",
     health: 100,
+    killcount: 0,
+    killtotal: 0,
     level: 0,
     score: 0,
+    secretcount: 0,
+    secrettotal: 0,
+    treasurecount: 0,
+    treasuretotal: 0,
     ticcount: 0,
     x: 3.5,
     y: 3.5
@@ -382,6 +515,10 @@ class WLGame {
 
   get mapMetadata(): string {
     return `${this.map.name} ${this.map.width}x${this.map.height}`;
+  }
+
+  get objectMetadata(): string {
+    return `${this.map.doors.length} doors / ${this.map.statics.length} statics / ${this.map.actors.length} actors`;
   }
 
   SetupGameLevel(level: number, wolfMap: WolfMap | null = null): void {
@@ -393,23 +530,42 @@ class WLGame {
     };
 
     if (wolfMap) {
+      const scan = scanInfoPlane(wolfMap, this.gamestate.difficulty);
+      const doors = scanWallPlaneForDoors(wolfMap);
+      const blockingStaticKeys = new Set(
+        scan.statics.filter((stat) => stat.blocking).map((stat) => tileKey(stat.x, stat.y))
+      );
+
       this.map = {
+        actors: scan.actors,
+        blockingStaticKeys,
+        doors,
         height: wolfMap.header.height,
+        killTotal: scan.killTotal,
         name: `WL6 ${wolfMap.index} ${wolfMap.header.name || "unnamed"}`,
         objects: wolfMap.planes[1],
+        secretTotal: scan.secretTotal,
         source: "wl6",
+        statics: scan.statics,
+        treasureTotal: scan.treasureTotal,
         walls: wolfMap.planes[0],
         width: wolfMap.header.width
       };
-      spawn = findPlayerSpawn(wolfMap);
+      spawn = scan.spawn ?? findPlayerSpawn(wolfMap);
     } else if (this.map.source !== "wl6") {
       this.map = createFallbackMap();
     }
 
     this.gamestate.angle = normalizeAngle(spawn.angle);
     this.gamestate.health = 100;
+    this.gamestate.killcount = 0;
+    this.gamestate.killtotal = this.map.killTotal;
     this.gamestate.level = level;
     this.gamestate.score = 0;
+    this.gamestate.secretcount = 0;
+    this.gamestate.secrettotal = this.map.secretTotal;
+    this.gamestate.treasurecount = 0;
+    this.gamestate.treasuretotal = this.map.treasureTotal;
     this.gamestate.ticcount = 0;
     this.gamestate.x = spawn.x;
     this.gamestate.y = spawn.y;
@@ -455,7 +611,9 @@ class WLGame {
   }
 
   IsWall(x: number, y: number): boolean {
-    return this.GetTile(x, y) !== 0;
+    const tileX = Math.floor(x);
+    const tileY = Math.floor(y);
+    return this.GetTile(x, y) !== 0 || this.map.blockingStaticKeys.has(tileKey(tileX, tileY));
   }
 
   GetTile(x: number, y: number): number {
@@ -465,7 +623,7 @@ class WLGame {
       return 1;
     }
 
-    return this.map.walls[tileY * this.map.width + tileX] ?? 1;
+    return collisionTile(this.map.walls[tileY * this.map.width + tileX] ?? 1);
   }
 }
 
@@ -785,16 +943,259 @@ function createFallbackMap(): PortMap {
   }
 
   return {
+    actors: [],
+    blockingStaticKeys: new Set(),
+    doors: [],
     height,
+    killTotal: 0,
     name: "fallback scaffold",
     objects,
+    secretTotal: 0,
     source: "fallback",
+    statics: [],
+    treasureTotal: 0,
     walls,
     width
   };
 }
 
+function scanWallPlaneForDoors(map: WolfMap): PortDoor[] {
+  const doors: PortDoor[] = [];
+  const { width, height } = map.header;
+  const walls = map.planes[0];
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const tile = walls[y * width + x] ?? 0;
+      if (tile < 90 || tile > 101) {
+        continue;
+      }
+
+      const vertical = tile % 2 === 0;
+      doors.push({
+        action: "closed",
+        index: doors.length,
+        lock: vertical ? (tile - 90) / 2 : (tile - 91) / 2,
+        position: 0,
+        tile,
+        vertical,
+        x,
+        y
+      });
+    }
+  }
+
+  return doors;
+}
+
+function scanInfoPlane(map: WolfMap, difficulty: "easy" | "medium" | "hard"): ScanInfoPlaneResult {
+  const statics: PortStatic[] = [];
+  const actors: PortActor[] = [];
+  let secretTotal = 0;
+  let treasureTotal = 0;
+  let spawn: PlayerSpawn | null = null;
+  const { width, height } = map.header;
+  const info = map.planes[1];
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const tile = info[y * width + x] ?? 0;
+      if (tile === 0) {
+        continue;
+      }
+
+      if (tile >= 19 && tile <= 22) {
+        spawn = {
+          angle: spawnAngleForInfoTile(tile),
+          tile,
+          x: x + 0.5,
+          y: y + 0.5
+        };
+        continue;
+      }
+
+      if (tile >= 23 && tile <= 74) {
+        const stat = staticFromInfoTile(tile, x, y);
+        statics.push(stat);
+        if (stat.treasure) {
+          treasureTotal += 1;
+        }
+        continue;
+      }
+
+      if (tile === PUSHABLETILE) {
+        secretTotal += 1;
+        continue;
+      }
+
+      const actor = actorFromInfoTile(tile, x, y, difficulty);
+      if (actor) {
+        actors.push(actor);
+      }
+    }
+  }
+
+  return {
+    actors,
+    killTotal: actors.filter((actor) => actor.mode !== "ghost" && actor.mode !== "dead").length,
+    secretTotal,
+    spawn,
+    statics,
+    treasureTotal
+  };
+}
+
+function staticFromInfoTile(tile: number, x: number, y: number): PortStatic {
+  const type = tile - 23;
+  const statType = STATIC_INFO_TYPES[type] ?? "dressing";
+
+  return {
+    blocking: statType === "block",
+    bonus: statType.startsWith("bo_"),
+    treasure: TREASURE_STAT_TYPES.has(statType),
+    type,
+    x,
+    y
+  };
+}
+
+function actorFromInfoTile(
+  tile: number,
+  x: number,
+  y: number,
+  difficulty: "easy" | "medium" | "hard"
+): PortActor | null {
+  if (tile === 124) {
+    return {
+      dir: 0,
+      kind: "dead_guard",
+      mode: "dead",
+      tile,
+      x,
+      y
+    };
+  }
+
+  const guard = directionalEnemy(tile, difficulty, "guard", 108, 144, 180, "stand")
+    ?? directionalEnemy(tile, difficulty, "guard", 112, 148, 184, "patrol")
+    ?? directionalEnemy(tile, difficulty, "officer", 116, 152, 188, "stand")
+    ?? directionalEnemy(tile, difficulty, "officer", 120, 156, 192, "patrol")
+    ?? directionalEnemy(tile, difficulty, "ss", 126, 162, 198, "stand")
+    ?? directionalEnemy(tile, difficulty, "ss", 130, 166, 202, "patrol")
+    ?? directionalEnemy(tile, difficulty, "dog", 134, 170, 206, "stand")
+    ?? directionalEnemy(tile, difficulty, "dog", 138, 174, 210, "patrol")
+    ?? directionalEnemy(tile, difficulty, "mutant", 216, 234, 252, "stand")
+    ?? directionalEnemy(tile, difficulty, "mutant", 220, 238, 256, "patrol");
+  if (guard) {
+    return {
+      ...guard,
+      x,
+      y
+    };
+  }
+
+  const bossKind = BOSS_INFO_TILES[tile];
+  if (bossKind) {
+    return {
+      dir: 0,
+      kind: bossKind,
+      mode: "boss",
+      tile,
+      x,
+      y
+    };
+  }
+
+  const ghostKind = GHOST_INFO_TILES[tile];
+  if (ghostKind) {
+    return {
+      dir: 0,
+      kind: ghostKind,
+      mode: "ghost",
+      tile,
+      x,
+      y
+    };
+  }
+
+  return null;
+}
+
+function directionalEnemy(
+  tile: number,
+  difficulty: "easy" | "medium" | "hard",
+  kind: string,
+  easyBase: number,
+  mediumBase: number,
+  hardBase: number,
+  mode: "patrol" | "stand"
+): Omit<PortActor, "x" | "y"> | null {
+  if (tile >= hardBase && tile <= hardBase + 3) {
+    if (difficultyRank(difficulty) < difficultyRank("hard")) {
+      return null;
+    }
+
+    return {
+      dir: tile - hardBase,
+      kind,
+      mode,
+      tile
+    };
+  }
+
+  if (tile >= mediumBase && tile <= mediumBase + 3) {
+    if (difficultyRank(difficulty) < difficultyRank("medium")) {
+      return null;
+    }
+
+    return {
+      dir: tile - mediumBase,
+      kind,
+      mode,
+      tile
+    };
+  }
+
+  if (tile >= easyBase && tile <= easyBase + 3) {
+    return {
+      dir: tile - easyBase,
+      kind,
+      mode,
+      tile
+    };
+  }
+
+  return null;
+}
+
+function difficultyRank(difficulty: "easy" | "medium" | "hard"): number {
+  return difficulty === "hard" ? 2 : difficulty === "medium" ? 1 : 0;
+}
+
+function spawnAngleForInfoTile(tile: number): number {
+  switch (tile) {
+    case 19:
+      return -Math.PI / 2;
+    case 20:
+      return 0;
+    case 21:
+      return Math.PI / 2;
+    case 22:
+      return Math.PI;
+    default:
+      return 0;
+  }
+}
+
 function wallRgb(tile: number, shade: number, channelOffset: number): [number, number, number] {
+  if (tile >= 90 && tile <= 101) {
+    return [
+      clampByte(88 * shade),
+      clampByte(116 * shade + channelOffset),
+      clampByte(136 * shade)
+    ];
+  }
+
   const fallback: [number, number, number] = [143, 54, 45];
   const palette: Array<[number, number, number]> = [
     fallback,
@@ -817,6 +1218,18 @@ function wallRgb(tile: number, shade: number, channelOffset: number): [number, n
 
 function clampByte(value: number): number {
   return Math.max(0, Math.min(255, Math.floor(value)));
+}
+
+function collisionTile(tile: number): number {
+  if (tile >= AREATILE) {
+    return 0;
+  }
+
+  return tile;
+}
+
+function tileKey(x: number, y: number): string {
+  return `${x},${y}`;
 }
 
 function requireElement<T extends HTMLElement>(selector: string): T {

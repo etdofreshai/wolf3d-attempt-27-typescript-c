@@ -26,7 +26,9 @@ This repo is being split into separate browser-facing lanes:
   modified DOS lane. Its `IDCA` path now loads `MAPHEAD.WL6` and
   `GAMEMAPS.WL6` locally, decodes the first WL6 map planes, places the player
   from the original spawn tile, and uses that wall plane for collision and
-  raycasting.
+  raycasting. It also mirrors the first `SetupGameLevel`/`ScanInfoPlane` pass by
+  extracting door records from plane 0 and static/enemy/secret counts from plane
+  1 for state export and parity display.
 - Port app: future portable/full port lane. This should advance after the
   original DOS/source and TypeScript artifact outputs are comparable.
 
