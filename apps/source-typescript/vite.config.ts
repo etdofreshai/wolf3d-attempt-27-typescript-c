@@ -14,6 +14,7 @@ const DOS_ASSET_FILES = [
   "VGAHEAD.WL6",
   "VSWAP.WL6"
 ] as const;
+const SOURCE_BINARY_FILES = ["OBJ/GAMEPAL.OBJ"] as const;
 
 export default defineConfig({
   plugins: [sourceTypescriptStatusPlugin()]
@@ -44,6 +45,30 @@ function sourceTypescriptStatusPlugin(): Plugin {
           if (!(await exists(filePath))) {
             response.statusCode = 404;
             response.end("Missing local DOS asset");
+            return;
+          }
+
+          response.setHeader("Content-Type", "application/octet-stream");
+          response.setHeader("Cache-Control", "no-store");
+          createReadStream(filePath).pipe(response);
+          return;
+        }
+
+        if (requestUrl.startsWith("/__source-typescript/source/")) {
+          const fileName = decodeURIComponent(
+            requestUrl.replace("/__source-typescript/source/", "")
+          )
+            .replaceAll("\\", "/")
+            .toUpperCase();
+          if (!SOURCE_BINARY_FILES.includes(fileName as (typeof SOURCE_BINARY_FILES)[number])) {
+            next();
+            return;
+          }
+
+          const filePath = path.join(sourceRoot, ...fileName.split("/"));
+          if (!(await exists(filePath))) {
+            response.statusCode = 404;
+            response.end("Missing local source binary");
             return;
           }
 

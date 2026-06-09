@@ -118,12 +118,21 @@ type SpriteBitmap = {
   pixels: Uint8Array;
 };
 
+type TextureBitmap = {
+  pixels: Uint8Array;
+};
+
 type DecodedSpritePage = {
   bitmap: SpriteBitmap;
   info: SpritePageInfo;
 };
 
+type DecodedTexturePage = {
+  bitmap: TextureBitmap;
+};
+
 type PageKind = "sound" | "sprite" | "texture";
+type PaletteSource = "fallback" | "GAMEPAL.OBJ";
 
 type PageInfo = {
   index: number;
@@ -245,7 +254,7 @@ const STATIC_INFO_TYPES = [
   "bo_clip2"
 ] as const;
 const TREASURE_STAT_TYPES = new Set(["bo_cross", "bo_chalice", "bo_bible", "bo_crown", "bo_fullheal"]);
-const VGAISH_PALETTE: Array<[number, number, number]> = [
+const FALLBACK_PALETTE_16: Array<[number, number, number]> = [
   [0, 0, 0],
   [0, 0, 170],
   [0, 170, 0],
@@ -396,7 +405,7 @@ class WLMain {
       renderSourceStatus(status);
       const pageStatus = await this.id_pm.PM_Startup();
       this.id_us.US_Print(
-        `PM_Startup VSWAP ${pageStatus.chunksInFile} chunks / ${pageStatus.spriteCount} sprites / first ${pageStatus.firstSpriteVisiblePixels} px`
+        `PM_Startup VSWAP ${pageStatus.chunksInFile} chunks / ${pageStatus.textureCount} textures / ${pageStatus.spriteCount} sprites / palette ${pageStatus.paletteSource} / first ${pageStatus.firstSpriteVisiblePixels} px`
       );
       const wolfMap = await this.id_ca.CA_CacheMap(0);
       this.wl_game.SetupGameLevel(0, wolfMap);
@@ -1061,12 +1070,19 @@ class WLDraw {
       const y0 = Math.max(0, Math.floor(horizon - wallHeight / 2));
       const y1 = Math.min(SCREEN_HEIGHT - 1, Math.floor(horizon + wallHeight / 2));
       const shade = Math.max(48, Math.floor(196 - corrected * 24));
-      const wall =
+      const wallTexture =
+        hit.type === "door" && hit.door
+          ? this.id_pm.PM_GetDoorTexture(hit.door.lock, hit.door.vertical)
+          : this.id_pm.PM_GetWallTexture(hit.tile, hit.side);
+      const fallbackWall =
         hit.type === "door" && hit.door
           ? doorRgb(hit.door, shade / 255, hit.texture)
           : wallRgb(hit.tile, shade / 255, hit.side === 0 ? 0 : -24);
+      const wallTop = horizon - wallHeight / 2;
 
       for (let y = y0; y <= y1; y += 1) {
+        const textureIndex = sampleWallPixel(wallTexture, hit.texture, (y - wallTop) / Math.max(1, wallHeight));
+        const wall = textureIndex === null ? fallbackWall : this.id_pm.PM_PaletteIndexRgb(textureIndex);
         this.id_vl.VL_Plot(image, x, y, wall[0], wall[1], wall[2]);
       }
     }
@@ -1292,15 +1308,16 @@ class WLDraw {
           continue;
         }
 
-        const color = source.index === null ? sprite.color : paletteIndexRgb(source.index);
+        const color = source.index === null ? sprite.color : this.id_pm.PM_PaletteIndexRgb(source.index);
+        const pixelShade = source.index === null ? shade : 1;
 
         this.id_vl.VL_Plot(
           image,
           x,
           y,
-          clampByte(color[0] * shade),
-          clampByte(color[1] * shade),
-          clampByte(color[2] * shade)
+          clampByte(color[0] * pixelShade),
+          clampByte(color[1] * pixelShade),
+          clampByte(color[2] * pixelShade)
         );
       }
     }
@@ -1404,28 +1421,39 @@ class IDSD {
 
 class IDPM {
   private chunksInFile = 0;
+  private paletteRgb = createFallbackPalette();
+  private paletteSource: PaletteSource = "fallback";
   private pageBytes: Uint8Array | null = null;
   private readonly pages: PageInfo[] = [];
   private readonly spriteBitmaps = new Map<number, SpriteBitmap>();
   private readonly sprites = new Map<number, SpritePageInfo>();
+  private readonly textureBitmaps = new Map<number, TextureBitmap>();
   private spriteStart = 0;
   private soundStart = 0;
 
   async PM_Startup(): Promise<{
     chunksInFile: number;
     firstSpriteVisiblePixels: number;
+    paletteSource: PaletteSource;
     soundStart: number;
     spriteCount: number;
     spriteStart: number;
+    textureCount: number;
   }> {
-    const bytes = await fetchBytes("/__source-typescript/asset/VSWAP.WL6");
+    const [bytes, paletteStatus] = await Promise.all([
+      fetchBytes("/__source-typescript/asset/VSWAP.WL6"),
+      this.LoadGamePalette()
+    ]);
     this.pageBytes = bytes;
+    this.paletteRgb = paletteStatus.paletteRgb;
+    this.paletteSource = paletteStatus.source;
     this.chunksInFile = readUint16LE(bytes, 0);
     this.spriteStart = readUint16LE(bytes, 2);
     this.soundStart = readUint16LE(bytes, 4);
     this.pages.length = 0;
     this.spriteBitmaps.clear();
     this.sprites.clear();
+    this.textureBitmaps.clear();
 
     const offsetsStart = 6;
     const lengthsStart = offsetsStart + this.chunksInFile * 4;
@@ -1442,7 +1470,12 @@ class IDPM {
       };
       this.pages.push(page);
 
-      if (kind === "sprite") {
+      if (kind === "texture") {
+        const texture = this.DecodeTexturePage(index, page);
+        if (texture) {
+          this.textureBitmaps.set(index, texture.bitmap);
+        }
+      } else if (kind === "sprite") {
         const sprite = this.DecodeSpritePage(index, page);
         if (sprite) {
           this.sprites.set(sprite.info.shapenum, sprite.info);
@@ -1454,9 +1487,11 @@ class IDPM {
     return {
       chunksInFile: this.chunksInFile,
       firstSpriteVisiblePixels: this.sprites.get(0)?.visiblePixels ?? 0,
+      paletteSource: this.paletteSource,
       soundStart: this.soundStart,
       spriteCount: this.sprites.size,
-      spriteStart: this.spriteStart
+      spriteStart: this.spriteStart,
+      textureCount: this.textureBitmaps.size
     };
   }
 
@@ -1477,14 +1512,60 @@ class IDPM {
     return this.spriteBitmaps.get(shapenum) ?? null;
   }
 
+  PM_GetWallTexture(tile: number, side: number): TextureBitmap | null {
+    const wallTile = tile & 0x3f;
+    if (wallTile <= 0) {
+      return null;
+    }
+
+    // WL_MAIN.C SetupWalls maps tile i to horiz=(i-1)*2 and vert=(i-1)*2+1.
+    const pageIndex = (wallTile - 1) * 2 + (side === 0 ? 1 : 0);
+    return this.textureBitmaps.get(pageIndex) ?? null;
+  }
+
+  PM_GetDoorTexture(lock: number, vertical: boolean): TextureBitmap | null {
+    // WL_DRAW.C defines DOORWALL as the final eight texture pages before sprites.
+    let pageIndex = this.spriteStart - 8;
+    if (lock > 0 && lock < 5) {
+      pageIndex += 6;
+    } else if (lock === 5) {
+      pageIndex += 4;
+    }
+
+    if (vertical) {
+      pageIndex += 1;
+    }
+
+    return this.textureBitmaps.get(pageIndex) ?? null;
+  }
+
+  PM_PaletteIndexRgb(index: number): [number, number, number] {
+    return paletteIndexRgb(index, this.paletteRgb);
+  }
+
   StateSnapshot(): Record<string, unknown> {
     return {
       chunksInFile: this.chunksInFile,
       decodedSprites: this.sprites.size,
+      decodedTextures: this.textureBitmaps.size,
       firstSprite: this.sprites.get(0) ?? null,
+      paletteSource: this.paletteSource,
       soundStart: this.soundStart,
       spriteStart: this.spriteStart,
       textures: this.pages.filter((page) => page.kind === "texture" && page.length > 0).length
+    };
+  }
+
+  private DecodeTexturePage(_pageIndex: number, page: PageInfo): DecodedTexturePage | null {
+    const bytes = this.PM_GetPage(page.index);
+    if (!bytes || page.length < 64 * 64 || bytes.length < 64 * 64) {
+      return null;
+    }
+
+    return {
+      bitmap: {
+        pixels: bytes.subarray(0, 64 * 64)
+      }
     };
   }
 
@@ -1556,6 +1637,26 @@ class IDPM {
         visiblePixels,
         width: rightpix - leftpix + 1
       }
+    };
+  }
+
+  private async LoadGamePalette(): Promise<{ paletteRgb: Uint8Array; source: PaletteSource }> {
+    try {
+      const bytes = await fetchBytes("/__source-typescript/source/OBJ/GAMEPAL.OBJ");
+      const paletteRgb = decodeGamePaletteObject(bytes);
+      if (paletteRgb) {
+        return {
+          paletteRgb,
+          source: "GAMEPAL.OBJ"
+        };
+      }
+    } catch {
+      // Keep the port usable when running outside the Vite source-file route.
+    }
+
+    return {
+      paletteRgb: createFallbackPalette(),
+      source: "fallback"
     };
   }
 }
@@ -2082,6 +2183,16 @@ function actorRgb(actor: PortActor): [number, number, number] {
   }
 }
 
+function sampleWallPixel(texture: TextureBitmap | null, u: number, v: number): number | null {
+  if (!texture || u < 0 || v < 0 || u > 1 || v > 1) {
+    return null;
+  }
+
+  const sourceX = Math.max(0, Math.min(63, Math.floor(u * 64)));
+  const sourceY = Math.max(0, Math.min(63, Math.floor(v * 64)));
+  return texture.pixels[sourceX * 64 + sourceY] ?? null;
+}
+
 function sampleSpritePixel(sprite: SpriteBillboard, u: number, v: number): { index: number | null; visible: boolean } {
   if (sprite.bitmap) {
     if (u < 0 || u > 1 || v < 0 || v > 1) {
@@ -2113,16 +2224,92 @@ function sampleSpritePixel(sprite: SpriteBillboard, u: number, v: number): { ind
   };
 }
 
-function paletteIndexRgb(index: number): [number, number, number] {
-  const low = index & 0x0f;
-  const high = index >> 4;
-  const base = VGAISH_PALETTE[low] ?? [128, 128, 128];
-  const lift = high * 5;
-  return [
-    clampByte(base[0] + lift),
-    clampByte(base[1] + lift),
-    clampByte(base[2] + lift)
-  ];
+function paletteIndexRgb(index: number, paletteRgb: Uint8Array): [number, number, number] {
+  const offset = (index & 0xff) * 3;
+  return [paletteRgb[offset] ?? 0, paletteRgb[offset + 1] ?? 0, paletteRgb[offset + 2] ?? 0];
+}
+
+function decodeGamePaletteObject(bytes: Uint8Array): Uint8Array | null {
+  let offset = 0;
+  while (offset + 3 <= bytes.length) {
+    const recordType = bytes[offset] ?? 0;
+    const recordLength = readUint16LE(bytes, offset + 1);
+    const recordDataLength = recordLength - 1;
+    const recordDataStart = offset + 3;
+    const nextRecord = offset + 3 + recordLength;
+    if (recordLength <= 0 || nextRecord > bytes.length || recordDataLength < 0) {
+      return null;
+    }
+
+    if (recordType === 0xa0 || recordType === 0xa1) {
+      const data = bytes.subarray(recordDataStart, recordDataStart + recordDataLength);
+      const segmentIndex = readOmfIndex(data, 0);
+      const dataOffsetLength = recordType === 0xa1 ? 4 : 2;
+      const payloadStart = segmentIndex.nextOffset + dataOffsetLength;
+      if (payloadStart + 768 <= data.length) {
+        return vgaDacPaletteToRgb(data.subarray(payloadStart, payloadStart + 768));
+      }
+    }
+
+    offset = nextRecord;
+  }
+
+  return null;
+}
+
+function readOmfIndex(bytes: Uint8Array, offset: number): { nextOffset: number; value: number } {
+  const first = bytes[offset];
+  if (first === undefined) {
+    throw new Error(`Unexpected end of OMF index at byte ${offset}.`);
+  }
+
+  if ((first & 0x80) === 0) {
+    return {
+      nextOffset: offset + 1,
+      value: first
+    };
+  }
+
+  const second = bytes[offset + 1];
+  if (second === undefined) {
+    throw new Error(`Unexpected end of two-byte OMF index at byte ${offset}.`);
+  }
+
+  return {
+    nextOffset: offset + 2,
+    value: ((first & 0x7f) << 8) | second
+  };
+}
+
+function vgaDacPaletteToRgb(dacBytes: Uint8Array): Uint8Array {
+  const paletteRgb = new Uint8Array(256 * 3);
+  for (let index = 0; index < 256; index += 1) {
+    const source = index * 3;
+    const dest = index * 3;
+    paletteRgb[dest] = dacToByte(dacBytes[source] ?? 0);
+    paletteRgb[dest + 1] = dacToByte(dacBytes[source + 1] ?? 0);
+    paletteRgb[dest + 2] = dacToByte(dacBytes[source + 2] ?? 0);
+  }
+
+  return paletteRgb;
+}
+
+function createFallbackPalette(): Uint8Array {
+  const paletteRgb = new Uint8Array(256 * 3);
+  for (let index = 0; index < 256; index += 1) {
+    const base = FALLBACK_PALETTE_16[index & 0x0f] ?? [128, 128, 128];
+    const lift = (index >> 4) * 5;
+    const dest = index * 3;
+    paletteRgb[dest] = clampByte(base[0] + lift);
+    paletteRgb[dest + 1] = clampByte(base[1] + lift);
+    paletteRgb[dest + 2] = clampByte(base[2] + lift);
+  }
+
+  return paletteRgb;
+}
+
+function dacToByte(value: number): number {
+  return clampByte(Math.round((Math.max(0, Math.min(63, value)) * 255) / 63));
 }
 
 function spriteMask(u: number, v: number): boolean {
