@@ -1463,6 +1463,7 @@ class WLPlay {
 
   PlayLoop(ticMs: number): void {
     const tics = ticsFromMilliseconds(ticMs);
+    this.wl_game.BeginActorThinking();
     const moved = this.wl_game.PlayPlayerInput(this.id_in, ticMs, tics, this.id_in.ConsumeUse());
     this.wl_game.MoveDoors(tics);
     this.wl_game.MovePushWall(tics);
@@ -1515,6 +1516,11 @@ class WLGame {
     const shootableActors = this.map.actors.filter((actor) => actor.shootable).length;
     const pushWall = this.map.pushWall ? ` / pushwall ${this.map.pushWall.state}:${this.map.pushWall.pos}` : "";
     return `${this.map.doors.length} doors (${movingDoors} active) / ${this.map.areasByPlayer.size} areas / ${this.map.statics.length} statics / ${shootableActors}/${this.map.actors.length} live actors / ${this.map.projectiles.length} projectiles${pushWall}`;
+  }
+
+  BeginActorThinking(): void {
+    // WL_PLAY.C clears madenoise once per play-loop pass before actor thinking.
+    this.madeNoise = false;
   }
 
   SetupGameLevel(level: number, wolfMap: WolfMap | null = null): void {
