@@ -1227,7 +1227,7 @@ const ACTOR_DEATH_STATES: Record<string, ActorStateFrame[]> = {
   ]),
   real_hitler: deathFrames([
     ["s_hitlerdie1", ACTOR_SPRITES.HITLER_W1, 1, false, "deathScream"],
-    ["s_hitlerdie2", ACTOR_SPRITES.HITLER_W1, 10],
+    ["s_hitlerdie2", ACTOR_SPRITES.HITLER_W1, SOURCE_DIGITIZED_BOSS_DEATH_TICS],
     ["s_hitlerdie3", ACTOR_SPRITES.HITLER_DIE1, 10, false, "slurpie"],
     ["s_hitlerdie4", ACTOR_SPRITES.HITLER_DIE2, 10],
     ["s_hitlerdie5", ACTOR_SPRITES.HITLER_DIE3, 10],
