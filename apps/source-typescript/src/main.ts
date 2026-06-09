@@ -298,19 +298,30 @@ type SourceSoundName =
   | "BONUS4SND"
   | "BONUS1UPSND"
   | "CLOSEDOORSND"
+  | "DIESND"
   | "DONOTHINGSND"
+  | "DOGBARKSND"
+  | "EINESND"
+  | "ERLAUBENSND"
   | "GETAMMOSND"
   | "GETGATLINGSND"
   | "GETKEYSND"
   | "GETMACHINESND"
+  | "GUTENTAGSND"
+  | "HALTSND"
   | "HITWALLSND"
   | "HEALTH1SND"
   | "HEALTH2SND"
+  | "KEINSND"
   | "LEVELDONESND"
   | "NOWAYSND"
   | "OPENDOORSND"
   | "PUSHWALLSND"
-  | "SLURPIESND";
+  | "SCHABBSHASND"
+  | "SCHUTZADSND"
+  | "SLURPIESND"
+  | "SPIONSND"
+  | "TOT_HUNDSND";
 
 type PageInfo = {
   index: number;
@@ -450,19 +461,30 @@ const SOURCE_SOUND_CHUNKS: Record<SourceSoundName, number> = {
   BONUS4SND: 45,
   BONUS1UPSND: 44,
   CLOSEDOORSND: 19,
+  DIESND: 53,
   DONOTHINGSND: 20,
+  DOGBARKSND: 41,
+  EINESND: 80,
+  ERLAUBENSND: 81,
   GETAMMOSND: 31,
   GETGATLINGSND: 38,
   GETKEYSND: 12,
   GETMACHINESND: 30,
+  GUTENTAGSND: 55,
+  HALTSND: 21,
   HITWALLSND: 0,
   HEALTH1SND: 33,
   HEALTH2SND: 34,
+  KEINSND: 82,
   LEVELDONESND: 40,
   NOWAYSND: 6,
   OPENDOORSND: 18,
   PUSHWALLSND: 46,
-  SLURPIESND: 61
+  SCHABBSHASND: 64,
+  SCHUTZADSND: 51,
+  SLURPIESND: 61,
+  SPIONSND: 66,
+  TOT_HUNDSND: 62
 };
 const WP_KNIFE = 0;
 const WP_PISTOL = 1;
@@ -4391,6 +4413,11 @@ class WLGame {
       actor.distance = 0;
     }
 
+    const sightSound = actorSightSound(actor.kind);
+    if (sightSound) {
+      this.id_sd.SD_PlaySound(sightSound);
+    }
+
     actor.speed = actorChaseSpeed(actor.kind, actor.speed);
     this.StartChaseState(actor);
   }
@@ -6419,6 +6446,36 @@ function weaponAttackSound(weapon: number): SourceSoundName | null {
       return "ATKMACHINEGUNSND";
     case WP_CHAINGUN:
       return "ATKGATLINGSND";
+    default:
+      return null;
+  }
+}
+
+function actorSightSound(kind: string): SourceSoundName | null {
+  switch (kind) {
+    case "boss":
+      return "GUTENTAGSND";
+    case "dog":
+      return "DOGBARKSND";
+    case "fake_hitler":
+      return "TOT_HUNDSND";
+    case "fat":
+      return "ERLAUBENSND";
+    case "gift":
+      return "EINESND";
+    case "gretel":
+      return "KEINSND";
+    case "guard":
+      return "HALTSND";
+    case "hitler":
+    case "real_hitler":
+      return "DIESND";
+    case "officer":
+      return "SPIONSND";
+    case "schabbs":
+      return "SCHABBSHASND";
+    case "ss":
+      return "SCHUTZADSND";
     default:
       return null;
   }
