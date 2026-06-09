@@ -67,6 +67,22 @@ const TYPESCRIPT_KIND_TO_SOURCE_ENEMY = new Map([
   ["ss", "en_ss"]
 ]);
 
+const SOURCE_KILL_CLASS_TO_TYPESCRIPT_KIND = new Map([
+  ["bossobj", "boss"],
+  ["dogobj", "dog"],
+  ["fakeobj", "fake_hitler"],
+  ["fatobj", "fat"],
+  ["giftobj", "gift"],
+  ["gretelobj", "gretel"],
+  ["guardobj", "guard"],
+  ["mechahitlerobj", "hitler"],
+  ["mutantobj", "mutant"],
+  ["officerobj", "officer"],
+  ["realhitlerobj", "real_hitler"],
+  ["schabbobj", "schabbs"],
+  ["ssobj", "ss"]
+]);
+
 // The TypeScript lane models the original source path where digitized boss
 // death sounds are enabled, matching the runtime tictime mutations in WL_ACT2.C.
 const DIGITIZED_BOSS_DEATH_TICS = new Map([
@@ -112,8 +128,10 @@ const sourceStaticInfo = parseSourceStaticInfo(sourceAct1Text, sourceSprites);
 const sourceAttackInfo = parseSourceAttackInfo(sourceAgentText);
 const sourceStartHitpoints = parseSourceStartHitpoints(sourceText);
 const sourceRealHitlerHitpoints = parseSourceRealHitlerHitpoints(sourceText);
+const sourceTreasureScores = parseSourceTreasureScores(sourceAgentText);
 const sourceOppositeDirections = parseSourceDirectionList(sourceStateText, "opposite", sourceDirectionIndexes);
 const sourceDiagonalDirections = parseSourceDirectionMatrix(sourceStateText, "diagonal", sourceDirectionIndexes);
+const sourceKillActorRewards = parseSourceKillActorRewards(sourceStateText);
 const sourceElevatorBackTo = parseSourceElevatorBackTo(sourceGameText);
 const sourceParTimesSeconds = parseSourceParTimesSeconds(sourceInterText);
 const sourceRndTable = parseSourceRndTable(sourceUserAsmText);
@@ -133,6 +151,9 @@ const typescriptAttackInfo = parseTypescriptAttackInfo(typescriptText);
 const typescriptStartHitpoints = parseTypescriptStartHitpoints(typescriptText);
 const typescriptRealHitlerHitpoints = parseTypescriptRealHitlerHitpoints(typescriptText);
 const typescriptRndTable = parseTypescriptRndTable(typescriptText);
+const typescriptActorKillScores = parseTypescriptActorKillScores(typescriptText);
+const typescriptKillDrops = parseTypescriptKillDrops(typescriptText);
+const typescriptTreasureScores = parseTypescriptTreasureScores(typescriptText);
 const typescriptDroppedItemTypes = parseTypescriptDroppedItemTypes(typescriptText);
 const typescriptSprites = parseTypescriptSprites(typescriptText);
 const modeledFrames = parseModeledFrames(typescriptText, constants, typescriptSprites);
@@ -171,6 +192,8 @@ compareAttackInfo(sourceAttackInfo, typescriptAttackInfo, problems);
 compareEnemyHitpointIndexes(sourceEnemyIndexes, typescriptEnemyHitpointIndexes, problems);
 compareStartHitpoints(sourceStartHitpoints, typescriptStartHitpoints, problems);
 compareRealHitlerHitpoints(sourceRealHitlerHitpoints, typescriptRealHitlerHitpoints, problems);
+compareTreasureScores(sourceTreasureScores, typescriptTreasureScores, problems);
+compareKillActorRewards(sourceKillActorRewards, typescriptActorKillScores, typescriptKillDrops, problems);
 compareDirectionDeltas(sourceDirectionIndexes, typescriptDirectionDeltas, problems);
 compareDirectionList("opposite", sourceOppositeDirections, typescriptOppositeDirections, problems);
 compareDiagonalDirections(sourceDiagonalDirections, typescriptDiagonalDirections, sourceDirectionIndexes, problems);
@@ -192,7 +215,7 @@ if (problems.length > 0) {
 }
 
 console.log(
-  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
+  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourceTreasureScores.size} WL_AGENT.C treasure score rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceKillActorRewards.size} WL_STATE.C kill reward rows, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
 );
 
 function parseSourceStates(text, sprites) {
@@ -454,6 +477,47 @@ function parseSourceRealHitlerHitpoints(text) {
   }
 
   return parseNumberList(match[1]);
+}
+
+function parseSourceTreasureScores(text) {
+  const body = extractCFunctionBody(filterWl6Source(text), "GetBonus");
+  const switchBody = extractFirstSwitchBody(body, "GetBonus");
+  const scores = new Map();
+  for (const block of parseSourceCaseBlocks(switchBody)) {
+    const scoreMatch = block.body.match(/GivePoints\s*\(\s*([0-9]+)\s*\)/);
+    if (!scoreMatch) {
+      continue;
+    }
+
+    scores.set(block.label, Number(scoreMatch[1]));
+  }
+
+  return scores;
+}
+
+function parseSourceKillActorRewards(text) {
+  const body = extractCFunctionBody(filterWl6Source(text), "KillActor");
+  const switchBody = extractFirstSwitchBody(body, "KillActor");
+  const rewards = new Map();
+  for (const block of parseSourceCaseBlocks(switchBody)) {
+    const kind = SOURCE_KILL_CLASS_TO_TYPESCRIPT_KIND.get(block.label);
+    if (!kind) {
+      continue;
+    }
+
+    const scoreMatch = block.body.match(/GivePoints\s*\(\s*([0-9]+)\s*\)/);
+    if (!scoreMatch) {
+      throw new Error(`Could not parse KillActor GivePoints for ${block.label}`);
+    }
+
+    const drops = [...block.body.matchAll(/PlaceItemType\s*\(\s*(bo_[A-Za-z0-9_]+)/g)].map((match) => match[1]);
+    rewards.set(kind, {
+      drop: drops.length > 0 ? uniqueList(drops).join("|") : null,
+      score: Number(scoreMatch[1])
+    });
+  }
+
+  return rewards;
 }
 
 function parseSourceWeaponReadySprites(text, sprites) {
@@ -750,6 +814,50 @@ function parseTypescriptDroppedItemTypes(text) {
   return entries;
 }
 
+function parseTypescriptActorKillScores(text) {
+  const body = extractTypescriptFunctionBody(text, "actorKillScore");
+  return parseTypescriptSwitchStringReturns(extractFirstSwitchBody(body, "actorKillScore"));
+}
+
+function parseTypescriptTreasureScores(text) {
+  const body = extractTypescriptFunctionBody(text, "treasureScoreForBonus");
+  return parseTypescriptSwitchStringReturns(extractFirstSwitchBody(body, "treasureScoreForBonus"));
+}
+
+function parseTypescriptKillDrops(text) {
+  const body = extractTypescriptFunctionBody(text, "PlaceKillDrop");
+  const switchBody = extractFirstSwitchBody(body, "PlaceKillDrop");
+  const drops = new Map();
+  let pendingCases = [];
+  for (const line of switchBody.split(/\r?\n/)) {
+    if (line.includes("default:")) {
+      pendingCases = [];
+    }
+
+    for (const caseMatch of line.matchAll(/case\s+"([^"]+)"\s*:/g)) {
+      pendingCases.push(caseMatch[1]);
+    }
+
+    const dropCall = line.match(/PlaceItemType\(([^;]+)\);/);
+    if (dropCall && pendingCases.length > 0) {
+      const items = uniqueList([...dropCall[1].matchAll(/"(bo_[A-Za-z0-9_]+)"/g)].map((match) => match[1]));
+      if (items.length === 0) {
+        throw new Error(`Could not parse PlaceKillDrop item from: ${line.trim()}`);
+      }
+
+      for (const kind of pendingCases) {
+        drops.set(kind, items.join("|"));
+      }
+    }
+
+    if (line.includes("break;")) {
+      pendingCases = [];
+    }
+  }
+
+  return drops;
+}
+
 function parseTypescriptSprites(text) {
   const objectMatch = text.match(/const ACTOR_SPRITES = \{(?<body>[\s\S]*?)\} as const;/);
   if (!objectMatch?.groups?.body) {
@@ -794,6 +902,57 @@ function compareDroppedItemTypes(sourceEntries, typescriptEntries, problems) {
 
     if (typeIndex !== sourceIndex) {
       problems.push(`DROPPED_ITEM_TYPES.${item}: type ${typeIndex} != source first type ${sourceIndex}`);
+    }
+  }
+}
+
+function compareTreasureScores(sourceEntries, typescriptEntries, problems) {
+  for (const [item, sourceScore] of sourceEntries.entries()) {
+    const currentScore = typescriptEntries.get(item);
+    if (!Number.isFinite(currentScore)) {
+      problems.push(`${item}: missing TypeScript treasure score`);
+      continue;
+    }
+
+    if (currentScore !== sourceScore) {
+      problems.push(`${item}: treasure score ${currentScore} != source ${sourceScore}`);
+    }
+  }
+
+  for (const item of typescriptEntries.keys()) {
+    if (!sourceEntries.has(item)) {
+      problems.push(`${item}: TypeScript treasure score missing from WL_AGENT.C GetBonus`);
+    }
+  }
+}
+
+function compareKillActorRewards(sourceEntries, typescriptScores, typescriptDrops, problems) {
+  for (const [kind, sourceReward] of sourceEntries.entries()) {
+    const currentScore = typescriptScores.get(kind);
+    if (!Number.isFinite(currentScore)) {
+      problems.push(`${kind}: missing TypeScript KillActor score`);
+      continue;
+    }
+
+    if (currentScore !== sourceReward.score) {
+      problems.push(`${kind}: KillActor score ${currentScore} != source ${sourceReward.score}`);
+    }
+
+    const currentDrop = typescriptDrops.get(kind) ?? null;
+    if (currentDrop !== sourceReward.drop) {
+      problems.push(`${kind}: KillActor drop ${formatNullable(currentDrop)} != source ${formatNullable(sourceReward.drop)}`);
+    }
+  }
+
+  for (const kind of typescriptScores.keys()) {
+    if (!sourceEntries.has(kind)) {
+      problems.push(`${kind}: TypeScript KillActor score missing from WL_STATE.C KillActor`);
+    }
+  }
+
+  for (const kind of typescriptDrops.keys()) {
+    if (!sourceEntries.has(kind)) {
+      problems.push(`${kind}: TypeScript KillActor drop missing from WL_STATE.C KillActor`);
     }
   }
 }
@@ -985,6 +1144,104 @@ function parseNumericRows(text) {
 
 function parseNumberList(text) {
   return [...text.matchAll(/-?[0-9]+/g)].map((match) => Number(match[0]));
+}
+
+function parseSourceCaseBlocks(switchBody) {
+  const caseMatches = [...switchBody.matchAll(/^\s*case\s+([A-Za-z0-9_]+)\s*:/gm)];
+  return caseMatches.map((match, index) => {
+    const next = caseMatches[index + 1];
+    return {
+      body: switchBody.slice(match.index, next?.index ?? switchBody.length),
+      label: match[1]
+    };
+  });
+}
+
+function parseTypescriptSwitchStringReturns(switchBody) {
+  const values = new Map();
+  let pendingCases = [];
+  for (const line of switchBody.split(/\r?\n/)) {
+    if (line.includes("default:")) {
+      pendingCases = [];
+    }
+
+    for (const caseMatch of line.matchAll(/case\s+"([^"]+)"\s*:/g)) {
+      pendingCases.push(caseMatch[1]);
+    }
+
+    const returnMatch = line.match(/\breturn\s+([0-9]+(?:e[0-9]+)?)\s*;/i);
+    if (returnMatch && pendingCases.length > 0) {
+      for (const label of pendingCases) {
+        values.set(label, Number(returnMatch[1]));
+      }
+
+      pendingCases = [];
+    }
+  }
+
+  return values;
+}
+
+function extractCFunctionBody(text, name) {
+  const pattern = new RegExp(`\\b[A-Za-z_][A-Za-z0-9_\\s\\*]*\\s+${name}\\s*\\([^;]*?\\)\\s*\\{`);
+  return extractBodyAfterPattern(text, pattern, name);
+}
+
+function extractTypescriptFunctionBody(text, name) {
+  const pattern = new RegExp(`\\b(?:function\\s+|private\\s+)?${name}\\s*\\([^)]*\\)\\s*(?::[^\\{]+)?\\{`);
+  return extractBodyAfterPattern(text, pattern, name);
+}
+
+function extractBodyAfterPattern(text, pattern, label) {
+  const match = pattern.exec(text);
+  if (!match) {
+    throw new Error(`Could not find ${label} body`);
+  }
+
+  const openIndex = text.indexOf("{", match.index);
+  if (openIndex < 0) {
+    throw new Error(`Could not find ${label} opening brace`);
+  }
+
+  return extractBraceBody(text, openIndex);
+}
+
+function extractFirstSwitchBody(text, label) {
+  const switchIndex = text.indexOf("switch");
+  if (switchIndex < 0) {
+    throw new Error(`Could not find ${label} switch`);
+  }
+
+  const openIndex = text.indexOf("{", switchIndex);
+  if (openIndex < 0) {
+    throw new Error(`Could not find ${label} switch opening brace`);
+  }
+
+  return extractBraceBody(text, openIndex);
+}
+
+function extractBraceBody(text, openIndex) {
+  let depth = 0;
+  for (let index = openIndex; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === "{") {
+      depth += 1;
+      continue;
+    }
+
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return text.slice(openIndex + 1, index);
+      }
+    }
+  }
+
+  throw new Error(`Could not find closing brace from index ${openIndex}`);
+}
+
+function uniqueList(values) {
+  return [...new Set(values)];
 }
 
 function compareNumberRows(name, sourceRows, typescriptRows, problems) {
