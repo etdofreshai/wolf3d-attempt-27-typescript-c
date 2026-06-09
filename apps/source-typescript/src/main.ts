@@ -41,6 +41,18 @@ type DemoPlanStep =
       wav?: boolean;
     };
 
+type ArtifactKind = "audio" | "frame" | "state";
+
+type ArtifactRecord = {
+  bytes: number;
+  fileName: string;
+  kind: ArtifactKind;
+  label: string;
+  mimeType: string;
+  sequence: number;
+  ticcount: number;
+};
+
 type PortMap = {
   actors: PortActor[];
   blockingStaticKeys: Set<string>;
@@ -1037,6 +1049,10 @@ root.innerHTML = `
             <dt>Demo</dt>
             <dd id="demo-state">--</dd>
           </div>
+          <div>
+            <dt>Artifacts</dt>
+            <dd id="artifact-state">0</dd>
+          </div>
         </dl>
         <div class="class-grid" id="class-grid"></div>
         <div class="artifact-list" id="artifact-list" aria-live="polite"></div>
@@ -1055,6 +1071,7 @@ const mapState = requireElement<HTMLElement>("#map-state");
 const objectState = requireElement<HTMLElement>("#object-state");
 const runtimeState = requireElement<HTMLElement>("#runtime-state");
 const demoState = requireElement<HTMLElement>("#demo-state");
+const artifactState = requireElement<HTMLElement>("#artifact-state");
 const classGrid = requireElement<HTMLElement>("#class-grid");
 const artifactList = requireElement<HTMLElement>("#artifact-list");
 const traceLog = requireElement<HTMLPreElement>("#trace-log");
@@ -1076,9 +1093,12 @@ class WLMain {
   readonly wl_game: WLGame;
   readonly wl_play: WLPlay;
 
+  private artifactRecords: ArtifactRecord[] = [];
+  private artifactSequence = 0;
   private artifactUrls: string[] = [];
   private animationStarted = false;
   private demoRunning = false;
+  private demoStepIndex: number | null = null;
   private lastTime = 0;
   private readonly demoPlan: DemoPlan | null;
   private readonly startLevel: number;
@@ -1150,6 +1170,8 @@ class WLMain {
 
     try {
       for (const [index, step] of this.demoPlan.steps.entries()) {
+        this.demoStepIndex = index;
+        this.RenderUi();
         await this.RunDemoStep(step, index);
       }
 
@@ -1158,13 +1180,14 @@ class WLMain {
       statusLine.textContent = error instanceof Error ? error.message : "Demo failed";
     } finally {
       this.demoRunning = false;
+      this.demoStepIndex = null;
       this.RenderUi();
     }
   }
 
   async ExportPng(label: string, autoDownload = true): Promise<void> {
     const blob = await this.id_vl.VL_ScreenToBlob();
-    this.RegisterArtifact(blob, artifactFileName("frame", label, "png"), autoDownload);
+    this.RegisterArtifact(blob, "frame", label, "png", autoDownload);
   }
 
   async ExportWav(label: string, autoDownload = true): Promise<void> {
@@ -1173,14 +1196,26 @@ class WLMain {
       new Blob([new Uint8Array(wav)], {
         type: "audio/wav"
       }),
-      artifactFileName("audio", label, "wav"),
+      "audio",
+      label,
+      "wav",
       autoDownload
     );
   }
 
   StateSnapshot(): Record<string, unknown> {
     return {
+      artifacts: this.artifactRecords.map((artifact) => ({ ...artifact })),
       audioSamples: this.id_sd.sampleCount,
+      demo: this.demoPlan
+        ? {
+            autoStart: this.demoPlan.autoStart ?? true,
+            name: this.demoPlan.name,
+            running: this.demoRunning,
+            stepIndex: this.demoStepIndex,
+            steps: this.demoPlan.steps
+          }
+        : null,
       game: this.wl_game.gamestate,
       map: this.wl_game.mapMetadata,
       doors: this.wl_game.map.doors.map((door) => ({
@@ -1270,7 +1305,9 @@ class WLMain {
       new Blob([new Uint8Array(bytes)], {
         type: "application/octet-stream"
       }),
-      artifactFileName("state", label, "bin"),
+      "state",
+      label,
+      "bin",
       autoDownload
     );
   }
@@ -1342,15 +1379,39 @@ class WLMain {
     await delay(0);
   }
 
-  private RegisterArtifact(blob: Blob, fileName: string, autoDownload: boolean): void {
+  private RegisterArtifact(
+    blob: Blob,
+    kind: ArtifactKind,
+    label: string,
+    extension: string,
+    autoDownload: boolean
+  ): void {
+    const fileName = artifactFileName(kind, label, extension);
     const url = URL.createObjectURL(blob);
     this.artifactUrls.push(url);
+    const record: ArtifactRecord = {
+      bytes: blob.size,
+      fileName,
+      kind,
+      label,
+      mimeType: blob.type || "application/octet-stream",
+      sequence: this.artifactSequence,
+      ticcount: this.wl_game.gamestate.ticcount
+    };
+    this.artifactSequence += 1;
+    this.artifactRecords.push(record);
 
     const link = document.createElement("a");
     link.href = url;
     link.download = fileName;
+    link.dataset.artifactBytes = String(record.bytes);
+    link.dataset.artifactKind = record.kind;
+    link.dataset.artifactLabel = record.label;
+    link.dataset.artifactSequence = String(record.sequence);
+    link.dataset.artifactTiccount = String(record.ticcount);
     link.textContent = `${fileName} (${formatBytes(blob.size)})`;
     artifactList.prepend(link);
+    this.RenderUi();
 
     if (autoDownload) {
       link.click();
@@ -1363,9 +1424,15 @@ class WLMain {
     runtimeState.textContent = `tic ${this.wl_game.gamestate.ticcount} / ${this.wl_game.gamestate.x.toFixed(2)}, ${this.wl_game.gamestate.y.toFixed(2)} / hp ${this.wl_game.gamestate.health} ammo ${this.wl_game.gamestate.ammo} wp ${this.wl_game.gamestate.weapon}:${this.wl_game.gamestate.weaponframe} atk ${this.wl_game.gamestate.attackframe}:${this.wl_game.gamestate.attackcount} keys ${this.wl_game.gamestate.keys}`;
     demoState.textContent = this.demoPlan
       ? this.demoRunning
-        ? `Running ${this.demoPlan.name}`
+        ? `Running ${this.demoPlan.name} ${this.demoStepIndex === null ? "" : `${this.demoStepIndex + 1}/`}${this.demoPlan.steps.length}`
         : `${this.demoPlan.name} (${this.demoPlan.steps.length} steps)`
       : "No plan";
+    const latestArtifact = this.artifactRecords[this.artifactRecords.length - 1];
+    artifactState.textContent = latestArtifact
+      ? `${this.artifactRecords.length} / ${latestArtifact.fileName} / tic ${latestArtifact.ticcount}`
+      : "0";
+    artifactList.dataset.artifactCount = String(this.artifactRecords.length);
+    artifactList.dataset.latestArtifact = latestArtifact?.fileName ?? "";
     buttonRunDemo.disabled = !this.demoPlan || this.demoRunning;
     traceLog.textContent = this.id_us.lines.slice(-18).join("\n");
     statusLine.textContent = this.demoRunning ? statusLine.textContent : "Running";
