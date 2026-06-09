@@ -360,6 +360,9 @@ const ACTOR_SPRITES = {
   BOSS_DIE1: 304,
   BOSS_DIE2: 305,
   BOSS_DIE3: 306,
+  BOSS_SHOOT1: 300,
+  BOSS_SHOOT2: 301,
+  BOSS_SHOOT3: 302,
   BOSS_W1: 296,
   BOSS_W2: 297,
   BOSS_W3: 298,
@@ -421,6 +424,9 @@ const ACTOR_SPRITES = {
   GRETEL_DIE1: 393,
   GRETEL_DIE2: 394,
   GRETEL_DIE3: 395,
+  GRETEL_SHOOT1: 389,
+  GRETEL_SHOOT2: 390,
+  GRETEL_SHOOT3: 391,
   GRETEL_W1: 385,
   GRETEL_W2: 386,
   GRETEL_W3: 387,
@@ -443,6 +449,9 @@ const ACTOR_SPRITES = {
   MECHA_DIE1: 342,
   MECHA_DIE2: 343,
   MECHA_DIE3: 344,
+  MECHA_SHOOT1: 338,
+  MECHA_SHOOT2: 339,
+  MECHA_SHOOT3: 340,
   MECHA_W1: 334,
   MECHA_W2: 335,
   MECHA_W3: 336,
@@ -571,6 +580,16 @@ const ACTOR_PAIN_STATES: Record<string, [ActorStateFrame, ActorStateFrame]> = {
   ]
 };
 const ACTOR_ATTACK_STATES: Record<string, ActorStateFrame[]> = {
+  boss: [
+    { name: "s_bossshoot1", shapenum: ACTOR_SPRITES.BOSS_SHOOT1, tics: 30 },
+    { action: "shoot", name: "s_bossshoot2", shapenum: ACTOR_SPRITES.BOSS_SHOOT2, tics: 10 },
+    { action: "shoot", name: "s_bossshoot3", shapenum: ACTOR_SPRITES.BOSS_SHOOT3, tics: 10 },
+    { action: "shoot", name: "s_bossshoot4", shapenum: ACTOR_SPRITES.BOSS_SHOOT2, tics: 10 },
+    { action: "shoot", name: "s_bossshoot5", shapenum: ACTOR_SPRITES.BOSS_SHOOT3, tics: 10 },
+    { action: "shoot", name: "s_bossshoot6", shapenum: ACTOR_SPRITES.BOSS_SHOOT2, tics: 10 },
+    { action: "shoot", name: "s_bossshoot7", shapenum: ACTOR_SPRITES.BOSS_SHOOT3, tics: 10 },
+    { name: "s_bossshoot8", nextMode: "chase", shapenum: ACTOR_SPRITES.BOSS_SHOOT1, tics: 10 }
+  ],
   dog: [
     { name: "s_dogjump1", shapenum: ACTOR_SPRITES.DOG_JUMP1, tics: 10 },
     { action: "bite", name: "s_dogjump2", shapenum: ACTOR_SPRITES.DOG_JUMP2, tics: 10 },
@@ -578,10 +597,28 @@ const ACTOR_ATTACK_STATES: Record<string, ActorStateFrame[]> = {
     { name: "s_dogjump4", shapenum: ACTOR_SPRITES.DOG_JUMP1, tics: 10 },
     { name: "s_dogjump5", nextMode: "chase", shapenum: ACTOR_SPRITES.DOG_W1_1, tics: 10 }
   ],
+  gretel: [
+    { name: "s_gretelshoot1", shapenum: ACTOR_SPRITES.GRETEL_SHOOT1, tics: 30 },
+    { action: "shoot", name: "s_gretelshoot2", shapenum: ACTOR_SPRITES.GRETEL_SHOOT2, tics: 10 },
+    { action: "shoot", name: "s_gretelshoot3", shapenum: ACTOR_SPRITES.GRETEL_SHOOT3, tics: 10 },
+    { action: "shoot", name: "s_gretelshoot4", shapenum: ACTOR_SPRITES.GRETEL_SHOOT2, tics: 10 },
+    { action: "shoot", name: "s_gretelshoot5", shapenum: ACTOR_SPRITES.GRETEL_SHOOT3, tics: 10 },
+    { action: "shoot", name: "s_gretelshoot6", shapenum: ACTOR_SPRITES.GRETEL_SHOOT2, tics: 10 },
+    { action: "shoot", name: "s_gretelshoot7", shapenum: ACTOR_SPRITES.GRETEL_SHOOT3, tics: 10 },
+    { name: "s_gretelshoot8", nextMode: "chase", shapenum: ACTOR_SPRITES.GRETEL_SHOOT1, tics: 10 }
+  ],
   guard: [
     { name: "s_grdshoot1", shapenum: ACTOR_SPRITES.GRD_SHOOT1, tics: 20 },
     { action: "shoot", name: "s_grdshoot2", shapenum: ACTOR_SPRITES.GRD_SHOOT2, tics: 20 },
     { name: "s_grdshoot3", nextMode: "chase", shapenum: ACTOR_SPRITES.GRD_SHOOT3, tics: 20 }
+  ],
+  hitler: [
+    { name: "s_mechashoot1", shapenum: ACTOR_SPRITES.MECHA_SHOOT1, tics: 30 },
+    { action: "shoot", name: "s_mechashoot2", shapenum: ACTOR_SPRITES.MECHA_SHOOT2, tics: 10 },
+    { action: "shoot", name: "s_mechashoot3", shapenum: ACTOR_SPRITES.MECHA_SHOOT3, tics: 10 },
+    { action: "shoot", name: "s_mechashoot4", shapenum: ACTOR_SPRITES.MECHA_SHOOT2, tics: 10 },
+    { action: "shoot", name: "s_mechashoot5", shapenum: ACTOR_SPRITES.MECHA_SHOOT3, tics: 10 },
+    { name: "s_mechashoot6", nextMode: "chase", shapenum: ACTOR_SPRITES.MECHA_SHOOT2, tics: 10 }
   ],
   mutant: [
     { action: "shoot", name: "s_mutshoot1", shapenum: ACTOR_SPRITES.MUT_SHOOT1, tics: 6 },
