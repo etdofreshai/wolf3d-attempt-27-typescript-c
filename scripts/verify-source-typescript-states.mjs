@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
+const sourceHeaderPath = path.join(repoRoot, "source", "WOLFSRC", "WL_DEF.H");
 const sourcePath = path.join(repoRoot, "source", "WOLFSRC", "WL_ACT2.C");
 const typescriptPath = path.join(repoRoot, "apps", "source-typescript", "src", "main.ts");
 
@@ -48,14 +49,17 @@ const DIGITIZED_BOSS_DEATH_TICS = new Map([
   ["s_schabbdie2", 140]
 ]);
 
-const [sourceText, typescriptText] = await Promise.all([
+const [sourceHeaderText, sourceText, typescriptText] = await Promise.all([
+  readFile(sourceHeaderPath, "utf8"),
   readFile(sourcePath, "utf8"),
   readFile(typescriptPath, "utf8")
 ]);
 
-const sourceStates = parseSourceStates(sourceText);
+const sourceSprites = parseSourceSprites(sourceHeaderText);
+const sourceStates = parseSourceStates(sourceText, sourceSprites);
 const constants = parseNumericConstants(typescriptText);
-const modeledFrames = parseModeledFrames(typescriptText, constants);
+const typescriptSprites = parseTypescriptSprites(typescriptText);
+const modeledFrames = parseModeledFrames(typescriptText, constants, typescriptSprites);
 const problems = [];
 
 for (const frame of modeledFrames.values()) {
@@ -67,6 +71,10 @@ for (const frame of modeledFrames.values()) {
 
   if (frame.tics !== source.tics) {
     problems.push(`${frame.name}: tics ${frame.tics} != source ${source.tics}`);
+  }
+
+  if (frame.shapenum !== source.shapenum) {
+    problems.push(`${frame.name}: shapenum ${frame.shapenum} != source ${source.shapenum}`);
   }
 
   if ((frame.think ?? null) !== source.think) {
@@ -92,13 +100,14 @@ if (problems.length > 0) {
 }
 
 console.log(
-  `source-typescript state verifier: ${modeledFrames.size} modeled WL_ACT2.C frames match source tics/actions/thinks.`
+  `source-typescript state verifier: ${modeledFrames.size} modeled WL_ACT2.C frames match source shapenums/tics/actions/thinks.`
 );
 
-function parseSourceStates(text) {
+function parseSourceStates(text, sprites) {
   const states = new Map();
+  const activeText = filterWl6Source(text);
   const statePattern = /statetype\s+(s_[A-Za-z0-9_]+)\s*=\s*\{([^}]+)\};/g;
-  for (const match of text.matchAll(statePattern)) {
+  for (const match of activeText.matchAll(statePattern)) {
     const [, name, body] = match;
     const fields = body.split(",").map((field) => field.trim());
     const tics = Number(fields[2]);
@@ -109,12 +118,112 @@ function parseSourceStates(text) {
     states.set(name, {
       action: normalizeSourceSymbol(fields[4], ACTION_NAMES),
       name,
+      shapenum: resolveSourceShape(fields[1], sprites),
       think: normalizeSourceSymbol(fields[3], THINK_NAMES),
       tics: DIGITIZED_BOSS_DEATH_TICS.get(name) ?? tics
     });
   }
 
   return states;
+}
+
+function filterWl6Source(text) {
+  const activeStack = [true];
+  const lines = [];
+  for (const rawLine of text.split(/\r?\n/)) {
+    const trimmed = rawLine.trim();
+    if (trimmed.startsWith("#ifdef SPEAR")) {
+      activeStack.push(false);
+      continue;
+    }
+
+    if (trimmed.startsWith("#ifndef SPEAR")) {
+      activeStack.push(true);
+      continue;
+    }
+
+    if (trimmed.startsWith("#else") && activeStack.length > 1) {
+      activeStack[activeStack.length - 1] = !activeStack[activeStack.length - 1];
+      continue;
+    }
+
+    if (trimmed.startsWith("#endif") && activeStack.length > 1) {
+      activeStack.pop();
+      continue;
+    }
+
+    if (activeStack.every(Boolean)) {
+      lines.push(rawLine);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+function parseSourceSprites(text) {
+  const enumStartMatch = /enum\s*\{/.exec(text);
+  if (!enumStartMatch) {
+    throw new Error("Could not find sprite enum in WL_DEF.H");
+  }
+
+  const enumStart = enumStartMatch.index;
+  const enumEnd = text.indexOf("};", enumStart);
+  if (enumEnd < 0) {
+    throw new Error("Could not find end of sprite enum in WL_DEF.H");
+  }
+
+  const sprites = new Map();
+  const activeStack = [true];
+  let value = 0;
+  for (const rawLine of text.slice(enumStart, enumEnd).split(/\r?\n/)) {
+    const trimmed = rawLine.trim();
+    if (trimmed.startsWith("#ifdef SPEAR")) {
+      activeStack.push(false);
+      continue;
+    }
+
+    if (trimmed.startsWith("#ifndef SPEAR")) {
+      activeStack.push(true);
+      continue;
+    }
+
+    if (trimmed.startsWith("#else") && activeStack.length > 1) {
+      activeStack[activeStack.length - 1] = !activeStack[activeStack.length - 1];
+      continue;
+    }
+
+    if (trimmed.startsWith("#endif") && activeStack.length > 1) {
+      activeStack.pop();
+      continue;
+    }
+
+    if (!activeStack.every(Boolean)) {
+      continue;
+    }
+
+    const line = rawLine.replace(/\/\/.*$/, "");
+    for (const match of line.matchAll(/\b(SPR_[A-Z0-9_]+)\b/g)) {
+      sprites.set(match[1], value);
+      value += 1;
+    }
+  }
+
+  return sprites;
+}
+
+function parseTypescriptSprites(text) {
+  const objectMatch = text.match(/const ACTOR_SPRITES = \{(?<body>[\s\S]*?)\} as const;/);
+  if (!objectMatch?.groups?.body) {
+    throw new Error("Could not find ACTOR_SPRITES in source-typescript main.ts");
+  }
+
+  const sprites = new Map();
+  const entryPattern = /\b([A-Z0-9_]+):\s*([0-9]+),?/g;
+  for (const match of objectMatch.groups.body.matchAll(entryPattern)) {
+    sprites.set(match[1], Number(match[2]));
+  }
+
+  return sprites;
 }
 
 function parseNumericConstants(text) {
@@ -127,7 +236,7 @@ function parseNumericConstants(text) {
   return constants;
 }
 
-function parseModeledFrames(text, constants) {
+function parseModeledFrames(text, constants, sprites) {
   const frames = new Map();
   const errors = [];
   const addFrame = (frame) => {
@@ -135,6 +244,7 @@ function parseModeledFrames(text, constants) {
     if (existing) {
       const same =
         existing.tics === frame.tics &&
+        existing.shapenum === frame.shapenum &&
         (existing.think ?? null) === (frame.think ?? null) &&
         (existing.action ?? null) === (frame.action ?? null);
       if (!same) {
@@ -149,10 +259,10 @@ function parseModeledFrames(text, constants) {
     frames.set(frame.name, frame);
   };
 
-  parseObjectFrames(text, constants, addFrame);
-  parseDeathTuples(text, constants, addFrame);
-  parsePathFrames(text, addFrame);
-  parseChaseFrames(text, addFrame);
+  parseObjectFrames(text, constants, sprites, addFrame);
+  parseDeathTuples(text, constants, sprites, addFrame);
+  parsePathFrames(text, sprites, addFrame);
+  parseChaseFrames(text, sprites, addFrame);
 
   if (errors.length > 0) {
     throw new Error(errors.join("\n"));
@@ -161,7 +271,7 @@ function parseModeledFrames(text, constants) {
   return frames;
 }
 
-function parseObjectFrames(text, constants, addFrame) {
+function parseObjectFrames(text, constants, sprites, addFrame) {
   const objectPattern = /\{[^{}]*name:\s*"(?<name>s_[A-Za-z0-9_]+)"[^{}]*\}/gs;
   for (const match of text.matchAll(objectPattern)) {
     const body = match[0];
@@ -171,36 +281,44 @@ function parseObjectFrames(text, constants, addFrame) {
       continue;
     }
 
+    const shapenumMatch = body.match(/\bshapenum:\s*([^,\n}]+)/);
+    if (!shapenumMatch) {
+      continue;
+    }
+
     addFrame({
       action: readStringProperty(body, "action"),
       name,
+      shapenum: resolveTypescriptShape(shapenumMatch[1], sprites),
       think: readStringProperty(body, "think"),
       tics: resolveTics(ticsMatch[1], constants)
     });
   }
 }
 
-function parseDeathTuples(text, constants, addFrame) {
+function parseDeathTuples(text, constants, sprites, addFrame) {
   const tuplePattern =
-    /\[\s*"(?<name>s_[A-Za-z0-9_]+)"\s*,\s*[^,\]]+\s*,\s*(?<tics>[A-Z0-9_]+|[0-9]+)(?:\s*,\s*(?:true|false))?(?:\s*,\s*"(?<action>[^"]+)")?\s*\]/g;
+    /\[\s*"(?<name>s_[A-Za-z0-9_]+)"\s*,\s*(?<shape>[^,\]]+)\s*,\s*(?<tics>[A-Z0-9_]+|[0-9]+)(?:\s*,\s*(?:true|false))?(?:\s*,\s*"(?<action>[^"]+)")?\s*\]/g;
   for (const match of text.matchAll(tuplePattern)) {
     addFrame({
       action: match.groups.action ?? null,
       name: match.groups.name,
+      shapenum: resolveTypescriptShape(match.groups.shape, sprites),
       think: null,
       tics: resolveTics(match.groups.tics, constants)
     });
   }
 }
 
-function parsePathFrames(text, addFrame) {
-  const pathPattern = /pathFrames\("(?<prefix>[^"]+)"/g;
+function parsePathFrames(text, sprites, addFrame) {
+  const pathPattern = /pathFrames\("(?<prefix>[^"]+)"\s*,\s*(?<sprites>\[[^\]]+\])/g;
   for (const match of text.matchAll(pathPattern)) {
-    addWalkFrames(match.groups.prefix, "path", [20, 5, 15, 20, 5, 15], "path", addFrame);
+    const walkSprites = parseSpriteArray(match.groups.sprites, sprites);
+    addWalkFrames(match.groups.prefix, "path", walkSprites, [20, 5, 15, 20, 5, 15], "path", addFrame);
   }
 }
 
-function parseChaseFrames(text, addFrame) {
+function parseChaseFrames(text, sprites, addFrame) {
   for (const line of text.split(/\r?\n/)) {
     if (!line.includes("chaseFrames(")) {
       continue;
@@ -212,19 +330,26 @@ function parseChaseFrames(text, addFrame) {
     }
 
     const arrays = [...line.matchAll(/\[[^\]]+\]/g)].map((match) => match[0]);
+    const spriteArray = arrays.find((array) => array.includes("ACTOR_SPRITES."));
+    if (!spriteArray) {
+      throw new Error(`Could not find sprite array for ${prefixMatch.groups.prefix} chase frames`);
+    }
+
     const ticArray = arrays.find((array, index) => index > 0 && /^\[[0-9,\s]+\]$/.test(array));
     const tics = ticArray ? ticArray.slice(1, -1).split(",").map((part) => Number(part.trim())) : [10, 3, 8, 10, 3, 8];
     const think = line.match(/,\s*"(?<think>[^"]+)"\s*\)/)?.groups.think ?? "chase";
-    addWalkFrames(prefixMatch.groups.prefix, "chase", tics, think, addFrame);
+    addWalkFrames(prefixMatch.groups.prefix, "chase", parseSpriteArray(spriteArray, sprites), tics, think, addFrame);
   }
 }
 
-function addWalkFrames(prefix, stateKind, tics, think, addFrame) {
+function addWalkFrames(prefix, stateKind, walkSprites, tics, think, addFrame) {
   const suffixes = ["1", "1s", "2", "3", "3s", "4"];
+  const spriteIndexes = [0, 0, 1, 2, 2, 3];
   for (let index = 0; index < suffixes.length; index += 1) {
     addFrame({
       action: null,
       name: `s_${prefix}${stateKind}${suffixes[index]}`,
+      shapenum: walkSprites[spriteIndexes[index]],
       think: index === 1 || index === 4 ? null : think,
       tics: tics[index]
     });
@@ -237,6 +362,53 @@ function normalizeSourceSymbol(symbol, names) {
   }
 
   return names.get(symbol) ?? `source:${symbol}`;
+}
+
+function resolveSourceShape(expression, sprites) {
+  const normalized = expression.trim();
+  if (/^[0-9]+$/.test(normalized)) {
+    return Number(normalized);
+  }
+
+  const value = sprites.get(normalized);
+  if (!Number.isFinite(value)) {
+    throw new Error(`Could not resolve source shapenum: ${normalized}`);
+  }
+
+  return value;
+}
+
+function resolveTypescriptShape(expression, sprites) {
+  const normalized = expression.trim();
+  if (/^[0-9]+$/.test(normalized)) {
+    return Number(normalized);
+  }
+
+  const spriteName = normalized.match(/^ACTOR_SPRITES\.([A-Z0-9_]+)$/)?.[1];
+  const value = spriteName ? sprites.get(spriteName) : undefined;
+  if (!Number.isFinite(value)) {
+    throw new Error(`Could not resolve TypeScript shapenum: ${normalized}`);
+  }
+
+  return value;
+}
+
+function parseSpriteArray(expression, sprites) {
+  const values = [];
+  for (const match of expression.matchAll(/ACTOR_SPRITES\.([A-Z0-9_]+)/g)) {
+    const value = sprites.get(match[1]);
+    if (!Number.isFinite(value)) {
+      throw new Error(`Could not resolve TypeScript sprite: ${match[1]}`);
+    }
+
+    values.push(value);
+  }
+
+  if (values.length !== 4) {
+    throw new Error(`Expected four walk sprites, found ${values.length}: ${expression}`);
+  }
+
+  return values;
 }
 
 function readStringProperty(body, key) {

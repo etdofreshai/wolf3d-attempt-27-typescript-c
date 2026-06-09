@@ -144,7 +144,8 @@ npm run build
 ```
 
 `npm run check` also verifies the modeled `apps/source-typescript` actor and
-projectile state-frame tics/actions/thinks against `source/WOLFSRC/WL_ACT2.C`.
+projectile state-frame shapenums/tics/actions/thinks against
+`source/WOLFSRC/WL_ACT2.C` and the WL6 sprite enum in `source/WOLFSRC/WL_DEF.H`.
 
 This repo is intended to contain **no proprietary game assets** in new tracked
 work. The local `steam/` folder is runtime input only.
