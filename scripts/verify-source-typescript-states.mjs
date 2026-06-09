@@ -126,9 +126,11 @@ const sourceSoundIndexes = parseSourceSoundIndexes(sourceAudioText);
 const sourceDirectionIndexes = parseSourceDirectionIndexes(sourceHeaderText);
 const sourceWeaponIndexes = parseSourceWeaponIndexes(sourceHeaderText);
 const sourceEnemyIndexes = parseSourceEnemyIndexes(sourceHeaderText);
+const sourceDefines = parseSourceNumericDefines(sourceHeaderText);
 const sourceWeaponReadySprites = parseSourceWeaponReadySprites(sourceDrawText, sourceSprites);
 const sourceStaticInfo = parseSourceStaticInfo(sourceAct1Text, sourceSprites);
 const sourceAttackInfo = parseSourceAttackInfo(sourceAgentText);
+const sourceAgentHelperContracts = parseSourceAgentHelperContracts(sourceAgentText, sourceDefines);
 const sourceStartHitpoints = parseSourceStartHitpoints(sourceText);
 const sourceRealHitlerHitpoints = parseSourceRealHitlerHitpoints(sourceText);
 const sourceBonusRewards = parseSourceBonusRewards(sourceAgentText);
@@ -153,6 +155,7 @@ const typescriptWeaponIndexes = parseTypescriptWeaponIndexes(typescriptText);
 const typescriptEnemyHitpointIndexes = parseTypescriptEnemyHitpointIndexes(typescriptText);
 const typescriptStaticInfo = parseTypescriptStaticInfo(typescriptText);
 const typescriptAttackInfo = parseTypescriptAttackInfo(typescriptText);
+const typescriptAgentHelperContracts = parseTypescriptAgentHelperContracts(typescriptText, constants, stringConstants);
 const typescriptStartHitpoints = parseTypescriptStartHitpoints(typescriptText);
 const typescriptRealHitlerHitpoints = parseTypescriptRealHitlerHitpoints(typescriptText);
 const typescriptRndTable = parseTypescriptRndTable(typescriptText);
@@ -195,6 +198,7 @@ compareSoundChunks(sourceSoundIndexes, typescriptSoundChunks, problems);
 compareWeaponReadySprites(sourceWeaponReadySprites, typescriptWeaponReadySprites, problems);
 compareWeaponIndexes(sourceWeaponIndexes, typescriptWeaponIndexes, problems);
 compareAttackInfo(sourceAttackInfo, typescriptAttackInfo, problems);
+compareAgentHelperContracts(sourceAgentHelperContracts, typescriptAgentHelperContracts, problems);
 compareEnemyHitpointIndexes(sourceEnemyIndexes, typescriptEnemyHitpointIndexes, problems);
 compareStartHitpoints(sourceStartHitpoints, typescriptStartHitpoints, problems);
 compareRealHitlerHitpoints(sourceRealHitlerHitpoints, typescriptRealHitlerHitpoints, problems);
@@ -222,7 +226,7 @@ if (problems.length > 0) {
 }
 
 console.log(
-  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${countComparedBonusRewards(sourceBonusRewards)} WL_AGENT.C bonus reward rows, ${sourceTreasureScores.size} WL_AGENT.C treasure score rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceKillActorRewards.size} WL_STATE.C kill reward rows, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
+  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourceAgentHelperContracts.size} WL_AGENT.C helper contracts, ${countComparedBonusRewards(sourceBonusRewards)} WL_AGENT.C bonus reward rows, ${sourceTreasureScores.size} WL_AGENT.C treasure score rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceKillActorRewards.size} WL_STATE.C kill reward rows, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
 );
 
 function parseSourceStates(text, sprites) {
@@ -455,6 +459,66 @@ function parseSourceAttackInfo(text) {
   }
 
   return rows;
+}
+
+function parseSourceAgentHelperContracts(text, defines) {
+  const helpers = new Map();
+  helpers.set("GiveAmmo", parseSourceGiveAmmoContract(extractCFunctionBody(text, "GiveAmmo")));
+  helpers.set("GiveExtraMan", parseSourceGiveExtraManContract(extractCFunctionBody(text, "GiveExtraMan")));
+  helpers.set("GiveKey", parseSourceGiveKeyContract(extractCFunctionBody(text, "GiveKey")));
+  helpers.set("GivePoints", parseSourceGivePointsContract(extractCFunctionBody(text, "GivePoints"), defines));
+  helpers.set("GiveWeapon", parseSourceGiveWeaponContract(extractCFunctionBody(text, "GiveWeapon")));
+  helpers.set("HealSelf", parseSourceHealSelfContract(extractCFunctionBody(text, "HealSelf")));
+  return helpers;
+}
+
+function parseSourceGiveAmmoContract(body) {
+  return {
+    maxAmmo: parseRequiredNumber(body, /gamestate\.ammo\s*>\s*([0-9]+)/, "GiveAmmo max ammo"),
+    restoresWeaponWhenAmmoEmptyAndNotAttacking:
+      /if\s*\(\s*!gamestate\.ammo\s*\)[\s\S]*if\s*\(\s*!gamestate\.attackframe\s*\)[\s\S]*gamestate\.weapon\s*=\s*gamestate\.chosenweapon/.test(body)
+  };
+}
+
+function parseSourceGiveExtraManContract(body) {
+  return {
+    maxLives: parseRequiredNumber(body, /gamestate\.lives\s*<\s*([0-9]+)/, "GiveExtraMan max lives"),
+    sound: body.match(/SD_PlaySound\s*\(\s*([A-Z0-9_]+)\s*\)/)?.[1] ?? null
+  };
+}
+
+function parseSourceGiveKeyContract(body) {
+  return {
+    orKeyBit: /gamestate\.keys\s*\|=\s*\(\s*1\s*<<\s*key\s*\)/.test(body)
+  };
+}
+
+function parseSourceGivePointsContract(body, defines) {
+  const extraSymbol = body.match(/gamestate\.nextextra\s*\+=\s*([A-Z0-9_]+)/)?.[1] ?? null;
+  return {
+    addsScore: /gamestate\.score\s*\+=\s*points/.test(body),
+    callsExtraMan: /\bGiveExtraMan\s*\(/.test(body),
+    extraPoints: resolveSourceDefine(extraSymbol, defines),
+    loopsExtraLives: /while\s*\(\s*gamestate\.score\s*>=\s*gamestate\.nextextra\s*\)/.test(body)
+  };
+}
+
+function parseSourceGiveWeaponContract(body) {
+  const normalized = body.replace(/\s+/g, " ");
+  return {
+    ammoGrant: parseRequiredNumber(body, /GiveAmmo\s*\(\s*([0-9]+)\s*\)/, "GiveWeapon ammo grant"),
+    setsChosenWeaponOnUpgrade: /gamestate\.chosenweapon\s*=\s*weapon/.test(normalized),
+    setsCurrentWeaponOnUpgrade: /gamestate\.weapon\s*=\s*gamestate\.chosenweapon\s*=\s*weapon/.test(normalized),
+    setsBestWeaponOnUpgrade: /gamestate\.bestweapon\s*=\s*gamestate\.weapon\s*=/.test(normalized),
+    upgradesOnlyWhenBetter: /gamestate\.bestweapon\s*<\s*weapon/.test(body)
+  };
+}
+
+function parseSourceHealSelfContract(body) {
+  return {
+    clearsGotgatgun: /gotgatgun\s*=\s*0/.test(body),
+    maxHealth: parseRequiredNumber(body, /gamestate\.health\s*>\s*([0-9]+)/, "HealSelf max health")
+  };
 }
 
 function parseSourceStartHitpoints(text) {
@@ -794,6 +858,65 @@ function parseTypescriptAttackInfo(text) {
   }
 
   return rows;
+}
+
+function parseTypescriptAgentHelperContracts(text, constants, stringConstants) {
+  const helpers = new Map();
+  helpers.set("GiveAmmo", parseTypescriptGiveAmmoContract(extractTypescriptFunctionBody(text, "GiveAmmo"), constants));
+  helpers.set("GiveExtraMan", parseTypescriptGiveExtraManContract(extractTypescriptFunctionBody(text, "GiveExtraMan"), constants, stringConstants));
+  helpers.set("GiveKey", parseTypescriptGiveKeyContract(extractTypescriptFunctionBody(text, "GiveKey")));
+  helpers.set("GivePoints", parseTypescriptGivePointsContract(extractTypescriptFunctionBody(text, "GivePoints"), constants));
+  helpers.set("GiveWeapon", parseTypescriptGiveWeaponContract(extractTypescriptFunctionBody(text, "GiveWeapon")));
+  helpers.set("HealSelf", parseTypescriptHealSelfContract(extractTypescriptFunctionBody(text, "HealSelf"), constants));
+  return helpers;
+}
+
+function parseTypescriptGiveAmmoContract(body, constants) {
+  return {
+    maxAmmo: parseRequiredTypescriptNumber(body, /Math\.min\(\s*([A-Z0-9_]+|[0-9]+)\s*,\s*this\.gamestate\.ammo/, constants, "GiveAmmo max ammo"),
+    restoresWeaponWhenAmmoEmptyAndNotAttacking:
+      /this\.gamestate\.ammo\s*===\s*0\s*&&\s*this\.gamestate\.attackframe\s*===\s*0[\s\S]*this\.gamestate\.weapon\s*=\s*this\.gamestate\.chosenweapon/.test(body)
+  };
+}
+
+function parseTypescriptGiveExtraManContract(body, constants, stringConstants) {
+  const soundMatch = body.match(/SD_PlaySound\(([^)]+)\)/);
+  return {
+    maxLives: parseRequiredTypescriptNumber(body, /this\.gamestate\.lives\s*<\s*([A-Z0-9_]+|[0-9]+)/, constants, "GiveExtraMan max lives"),
+    sound: soundMatch ? resolveTypescriptString(soundMatch[1], stringConstants) : null
+  };
+}
+
+function parseTypescriptGiveKeyContract(body) {
+  return {
+    orKeyBit: /this\.gamestate\.keys\s*\|=\s*1\s*<<\s*key/.test(body)
+  };
+}
+
+function parseTypescriptGivePointsContract(body, constants) {
+  return {
+    addsScore: /this\.gamestate\.score\s*\+=\s*points/.test(body),
+    callsExtraMan: /\bthis\.GiveExtraMan\(\)/.test(body),
+    extraPoints: parseRequiredTypescriptNumber(body, /this\.gamestate\.nextextra\s*\+=\s*([A-Z0-9_]+|[0-9]+)/, constants, "GivePoints extra points"),
+    loopsExtraLives: /while\s*\(\s*this\.gamestate\.score\s*>=\s*this\.gamestate\.nextextra\s*\)/.test(body)
+  };
+}
+
+function parseTypescriptGiveWeaponContract(body) {
+  return {
+    ammoGrant: parseRequiredNumber(body, /this\.GiveAmmo\(\s*([0-9]+)\s*\)/, "GiveWeapon ammo grant"),
+    setsChosenWeaponOnUpgrade: /this\.gamestate\.chosenweapon\s*=\s*weapon/.test(body),
+    setsCurrentWeaponOnUpgrade: /this\.gamestate\.weapon\s*=\s*weapon/.test(body),
+    setsBestWeaponOnUpgrade: /this\.gamestate\.bestweapon\s*=\s*weapon/.test(body),
+    upgradesOnlyWhenBetter: /this\.gamestate\.bestweapon\s*<\s*weapon/.test(body)
+  };
+}
+
+function parseTypescriptHealSelfContract(body, constants) {
+  return {
+    clearsGotgatgun: /this\.gotgatgun\s*=\s*false/.test(body),
+    maxHealth: parseRequiredTypescriptNumber(body, /Math\.min\(\s*([A-Z0-9_]+|[0-9]+)\s*,\s*this\.gamestate\.health/, constants, "HealSelf max health")
+  };
 }
 
 function parseTypescriptStartHitpoints(text) {
@@ -1142,6 +1265,29 @@ function compareAttackInfo(sourceRows, typescriptRows, problems) {
   }
 }
 
+function compareAgentHelperContracts(sourceEntries, typescriptEntries, problems) {
+  for (const [helperName, sourceContract] of sourceEntries.entries()) {
+    const currentContract = typescriptEntries.get(helperName);
+    if (!currentContract) {
+      problems.push(`${helperName}: missing TypeScript helper contract`);
+      continue;
+    }
+
+    for (const [field, sourceValue] of Object.entries(sourceContract)) {
+      const currentValue = currentContract[field];
+      if (currentValue !== sourceValue) {
+        problems.push(`${helperName}.${field}: ${formatNullable(currentValue)} != source ${formatNullable(sourceValue)}`);
+      }
+    }
+  }
+
+  for (const helperName of typescriptEntries.keys()) {
+    if (!sourceEntries.has(helperName)) {
+      problems.push(`${helperName}: TypeScript helper contract missing from WL_AGENT.C`);
+    }
+  }
+}
+
 function compareEnemyHitpointIndexes(sourceEntries, typescriptEntries, problems) {
   for (const [kind, sourceEnemy] of TYPESCRIPT_KIND_TO_SOURCE_ENEMY.entries()) {
     const sourceIndex = sourceEntries.get(sourceEnemy);
@@ -1248,6 +1394,16 @@ function parseNumericConstants(text) {
   return constants;
 }
 
+function parseSourceNumericDefines(text) {
+  const constants = new Map();
+  const definePattern = /^\s*#define\s+([A-Z0-9_]+)\s+([0-9]+)\b/gm;
+  for (const match of text.matchAll(definePattern)) {
+    constants.set(match[1], Number(match[2]));
+  }
+
+  return constants;
+}
+
 function parseStringConstants(text) {
   const constants = new Map();
   const constantPattern = /const\s+([A-Z0-9_]+)(?::\s*[A-Za-z0-9_<>| ]+)?\s*=\s*"([^"]+)";/g;
@@ -1282,6 +1438,37 @@ function parseNumberList(text) {
 function parseOptionalNumber(text, pattern) {
   const match = text.match(pattern);
   return match ? Number(match[1]) : null;
+}
+
+function parseRequiredNumber(text, pattern, label) {
+  const value = parseOptionalNumber(text, pattern);
+  if (!Number.isFinite(value)) {
+    throw new Error(`Could not parse ${label}`);
+  }
+
+  return value;
+}
+
+function parseRequiredTypescriptNumber(text, pattern, constants, label) {
+  const match = text.match(pattern);
+  if (!match) {
+    throw new Error(`Could not parse ${label}`);
+  }
+
+  return resolveTypescriptNumber(match[1], constants);
+}
+
+function resolveSourceDefine(symbol, defines) {
+  if (!symbol) {
+    return null;
+  }
+
+  const value = defines.get(symbol);
+  if (!Number.isFinite(value)) {
+    throw new Error(`Could not resolve source define: ${symbol}`);
+  }
+
+  return value;
 }
 
 function createEmptyBonusReward() {
