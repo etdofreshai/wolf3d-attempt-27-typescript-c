@@ -289,8 +289,10 @@ const KEY_CODES: Record<string, number> = {
 };
 
 const DEMO_DEFAULT_HOLD_MS = 90;
+const ALTELEVATORTILE = 107;
 const AMBUSHTILE = 106;
 const AREATILE = 107;
+const ELEVATORTILE = 21;
 const ICONARROWS = 90;
 const NODIR = 8;
 const DOOR_POSITION_MAX = 0xffff;
@@ -1788,14 +1790,21 @@ class WLGame {
 
   Cmd_Use(): boolean {
     const target = this.UseTarget();
+    if ((this.map.objects[target.y * this.map.width + target.x] ?? 0) === PUSHABLETILE) {
+      return this.PushWall(target.x, target.y, target.dir);
+    }
+
+    const wallTile = this.GetWallTile(target.x, target.y);
+    if (wallTile === ELEVATORTILE && target.elevatorOk) {
+      this.SetWallTile(target.x, target.y, ELEVATORTILE + 1);
+      this.SetPlayState(this.PlayerFloorTile() === ALTELEVATORTILE ? "ex_secretlevel" : "ex_completed");
+      return true;
+    }
+
     const door = this.DoorAt(target.x, target.y);
     if (door) {
       this.OperateDoor(door.index);
       return true;
-    }
-
-    if ((this.map.objects[target.y * this.map.width + target.x] ?? 0) === PUSHABLETILE) {
-      return this.PushWall(target.x, target.y, target.dir);
     }
 
     return false;
@@ -2782,6 +2791,16 @@ class WLGame {
     return collisionTile(this.map.walls[tileY * this.map.width + tileX] ?? 1);
   }
 
+  PlayerFloorTile(): number {
+    const tileX = Math.floor(this.gamestate.x);
+    const tileY = Math.floor(this.gamestate.y);
+    if (tileX < 0 || tileY < 0 || tileX >= this.map.width || tileY >= this.map.height) {
+      return 0;
+    }
+
+    return this.map.walls[tileY * this.map.width + tileX] ?? 0;
+  }
+
   private T_Attack(tics: number, attackDown: boolean): void {
     this.gamestate.attackcount -= tics;
     while (this.gamestate.attackcount <= 0) {
@@ -3702,7 +3721,12 @@ class WLGame {
     return Math.floor(this.gamestate.x) === door.x && Math.floor(this.gamestate.y) === door.y;
   }
 
-  private UseTarget(): { dir: "east" | "north" | "south" | "west"; x: number; y: number } {
+  private UseTarget(): {
+    dir: PushWallDirection;
+    elevatorOk: boolean;
+    x: number;
+    y: number;
+  } {
     const angle = normalizeAngle(this.gamestate.angle);
     const tileX = Math.floor(this.gamestate.x);
     const tileY = Math.floor(this.gamestate.y);
@@ -3710,6 +3734,7 @@ class WLGame {
     if (angle < Math.PI / 4 || angle > (Math.PI * 7) / 4) {
       return {
         dir: "east",
+        elevatorOk: true,
         x: tileX + 1,
         y: tileY
       };
@@ -3718,6 +3743,7 @@ class WLGame {
     if (angle < (Math.PI * 3) / 4) {
       return {
         dir: "north",
+        elevatorOk: false,
         x: tileX,
         y: tileY - 1
       };
@@ -3726,6 +3752,7 @@ class WLGame {
     if (angle < (Math.PI * 5) / 4) {
       return {
         dir: "west",
+        elevatorOk: true,
         x: tileX - 1,
         y: tileY
       };
@@ -3733,6 +3760,7 @@ class WLGame {
 
     return {
       dir: "south",
+      elevatorOk: false,
       x: tileX,
       y: tileY + 1
     };
