@@ -5236,6 +5236,21 @@ class WLDraw {
     );
   }
 
+  private StaticTileVisible(wl_game: WLGame, stat: PortStatic): boolean {
+    // WL_DRAW.C DrawScaleds checks spotvis before TransformTile for static sprites.
+    const worldX = stat.x + 0.5;
+    const worldY = stat.y + 0.5;
+    const dx = worldX - wl_game.gamestate.x;
+    const dy = worldY - wl_game.gamestate.y;
+    const distance = Math.hypot(dx, dy);
+    if (distance <= SOURCE_PLAYERSIZE_TILES) {
+      return true;
+    }
+
+    const hit = this.CastRay(wl_game, Math.atan2(dy, dx));
+    return hit.distance + 0.03 >= distance;
+  }
+
   private CastRay(wl_game: WLGame, angle: number): RayHit {
     const step = 0.025;
     const dirX = Math.cos(angle);
@@ -5406,6 +5421,10 @@ class WLDraw {
     const sprites: SpriteBillboard[] = [];
     for (const stat of wl_game.map.statics) {
       if (stat.collected) {
+        continue;
+      }
+
+      if (!this.StaticTileVisible(wl_game, stat)) {
         continue;
       }
 
