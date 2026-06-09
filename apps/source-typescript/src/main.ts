@@ -66,6 +66,11 @@ type ArtifactRecord = {
   ticcount: number;
 };
 
+type SourcePaletteShift = {
+  kind: "red" | "white";
+  level: number;
+};
+
 type PortMap = {
   actors: PortActor[];
   areaConnectCounts: Map<string, number>;
@@ -469,6 +474,12 @@ const SOURCE_MAX_CONTROL = 100;
 const SOURCE_MINDIST = 0x5800;
 const SOURCE_PAR_AMOUNT = 500;
 const SOURCE_PERCENT_100_BONUS = 10000;
+const SOURCE_NUM_RED_SHIFTS = 6;
+const SOURCE_RED_STEPS = 8;
+const SOURCE_NUM_WHITE_SHIFTS = 3;
+const SOURCE_WHITE_STEPS = 20;
+const SOURCE_WHITE_TICS = 6;
+const SOURCE_WHITE_SHIFT_TARGET: [number, number, number] = [255, 247, 0];
 const SOURCE_RUNMOVE = 70;
 const SOURCE_SECRET_FLOOR_BONUS = 15000;
 const SOURCE_TICS_PER_SECOND = 70;
@@ -1722,6 +1733,11 @@ class WLMain {
         killer: this.wl_game.killer,
         lastAttacker: this.wl_game.lastAttacker
       },
+      palette: {
+        bonuscount: this.wl_game.bonuscount,
+        damagecount: this.wl_game.damagecount,
+        shift: this.wl_game.paletteShift ? { ...this.wl_game.paletteShift } : null
+      },
       intermission: {
         highScores: this.wl_game.highScores.map((score) => ({ ...score })),
         lastHighScoreCheck: this.wl_game.lastHighScoreCheck ? { ...this.wl_game.lastHighScoreCheck } : null,
@@ -1967,6 +1983,7 @@ class WLPlay {
     this.wl_game.MovePushWall(tics);
     this.wl_game.MoveActors(tics);
     this.wl_game.MoveProjectiles(tics);
+    this.wl_game.UpdatePaletteShifts(tics);
     this.wl_draw.ThreeDRefresh(this.wl_game);
     this.wl_game.AdvanceTime(tics);
     this.id_sd.SD_Service(moved, ticMs);
@@ -1977,8 +1994,11 @@ class WLGame {
   anglefrac = 0;
   facecount = 0;
   gotgatgun = false;
+  bonuscount = 0;
+  damagecount = 0;
   map = createFallbackMap();
   madeNoise = false;
+  paletteShift: SourcePaletteShift | null = null;
   thrustSpeed = 0;
   highScores: SourceHighScore[] = createDefaultHighScores();
   lastHighScoreCheck: SourceHighScoreCheck | null = null;
@@ -2061,6 +2081,46 @@ class WLGame {
     this.gamestate.timecount += tics;
   }
 
+  ClearPaletteShifts(): void {
+    this.bonuscount = 0;
+    this.damagecount = 0;
+    this.paletteShift = null;
+  }
+
+  StartBonusFlash(): void {
+    // WL_PLAY.C StartBonusFlash seeds the white shift for three 6-tic steps.
+    this.bonuscount = SOURCE_NUM_WHITE_SHIFTS * SOURCE_WHITE_TICS;
+  }
+
+  StartDamageFlash(damage: number): void {
+    this.damagecount += Math.max(0, Math.trunc(damage));
+  }
+
+  UpdatePaletteShifts(tics: number): void {
+    let red = 0;
+    let white = 0;
+
+    if (this.bonuscount > 0) {
+      white = Math.floor(this.bonuscount / SOURCE_WHITE_TICS) + 1;
+      white = Math.min(white, SOURCE_NUM_WHITE_SHIFTS);
+      this.bonuscount = Math.max(0, this.bonuscount - tics);
+    }
+
+    if (this.damagecount > 0) {
+      red = Math.floor(this.damagecount / 10) + 1;
+      red = Math.min(red, SOURCE_NUM_RED_SHIFTS);
+      this.damagecount = Math.max(0, this.damagecount - tics);
+    }
+
+    if (red > 0) {
+      this.paletteShift = { kind: "red", level: red };
+    } else if (white > 0) {
+      this.paletteShift = { kind: "white", level: white };
+    } else {
+      this.paletteShift = null;
+    }
+  }
+
   IsStillPlaying(): boolean {
     return this.playstate === "ex_stillplaying";
   }
@@ -2076,6 +2136,7 @@ class WLGame {
     this.anglefrac = 0;
     this.facecount = 0;
     this.gotgatgun = false;
+    this.ClearPaletteShifts();
     this.lastAttacker = null;
     this.killer = null;
     this.madeNoise = false;
@@ -2166,6 +2227,7 @@ class WLGame {
     this.attackButtonHeld = false;
     this.useButtonHeld = false;
     this.bossDeathCamCountdown = 0;
+    this.ClearPaletteShifts();
     this.completedLevelTransitionApplied = false;
     this.diedTransitionApplied = false;
     this.madeNoise = false;
@@ -4436,6 +4498,7 @@ class WLGame {
       this.SetPlayState("ex_died");
       this.killer = this.lastAttacker;
     }
+    this.StartDamageFlash(actualPoints);
     this.gotgatgun = false;
   }
 
@@ -5027,6 +5090,7 @@ class WLGame {
     }
 
     stat.collected = true;
+    this.StartBonusFlash();
     return true;
   }
 
@@ -5136,7 +5200,27 @@ class WLDraw {
 
     this.DrawScaleds(image, wl_game, wallDepths, fov, horizon);
     this.DrawWeapon(image, wl_game.gamestate.weapon, wl_game.gamestate.weaponframe);
+    this.ApplyPaletteShift(image, wl_game.paletteShift);
     this.id_vl.VL_Present(image);
+  }
+
+  private ApplyPaletteShift(image: ImageData, shift: SourcePaletteShift | null): void {
+    if (!shift) {
+      return;
+    }
+
+    const target: [number, number, number] = shift.kind === "red" ? [255, 0, 0] : SOURCE_WHITE_SHIFT_TARGET;
+    const steps = shift.kind === "red" ? SOURCE_RED_STEPS : SOURCE_WHITE_STEPS;
+    const amount = shift.level / steps;
+
+    for (let index = 0; index < image.data.length; index += 4) {
+      const red = image.data[index] ?? 0;
+      const green = image.data[index + 1] ?? 0;
+      const blue = image.data[index + 2] ?? 0;
+      image.data[index] = red + (target[0] - red) * amount;
+      image.data[index + 1] = green + (target[1] - green) * amount;
+      image.data[index + 2] = blue + (target[2] - blue) * amount;
+    }
   }
 
   private CastRay(wl_game: WLGame, angle: number): RayHit {
