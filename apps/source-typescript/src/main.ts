@@ -1506,6 +1506,7 @@ class WLMain {
         actors: this.wl_game.map.actors.length,
         actorsDetail: this.wl_game.map.actors.map((actor) => ({
           ambush: actor.ambush,
+          area: this.wl_game.ActorAreaNumber(actor),
           attackMode: actor.attackMode,
           distance: actor.distance,
           dir: actor.dir,
@@ -3609,12 +3610,13 @@ class WLGame {
   }
 
   private ActorAreaCanReachPlayer(actor: PortActor): boolean {
-    const actorArea = this.AreaNumberAt(Math.floor(actor.x), Math.floor(actor.y));
-    if (actorArea !== null && this.map.areasByPlayer.has(actorArea)) {
-      return true;
-    }
+    // WL_STATE.C / WL_ACT2.C use areabyplayer[] as a hard gate for sight and shooting.
+    const actorArea = this.ActorAreaNumber(actor);
+    return actorArea !== null && this.map.areasByPlayer.has(actorArea);
+  }
 
-    return this.CheckLineToActor(actor);
+  ActorAreaNumber(actor: PortActor): number | null {
+    return this.AreaNumberAt(Math.floor(actor.x), Math.floor(actor.y));
   }
 
   PlayerAreaNumber(): number | null {
