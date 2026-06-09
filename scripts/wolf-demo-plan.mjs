@@ -18,6 +18,7 @@ const plan = {
   steps: []
 };
 let target = "source-modified-dos";
+let mapIndex = null;
 let outPath = null;
 
 for (let index = 0; index < args.length; index += 1) {
@@ -35,6 +36,11 @@ for (let index = 0; index < args.length; index += 1) {
 
   if (arg === "--name") {
     plan.name = needValue(args, ++index, arg);
+    continue;
+  }
+
+  if (arg === "--map" || arg === "--level") {
+    mapIndex = numberValue(needValue(args, ++index, arg), arg);
     continue;
   }
 
@@ -136,7 +142,16 @@ if (!targetInfo) {
 }
 
 const encoded = Buffer.from(JSON.stringify(plan), "utf8").toString("base64url");
-const url = `http://127.0.0.1:${targetInfo.port}/?demo=${encoded}${plan.autoStart ? "" : "&autorun=0"}`;
+const query = new URLSearchParams({ demo: encoded });
+if (!plan.autoStart) {
+  query.set("autorun", "0");
+}
+
+if (mapIndex !== null) {
+  query.set("map", String(clampMapIndex(mapIndex)));
+}
+
+const url = `http://127.0.0.1:${targetInfo.port}/?${query.toString()}`;
 
 if (outPath) {
   const absoluteOut = path.resolve(outPath);
@@ -187,10 +202,15 @@ function numberValue(value, flag) {
   return number;
 }
 
+function clampMapIndex(value) {
+  return Math.max(0, Math.min(59, Math.trunc(value)));
+}
+
 function printHelp() {
   console.log(`
 Usage:
   node scripts/wolf-demo-plan.mjs --target source-modified-dos --name boot --wait 1200 --key Enter:90 --wait 500 --capture menu --state --wav
+  node scripts/wolf-demo-plan.mjs --target source-typescript --map 29 --wait 600 --capture ghosts --state
 
 Targets:
   source-modified-dos   Original C/ASM DOS lane with capture hooks on port 5176
@@ -201,6 +221,8 @@ Steps:
   --key <name[:hold]>   Press and release a key
   --down <name>         Hold a key down
   --up <name>           Release a key
+  --map <index>         Load a WL6 map index, 0-59
+  --level <index>       Alias for --map
   --capture [label]     Capture a PNG at this point
   --state               Include a BIN state artifact in the latest capture
   --wav                 Include a WAV artifact in the latest capture

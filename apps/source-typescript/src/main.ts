@@ -355,6 +355,7 @@ const DIR_ANGLE_DEGREES = [0, 45, 90, 135, 180, 225, 270, 315, 360] as const;
 // WL_DEF.H sprite enum values for WL6 with the SPEAR branches disabled.
 const ACTOR_SPRITES = {
   BLINKY_W1: 288,
+  BLINKY_W2: 289,
   BOSS_DEAD: 303,
   BOSS_DIE1: 304,
   BOSS_DIE2: 305,
@@ -364,6 +365,7 @@ const ACTOR_SPRITES = {
   BOSS_W3: 298,
   BOSS_W4: 299,
   CLYDE_W1: 292,
+  CLYDE_W2: 293,
   DOG_DEAD: 134,
   DOG_DIE_1: 131,
   DOG_DIE_2: 132,
@@ -436,6 +438,7 @@ const ACTOR_SPRITES = {
   HITLER_W3: 347,
   HITLER_W4: 348,
   INKY_W1: 294,
+  INKY_W2: 295,
   MECHA_DEAD: 341,
   MECHA_DIE1: 342,
   MECHA_DIE2: 343,
@@ -476,6 +479,7 @@ const ACTOR_SPRITES = {
   OFC_W3_1: 262,
   OFC_W4_1: 270,
   PINKY_W1: 290,
+  PINKY_W2: 291,
   SCHABB_DEAD: 316,
   SCHABB_DIE1: 313,
   SCHABB_DIE2: 314,
@@ -529,6 +533,24 @@ const ACTOR_GHOST_SPRITES: Record<string, number> = {
   clyde: ACTOR_SPRITES.CLYDE_W1,
   inky: ACTOR_SPRITES.INKY_W1,
   pinky: ACTOR_SPRITES.PINKY_W1
+};
+const ACTOR_GHOST_STATES: Record<string, ActorStateFrame[]> = {
+  blinky: [
+    { name: "s_blinkychase1", shapenum: ACTOR_SPRITES.BLINKY_W1, tics: 10 },
+    { name: "s_blinkychase2", shapenum: ACTOR_SPRITES.BLINKY_W2, tics: 10 }
+  ],
+  clyde: [
+    { name: "s_clydechase1", shapenum: ACTOR_SPRITES.CLYDE_W1, tics: 10 },
+    { name: "s_clydechase2", shapenum: ACTOR_SPRITES.CLYDE_W2, tics: 10 }
+  ],
+  inky: [
+    { name: "s_inkychase1", shapenum: ACTOR_SPRITES.INKY_W1, tics: 10 },
+    { name: "s_inkychase2", shapenum: ACTOR_SPRITES.INKY_W2, tics: 10 }
+  ],
+  pinky: [
+    { name: "s_pinkychase1", shapenum: ACTOR_SPRITES.PINKY_W1, tics: 10 },
+    { name: "s_pinkychase2", shapenum: ACTOR_SPRITES.PINKY_W2, tics: 10 }
+  ]
 };
 const ACTOR_PAIN_STATES: Record<string, [ActorStateFrame, ActorStateFrame]> = {
   guard: [
@@ -773,14 +795,18 @@ const CARDINAL_TILE_DELTAS = [
   { dx: -1, dy: 0 }
 ];
 const ACTOR_SIDE_DOOR_KINDS = new Set([
+  "blinky",
   "boss",
+  "clyde",
   "fat",
   "gift",
   "gretel",
   "guard",
   "hitler",
+  "inky",
   "mutant",
   "officer",
+  "pinky",
   "schabbs",
   "ss"
 ]);
@@ -880,9 +906,11 @@ class WLMain {
   private demoRunning = false;
   private lastTime = 0;
   private readonly demoPlan: DemoPlan | null;
+  private readonly startLevel: number;
 
   constructor(screenCanvas: HTMLCanvasElement, demoPlan: DemoPlan | null) {
     this.demoPlan = demoPlan;
+    this.startLevel = readStartLevel();
     this.id_vl = new IDVL(screenCanvas);
     this.id_in = new IDIN();
     this.id_pm = new IDPM();
@@ -904,13 +932,13 @@ class WLMain {
       this.id_us.US_Print(
         `PM_Startup VSWAP ${pageStatus.chunksInFile} chunks / ${pageStatus.textureCount} textures / ${pageStatus.spriteCount} sprites / palette ${pageStatus.paletteSource} / first ${pageStatus.firstSpriteVisiblePixels} px`
       );
-      const wolfMap = await this.id_ca.CA_CacheMap(0);
-      this.wl_game.SetupGameLevel(0, wolfMap);
+      const wolfMap = await this.id_ca.CA_CacheMap(this.startLevel);
+      this.wl_game.SetupGameLevel(this.startLevel, wolfMap);
       this.id_us.US_Print(
         `CA_CacheMap ${wolfMap.header.name || `map ${wolfMap.index}`} ${wolfMap.header.width}x${wolfMap.header.height}`
       );
     } catch (error) {
-      this.wl_game.SetupGameLevel(0);
+      this.wl_game.SetupGameLevel(this.startLevel);
       this.id_us.US_Print(error instanceof Error ? `Fallback map: ${error.message}` : "Fallback map");
     }
 
@@ -925,7 +953,7 @@ class WLMain {
 
   ResetGame(): void {
     this.id_sd.SD_StopDigitized();
-    this.wl_game.SetupGameLevel(0, this.id_ca.currentMap);
+    this.wl_game.SetupGameLevel(this.startLevel, this.id_ca.currentMap);
     this.wl_play.PlayLoop(1000 / 60);
     this.id_us.US_Print("ResetGame");
     this.RenderUi();
@@ -1015,7 +1043,7 @@ class WLMain {
           x: actor.x,
           y: actor.y
         })),
-        killedActors: this.wl_game.map.actors.filter((actor) => !actor.shootable && actor.kind !== "dead_guard").length,
+        killedActors: this.wl_game.gamestate.killcount,
         shootableActors: this.wl_game.map.actors.filter((actor) => actor.shootable).length,
         blockingStatics: this.wl_game.map.blockingStaticKeys.size,
         collectedBonuses: this.wl_game.map.statics.filter((stat) => stat.collected).length,
@@ -1392,6 +1420,8 @@ class WLGame {
       this.MovePainState(actor, tics);
     } else if (actor.mode === "attack") {
       this.MoveAttackState(actor, tics);
+    } else if (actor.mode === "ghost") {
+      this.MoveGhostState(actor, tics);
     } else if (actor.mode === "boss" || actor.mode === "stand") {
       this.T_Stand(actor, tics);
     } else if (actor.mode === "patrol" || actor.mode === "chase") {
@@ -1433,6 +1463,19 @@ class WLGame {
     if (actor.stateTics <= 0) {
       this.StartChaseState(actor, actor.stateTics);
     }
+  }
+
+  private MoveGhostState(actor: PortActor, tics: number): void {
+    const sequence = ACTOR_GHOST_STATES[actor.kind];
+    if (sequence) {
+      actor.stateTics -= tics;
+      while (actor.stateTics <= 0) {
+        const nextIndex = (actor.stateIndex + 1) % sequence.length;
+        this.SetActorSequenceState(actor, sequence, nextIndex, "ghost", actor.stateTics);
+      }
+    }
+
+    this.T_Ghosts(actor, tics);
   }
 
   private MoveAttackState(actor: PortActor, tics: number): void {
@@ -1526,7 +1569,7 @@ class WLGame {
       }
 
       if (actor.distance > 0 && move < actor.distance) {
-        this.MoveObj(actor, move);
+        this.MoveObj(actor, move, tics);
         break;
       }
 
@@ -1578,7 +1621,7 @@ class WLGame {
       }
 
       if (actor.distance > 0 && move < actor.distance) {
-        this.MoveObj(actor, move);
+        this.MoveObj(actor, move, tics);
         break;
       }
 
@@ -1590,6 +1633,34 @@ class WLGame {
 
       this.SelectDodgeDir(actor);
       if (actor.dir === NODIR) {
+        return;
+      }
+    }
+  }
+
+  private T_Ghosts(actor: PortActor, tics: number): void {
+    if (actor.dir === NODIR) {
+      this.SelectChaseDir(actor);
+      if (actor.dir === NODIR) {
+        return;
+      }
+    }
+
+    let move = (actor.speed * tics) / TILEGLOBAL;
+    while (move > 0) {
+      if (actor.distance > 0 && move < actor.distance) {
+        this.MoveObj(actor, move, tics);
+        break;
+      }
+
+      actor.x = actor.targetX;
+      actor.y = actor.targetY;
+      if (actor.distance > 0) {
+        move -= actor.distance;
+      }
+
+      this.SelectChaseDir(actor);
+      if (actor.dir === NODIR || actor.distance <= 0) {
         return;
       }
     }
@@ -1632,7 +1703,7 @@ class WLGame {
       }
 
       if (move < actor.distance) {
-        this.MoveObj(actor, move);
+        this.MoveObj(actor, move, tics);
         break;
       }
 
@@ -1646,15 +1717,27 @@ class WLGame {
     }
   }
 
-  private MoveObj(actor: PortActor, move: number): void {
+  private MoveObj(actor: PortActor, move: number, tics: number): void {
     const delta = DIRECTION_DELTAS[actor.dir];
     if (!delta) {
       return;
     }
 
+    const previousX = actor.x;
+    const previousY = actor.y;
     actor.x += delta.dx * move;
     actor.y += delta.dy * move;
     actor.distance -= move;
+
+    if (this.ActorTouchesPlayer(actor) && this.ActorAreaCanReachPlayer(actor)) {
+      if (actor.mode === "ghost") {
+        this.TakeDamage(tics * 2);
+      }
+
+      actor.x = previousX;
+      actor.y = previousY;
+      actor.distance += move;
+    }
   }
 
   private SelectPathDir(actor: PortActor): void {
@@ -2258,6 +2341,15 @@ class WLGame {
     const playerTileX = Math.floor(this.gamestate.x);
     const playerTileY = Math.floor(this.gamestate.y);
     return Math.max(Math.abs(Math.floor(actor.x) - playerTileX), Math.abs(Math.floor(actor.y) - playerTileY));
+  }
+
+  private ActorTouchesPlayer(actor: PortActor): boolean {
+    const actorCenterX = actor.x + 0.5;
+    const actorCenterY = actor.y + 0.5;
+    return (
+      Math.abs(actorCenterX - this.gamestate.x) <= MINACTORDIST_TILES &&
+      Math.abs(actorCenterY - this.gamestate.y) <= MINACTORDIST_TILES
+    );
   }
 
   private ActorWithinDogJumpRange(actor: PortActor, move: number): boolean {
@@ -3642,7 +3734,14 @@ function initialActorState(
   mode: PortActor["mode"],
   shapenum: number | null = null
 ): Pick<PortActor, "stateIndex" | "stateName" | "stateShapenum" | "stateTics"> {
-  const sequence = mode === "patrol" ? ACTOR_PATROL_STATES[kind] : mode === "chase" ? ACTOR_CHASE_STATES[kind] : null;
+  const sequence =
+    mode === "patrol"
+      ? ACTOR_PATROL_STATES[kind]
+      : mode === "chase"
+        ? ACTOR_CHASE_STATES[kind]
+        : mode === "ghost"
+          ? ACTOR_GHOST_STATES[kind]
+          : null;
   const firstFrame = sequence?.[0];
   if (firstFrame) {
     return {
@@ -3706,7 +3805,7 @@ function initialActorAwareness(ambush = false): Pick<PortActor, "ambush" | "firs
 }
 
 function actorBaseSpeed(kind: string): number {
-  return kind === "dog" ? SPDDOG : SPDPATROL;
+  return kind === "dog" || ACTOR_GHOST_STATES[kind] ? SPDDOG : SPDPATROL;
 }
 
 function actorChaseSpeed(kind: string, currentSpeed: number): number {
@@ -3883,7 +3982,7 @@ function actorFromInfoTile(
   if (ghostKind) {
     return {
       attackMode: false,
-      dir: NODIR,
+      dir: 0,
       hitpoints: actorHitpoints(ghostKind, difficulty),
       kind: ghostKind,
       mode: "ghost",
@@ -4106,7 +4205,7 @@ function actorSpriteDescriptor(actor: PortActor, playerAngle: number): ActorSpri
   }
 
   if (actor.mode === "ghost") {
-    const shapenum = ACTOR_GHOST_SPRITES[actor.kind];
+    const shapenum = actor.stateShapenum ?? ACTOR_GHOST_SPRITES[actor.kind];
     return shapenum === undefined
       ? null
       : {
@@ -4419,6 +4518,17 @@ function readDemoPlan(): DemoPlan | null {
     statusLine.textContent = "Invalid demo plan";
     return null;
   }
+}
+
+function readStartLevel(): number {
+  const params = new URLSearchParams(window.location.search);
+  const rawLevel = params.get("map") ?? params.get("level");
+  const level = rawLevel === null ? 0 : Number(rawLevel);
+  if (!Number.isInteger(level)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.min(59, level));
 }
 
 function normalizeDemoPlan(value: unknown): DemoPlan | null {
