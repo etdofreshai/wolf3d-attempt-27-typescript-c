@@ -1497,6 +1497,7 @@ class WLMain {
       })),
       madeNoise: this.wl_game.madeNoise,
       facecount: this.wl_game.facecount,
+      gotgatgun: this.wl_game.gotgatgun,
       anglefrac: this.wl_game.anglefrac,
       thrustSpeed: this.wl_game.thrustSpeed,
       damage: {
@@ -1756,6 +1757,7 @@ class WLPlay {
 class WLGame {
   anglefrac = 0;
   facecount = 0;
+  gotgatgun = false;
   map = createFallbackMap();
   madeNoise = false;
   thrustSpeed = 0;
@@ -1849,6 +1851,7 @@ class WLGame {
     this.levelRatios = createLevelRatios();
     this.anglefrac = 0;
     this.facecount = 0;
+    this.gotgatgun = false;
     this.lastAttacker = null;
     this.killer = null;
     this.madeNoise = false;
@@ -1933,6 +1936,7 @@ class WLGame {
 
     this.gamestate.angle = normalizeAngle(spawn.angle);
     this.anglefrac = 0;
+    this.gotgatgun = false;
     this.gamestate.attackcount = 0;
     this.gamestate.attackframe = 0;
     this.attackButtonHeld = false;
@@ -3489,6 +3493,7 @@ class WLGame {
 
   HealSelf(points: number): void {
     this.gamestate.health = Math.min(MAX_HEALTH, this.gamestate.health + points);
+    this.gotgatgun = false;
   }
 
   IsWall(x: number, y: number): boolean {
@@ -4091,6 +4096,7 @@ class WLGame {
       this.SetPlayState("ex_died");
       this.killer = this.lastAttacker;
     }
+    this.gotgatgun = false;
   }
 
   private CheckVictoryTile(): void {
@@ -4524,6 +4530,8 @@ class WLGame {
         break;
       case "bo_chaingun":
         this.GiveWeapon(WP_CHAINGUN);
+        this.facecount = 0;
+        this.gotgatgun = true;
         break;
       case "bo_fullheal":
         this.HealSelf(99);
