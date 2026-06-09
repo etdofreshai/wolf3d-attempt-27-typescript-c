@@ -3952,7 +3952,12 @@ class WLGame {
       return;
     }
 
-    const dist = this.ActorTileDistance(target);
+    // WL_AGENT.C GunAttack picks the nearest centered FL_VISABLE target before tracing CheckLine.
+    if (!this.CheckLineToActor(target.actor)) {
+      return;
+    }
+
+    const dist = this.ActorTileDistance(target.actor);
     let damage = 0;
     if (dist < 2) {
       damage = Math.floor(this.US_RndT() / 4);
@@ -3966,7 +3971,7 @@ class WLGame {
       damage = Math.floor(this.US_RndT() / 6);
     }
 
-    this.DamageActor(target, damage);
+    this.DamageActor(target.actor, damage);
   }
 
   private RunKnifeAttackFrame(): void {
@@ -3976,22 +3981,21 @@ class WLGame {
       return;
     }
 
-    const dx = target.x + 0.5 - this.gamestate.x;
-    const dy = target.y + 0.5 - this.gamestate.y;
-    if (Math.hypot(dx, dy) > KNIFE_RANGE_TILES) {
+    // WL_AGENT.C KnifeAttack does not call CheckLine; it only checks FL_VISABLE, screen center, and transx range.
+    if (target.depth > KNIFE_RANGE_TILES) {
       return;
     }
 
-    this.DamageActor(target, this.US_RndT() >> 4);
+    this.DamageActor(target.actor, this.US_RndT() >> 4);
   }
 
-  private TargetActorInCrosshair(): PortActor | null {
+  private TargetActorInCrosshair(): { actor: PortActor; depth: number } | null {
     const forwardX = Math.cos(this.gamestate.angle);
     const forwardY = Math.sin(this.gamestate.angle);
     const rightX = -forwardY;
     const rightY = forwardX;
     const projectionScale = SCREEN_WIDTH / (2 * Math.tan(COMBAT_FOV / 2));
-    let bestActor: PortActor | null = null;
+    let bestTarget: { actor: PortActor; depth: number } | null = null;
     let bestDepth = Number.POSITIVE_INFINITY;
 
     for (const actor of this.map.actors) {
@@ -4012,13 +4016,13 @@ class WLGame {
         continue;
       }
 
-      if (depth < bestDepth && this.CheckLineToActor(actor)) {
-        bestActor = actor;
+      if (depth < bestDepth) {
+        bestTarget = { actor, depth };
         bestDepth = depth;
       }
     }
 
-    return bestActor;
+    return bestTarget;
   }
 
   private SightPlayer(actor: PortActor, tics: number): boolean {
