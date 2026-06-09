@@ -86,7 +86,7 @@ type PortActor = {
   dir: number;
   hitpoints: number;
   kind: string;
-  mode: "boss" | "dead" | "dying" | "ghost" | "patrol" | "stand";
+  mode: "boss" | "chase" | "dead" | "dying" | "ghost" | "pain" | "patrol" | "stand";
   shootable: boolean;
   stateIndex: number;
   stateName: string;
@@ -368,6 +368,8 @@ const ACTOR_SPRITES = {
   GRD_DIE_1: 91,
   GRD_DIE_2: 92,
   GRD_DIE_3: 93,
+  GRD_PAIN_1: 90,
+  GRD_PAIN_2: 94,
   GRD_S_1: 50,
   GRD_W1_1: 58,
   GRETEL_DEAD: 392,
@@ -395,6 +397,8 @@ const ACTOR_SPRITES = {
   MUT_DIE_2: 229,
   MUT_DIE_3: 230,
   MUT_DIE_4: 232,
+  MUT_PAIN_1: 227,
+  MUT_PAIN_2: 231,
   MUT_S_1: 187,
   MUT_W1_1: 195,
   OFC_DEAD: 284,
@@ -402,6 +406,8 @@ const ACTOR_SPRITES = {
   OFC_DIE_2: 280,
   OFC_DIE_3: 281,
   OFC_DIE_4: 283,
+  OFC_PAIN_1: 278,
+  OFC_PAIN_2: 282,
   OFC_S_1: 238,
   OFC_W1_1: 246,
   PINKY_W1: 290,
@@ -414,6 +420,8 @@ const ACTOR_SPRITES = {
   SS_DIE_1: 179,
   SS_DIE_2: 180,
   SS_DIE_3: 181,
+  SS_PAIN_1: 178,
+  SS_PAIN_2: 182,
   SS_S_1: 138,
   SS_W1_1: 146
 } as const;
@@ -431,6 +439,7 @@ const ACTOR_PATROL_SPRITES: Record<string, number> = {
   officer: ACTOR_SPRITES.OFC_W1_1,
   ss: ACTOR_SPRITES.SS_W1_1
 };
+const ACTOR_ROTATING_KINDS = new Set(["dog", "guard", "mutant", "officer", "ss"]);
 const ACTOR_BOSS_SPRITES: Record<string, number> = {
   boss: ACTOR_SPRITES.BOSS_W1,
   fake_hitler: ACTOR_SPRITES.FAKE_W1,
@@ -446,6 +455,24 @@ const ACTOR_GHOST_SPRITES: Record<string, number> = {
   clyde: ACTOR_SPRITES.CLYDE_W1,
   inky: ACTOR_SPRITES.INKY_W1,
   pinky: ACTOR_SPRITES.PINKY_W1
+};
+const ACTOR_PAIN_STATES: Record<string, [ActorStateFrame, ActorStateFrame]> = {
+  guard: [
+    { name: "s_grdpain", shapenum: ACTOR_SPRITES.GRD_PAIN_1, tics: 10 },
+    { name: "s_grdpain1", shapenum: ACTOR_SPRITES.GRD_PAIN_2, tics: 10 }
+  ],
+  mutant: [
+    { name: "s_mutpain", shapenum: ACTOR_SPRITES.MUT_PAIN_1, tics: 10 },
+    { name: "s_mutpain1", shapenum: ACTOR_SPRITES.MUT_PAIN_2, tics: 10 }
+  ],
+  officer: [
+    { name: "s_ofcpain", shapenum: ACTOR_SPRITES.OFC_PAIN_1, tics: 10 },
+    { name: "s_ofcpain1", shapenum: ACTOR_SPRITES.OFC_PAIN_2, tics: 10 }
+  ],
+  ss: [
+    { name: "s_sspain", shapenum: ACTOR_SPRITES.SS_PAIN_1, tics: 10 },
+    { name: "s_sspain1", shapenum: ACTOR_SPRITES.SS_PAIN_2, tics: 10 }
+  ]
 };
 const ACTOR_DEATH_STATES: Record<string, ActorStateFrame[]> = {
   boss: deathFrames([
@@ -1180,7 +1207,15 @@ class WLGame {
   }
 
   private MoveActorState(actor: PortActor, tics: number): void {
-    if (actor.mode !== "dying" || actor.stateTics <= 0) {
+    if (actor.mode === "dying") {
+      this.MoveDeathState(actor, tics);
+    } else if (actor.mode === "pain") {
+      this.MovePainState(actor, tics);
+    }
+  }
+
+  private MoveDeathState(actor: PortActor, tics: number): void {
+    if (actor.stateTics <= 0) {
       return;
     }
 
@@ -1196,6 +1231,17 @@ class WLGame {
       if (nextIndex === sequence.length - 1) {
         return;
       }
+    }
+  }
+
+  private MovePainState(actor: PortActor, tics: number): void {
+    if (actor.stateTics <= 0) {
+      return;
+    }
+
+    actor.stateTics -= tics;
+    if (actor.stateTics <= 0) {
+      this.StartChaseState(actor, actor.stateTics);
     }
   }
 
@@ -1471,14 +1517,19 @@ class WLGame {
       return;
     }
 
-    const actualDamage = actor.attackMode ? damage : damage * 2;
+    const wasAttackMode = actor.attackMode;
+    const actualDamage = wasAttackMode ? damage : damage * 2;
     actor.hitpoints -= actualDamage;
     if (actor.hitpoints <= 0) {
       this.KillActor(actor);
       return;
     }
 
-    actor.attackMode = true;
+    if (!wasAttackMode) {
+      this.FirstSighting(actor);
+    }
+
+    this.StartPainState(actor);
   }
 
   private KillActor(actor: PortActor): void {
@@ -1532,6 +1583,40 @@ class WLGame {
     }
 
     this.NewActorState(actor, sequence, 0);
+  }
+
+  private FirstSighting(actor: PortActor): void {
+    actor.attackMode = true;
+    this.StartChaseState(actor);
+  }
+
+  private StartChaseState(actor: PortActor, carry = 0): void {
+    const shapenum =
+      ACTOR_PATROL_SPRITES[actor.kind] ?? ACTOR_BOSS_SPRITES[actor.kind] ?? ACTOR_GHOST_SPRITES[actor.kind];
+    if (shapenum === undefined) {
+      return;
+    }
+
+    actor.mode = "chase";
+    actor.stateIndex = 0;
+    actor.stateName = `s_${actorStatePrefix(actor.kind)}chase1`;
+    actor.stateShapenum = shapenum;
+    actor.stateTics = Math.max(0, 10 + carry);
+  }
+
+  private StartPainState(actor: PortActor): void {
+    const painStates = ACTOR_PAIN_STATES[actor.kind];
+    if (!painStates) {
+      return;
+    }
+
+    const stateIndex = actor.hitpoints & 1 ? 0 : 1;
+    const frame = painStates[stateIndex];
+    actor.mode = "pain";
+    actor.stateIndex = stateIndex;
+    actor.stateName = frame.name;
+    actor.stateShapenum = frame.shapenum;
+    actor.stateTics = frame.tics;
   }
 
   private NewActorState(actor: PortActor, sequence: ActorStateFrame[], index: number, carry = 0): void {
@@ -3008,6 +3093,13 @@ function actorSpriteDescriptor(actor: PortActor, playerAngle: number): ActorSpri
     };
   }
 
+  if (actor.mode === "pain") {
+    return {
+      rotate: false,
+      shapenum: actor.stateShapenum ?? ACTOR_STAND_SPRITES[actor.kind] ?? ACTOR_SPRITES.GRD_S_1
+    };
+  }
+
   if (actor.mode === "ghost") {
     const shapenum = ACTOR_GHOST_SPRITES[actor.kind];
     return shapenum === undefined
@@ -3016,6 +3108,18 @@ function actorSpriteDescriptor(actor: PortActor, playerAngle: number): ActorSpri
           rotate: false,
           shapenum
         };
+  }
+
+  if (actor.mode === "chase") {
+    const base = actor.stateShapenum ?? ACTOR_PATROL_SPRITES[actor.kind] ?? ACTOR_BOSS_SPRITES[actor.kind];
+    if (base === undefined) {
+      return null;
+    }
+
+    return {
+      rotate: ACTOR_ROTATING_KINDS.has(actor.kind),
+      shapenum: ACTOR_ROTATING_KINDS.has(actor.kind) ? base + calcActorRotate(actor, playerAngle) : base
+    };
   }
 
   if (actor.mode === "boss") {
