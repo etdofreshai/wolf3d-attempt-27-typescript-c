@@ -1205,6 +1205,16 @@ class WLMain {
     return applied;
   }
 
+  ApplyDiedTransition(): boolean {
+    const applied = this.wl_game.ApplyDiedTransition();
+    if (applied) {
+      this.id_us.US_Print(`ApplyDiedTransition lives ${this.wl_game.gamestate.lives}`);
+    }
+
+    this.RenderUi();
+    return applied;
+  }
+
   async RunDemoPlan(): Promise<void> {
     if (!this.demoPlan || this.demoRunning) {
       return;
@@ -1540,6 +1550,7 @@ class WLGame {
   playstate: SourcePlayState = "ex_stillplaying";
   private attackButtonHeld = false;
   private completedLevelTransitionApplied = false;
+  private diedTransitionApplied = false;
   private rndIndex = 0;
 
   readonly gamestate = {
@@ -1652,6 +1663,7 @@ class WLGame {
     this.gamestate.attackframe = 0;
     this.attackButtonHeld = false;
     this.completedLevelTransitionApplied = false;
+    this.diedTransitionApplied = false;
     this.madeNoise = false;
     this.lastAttacker = null;
     this.killer = null;
@@ -1856,6 +1868,31 @@ class WLGame {
 
     this.gamestate.level = this.gamestate.episode * 10 + this.gamestate.mapon;
     this.completedLevelTransitionApplied = true;
+    return true;
+  }
+
+  ApplyDiedTransition(): boolean {
+    if (this.diedTransitionApplied || this.playstate !== "ex_died") {
+      return false;
+    }
+
+    // WL_GAME.C Died() removes the weapon during the death view, then spends a life.
+    this.gamestate.weapon = -1;
+    this.gamestate.lives -= 1;
+
+    if (this.gamestate.lives > -1) {
+      this.gamestate.health = MAX_HEALTH;
+      this.gamestate.weapon = WP_PISTOL;
+      this.gamestate.bestweapon = WP_PISTOL;
+      this.gamestate.chosenweapon = WP_PISTOL;
+      this.gamestate.ammo = STARTAMMO;
+      this.gamestate.keys = 0;
+      this.gamestate.attackframe = 0;
+      this.gamestate.attackcount = 0;
+      this.gamestate.weaponframe = 0;
+    }
+
+    this.diedTransitionApplied = true;
     return true;
   }
 
@@ -3403,6 +3440,7 @@ class WLGame {
     this.playstate = playstate;
     this.gamestate.playstate = playstate;
     this.completedLevelTransitionApplied = false;
+    this.diedTransitionApplied = false;
   }
 
   private DamageSource(attacker: PortActor | PortProjectile): DamageSource {
@@ -4633,6 +4671,7 @@ function startSourceTypescriptApp(): void {
   (window as Window & {
     wolf3dTypeScriptHarness?: {
       applyCompletedLevelTransition: () => boolean;
+      applyDiedTransition: () => boolean;
       exportPng: () => Promise<void>;
       exportState: () => Promise<void>;
       exportWav: () => Promise<void>;
@@ -4644,6 +4683,7 @@ function startSourceTypescriptApp(): void {
     };
   }).wolf3dTypeScriptHarness = {
     applyCompletedLevelTransition: () => wlMain.ApplyCompletedLevelTransition(),
+    applyDiedTransition: () => wlMain.ApplyDiedTransition(),
     exportPng: () => wlMain.ExportPng("harness", false),
     exportState: () => wlMain.ExportState("harness", false),
     exportWav: () => wlMain.ExportWav("harness", false),
