@@ -3115,6 +3115,10 @@ class WLGame {
   }
 
   private T_Chase(actor: PortActor, tics: number): void {
+    if (this.gamestate.victoryflag) {
+      return;
+    }
+
     if (actor.kind === "dog") {
       this.T_DogChase(actor, tics);
       return;
