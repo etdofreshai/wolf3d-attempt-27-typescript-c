@@ -470,6 +470,8 @@ const SOURCE_ANGLESCALE = 20;
 const SOURCE_BASEMOVE = 35;
 const SOURCE_FORWARD_MOVESCALE = 150;
 const SOURCE_BACK_MOVESCALE = 100;
+// WL_ACT2.C mutates the projectile bosses' second death frame when digitized sound is enabled.
+const SOURCE_DIGITIZED_BOSS_DEATH_TICS = 140;
 const SOURCE_LEVEL_RATIO_COUNT = 8;
 const SOURCE_MAX_CONTROL = 100;
 const SOURCE_MINDIST = 0x5800;
@@ -1177,7 +1179,7 @@ const ACTOR_DEATH_STATES: Record<string, ActorStateFrame[]> = {
   ]),
   fat: deathFrames([
     ["s_fatdie1", ACTOR_SPRITES.FAT_W1, 1, false, "deathScream"],
-    ["s_fatdie2", ACTOR_SPRITES.FAT_W1, 10],
+    ["s_fatdie2", ACTOR_SPRITES.FAT_W1, SOURCE_DIGITIZED_BOSS_DEATH_TICS],
     ["s_fatdie3", ACTOR_SPRITES.FAT_DIE1, 10],
     ["s_fatdie4", ACTOR_SPRITES.FAT_DIE2, 10],
     ["s_fatdie5", ACTOR_SPRITES.FAT_DIE3, 10],
@@ -1185,7 +1187,7 @@ const ACTOR_DEATH_STATES: Record<string, ActorStateFrame[]> = {
   ]),
   gift: deathFrames([
     ["s_giftdie1", ACTOR_SPRITES.GIFT_W1, 1, false, "deathScream"],
-    ["s_giftdie2", ACTOR_SPRITES.GIFT_W1, 10],
+    ["s_giftdie2", ACTOR_SPRITES.GIFT_W1, SOURCE_DIGITIZED_BOSS_DEATH_TICS],
     ["s_giftdie3", ACTOR_SPRITES.GIFT_DIE1, 10],
     ["s_giftdie4", ACTOR_SPRITES.GIFT_DIE2, 10],
     ["s_giftdie5", ACTOR_SPRITES.GIFT_DIE3, 10],
@@ -1237,7 +1239,7 @@ const ACTOR_DEATH_STATES: Record<string, ActorStateFrame[]> = {
   ]),
   schabbs: deathFrames([
     ["s_schabbdie1", ACTOR_SPRITES.SCHABB_W1, 10, false, "deathScream"],
-    ["s_schabbdie2", ACTOR_SPRITES.SCHABB_W1, 10],
+    ["s_schabbdie2", ACTOR_SPRITES.SCHABB_W1, SOURCE_DIGITIZED_BOSS_DEATH_TICS],
     ["s_schabbdie3", ACTOR_SPRITES.SCHABB_DIE1, 10],
     ["s_schabbdie4", ACTOR_SPRITES.SCHABB_DIE2, 10],
     ["s_schabbdie5", ACTOR_SPRITES.SCHABB_DIE3, 10],
