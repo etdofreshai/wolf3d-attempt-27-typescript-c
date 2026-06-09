@@ -224,7 +224,15 @@ type ActorFrameAction =
   | "startDeathCam"
   | "throwNeedle"
   | "throwRocket";
-type ActorFrameThink = "bjJump" | "bjRun";
+type ActorFrameThink =
+  | "bjJump"
+  | "bjRun"
+  | "chase"
+  | "dogChase"
+  | "fake"
+  | "ghosts"
+  | "path"
+  | "projectileBossChase";
 
 type ActorStateFrame = {
   action?: ActorFrameAction;
@@ -962,20 +970,20 @@ const ACTOR_GHOST_SPRITES: Record<string, number> = {
 };
 const ACTOR_GHOST_STATES: Record<string, ActorStateFrame[]> = {
   blinky: [
-    { name: "s_blinkychase1", shapenum: ACTOR_SPRITES.BLINKY_W1, tics: 10 },
-    { name: "s_blinkychase2", shapenum: ACTOR_SPRITES.BLINKY_W2, tics: 10 }
+    { name: "s_blinkychase1", shapenum: ACTOR_SPRITES.BLINKY_W1, think: "ghosts", tics: 10 },
+    { name: "s_blinkychase2", shapenum: ACTOR_SPRITES.BLINKY_W2, think: "ghosts", tics: 10 }
   ],
   clyde: [
-    { name: "s_clydechase1", shapenum: ACTOR_SPRITES.CLYDE_W1, tics: 10 },
-    { name: "s_clydechase2", shapenum: ACTOR_SPRITES.CLYDE_W2, tics: 10 }
+    { name: "s_clydechase1", shapenum: ACTOR_SPRITES.CLYDE_W1, think: "ghosts", tics: 10 },
+    { name: "s_clydechase2", shapenum: ACTOR_SPRITES.CLYDE_W2, think: "ghosts", tics: 10 }
   ],
   inky: [
-    { name: "s_inkychase1", shapenum: ACTOR_SPRITES.INKY_W1, tics: 10 },
-    { name: "s_inkychase2", shapenum: ACTOR_SPRITES.INKY_W2, tics: 10 }
+    { name: "s_inkychase1", shapenum: ACTOR_SPRITES.INKY_W1, think: "ghosts", tics: 10 },
+    { name: "s_inkychase2", shapenum: ACTOR_SPRITES.INKY_W2, think: "ghosts", tics: 10 }
   ],
   pinky: [
-    { name: "s_pinkychase1", shapenum: ACTOR_SPRITES.PINKY_W1, tics: 10 },
-    { name: "s_pinkychase2", shapenum: ACTOR_SPRITES.PINKY_W2, tics: 10 }
+    { name: "s_pinkychase1", shapenum: ACTOR_SPRITES.PINKY_W1, think: "ghosts", tics: 10 },
+    { name: "s_pinkychase2", shapenum: ACTOR_SPRITES.PINKY_W2, think: "ghosts", tics: 10 }
   ]
 };
 const ACTOR_PAIN_STATES: Record<string, [ActorStateFrame, ActorStateFrame]> = {
@@ -1143,17 +1151,17 @@ const ACTOR_PATROL_STATES: Record<string, ActorStateFrame[]> = {
 };
 const ACTOR_CHASE_STATES: Record<string, ActorStateFrame[]> = {
   boss: chaseFrames("boss", [ACTOR_SPRITES.BOSS_W1, ACTOR_SPRITES.BOSS_W2, ACTOR_SPRITES.BOSS_W3, ACTOR_SPRITES.BOSS_W4]),
-  dog: chaseFrames("dog", [ACTOR_SPRITES.DOG_W1_1, ACTOR_SPRITES.DOG_W2_1, ACTOR_SPRITES.DOG_W3_1, ACTOR_SPRITES.DOG_W4_1]),
-  fake_hitler: chaseFrames("fake", [ACTOR_SPRITES.FAKE_W1, ACTOR_SPRITES.FAKE_W2, ACTOR_SPRITES.FAKE_W3, ACTOR_SPRITES.FAKE_W4]),
-  fat: chaseFrames("fat", [ACTOR_SPRITES.FAT_W1, ACTOR_SPRITES.FAT_W2, ACTOR_SPRITES.FAT_W3, ACTOR_SPRITES.FAT_W4]),
-  gift: chaseFrames("gift", [ACTOR_SPRITES.GIFT_W1, ACTOR_SPRITES.GIFT_W2, ACTOR_SPRITES.GIFT_W3, ACTOR_SPRITES.GIFT_W4]),
+  dog: chaseFrames("dog", [ACTOR_SPRITES.DOG_W1_1, ACTOR_SPRITES.DOG_W2_1, ACTOR_SPRITES.DOG_W3_1, ACTOR_SPRITES.DOG_W4_1], undefined, "dogChase"),
+  fake_hitler: chaseFrames("fake", [ACTOR_SPRITES.FAKE_W1, ACTOR_SPRITES.FAKE_W2, ACTOR_SPRITES.FAKE_W3, ACTOR_SPRITES.FAKE_W4], undefined, "fake"),
+  fat: chaseFrames("fat", [ACTOR_SPRITES.FAT_W1, ACTOR_SPRITES.FAT_W2, ACTOR_SPRITES.FAT_W3, ACTOR_SPRITES.FAT_W4], undefined, "projectileBossChase"),
+  gift: chaseFrames("gift", [ACTOR_SPRITES.GIFT_W1, ACTOR_SPRITES.GIFT_W2, ACTOR_SPRITES.GIFT_W3, ACTOR_SPRITES.GIFT_W4], undefined, "projectileBossChase"),
   gretel: chaseFrames("gretel", [ACTOR_SPRITES.GRETEL_W1, ACTOR_SPRITES.GRETEL_W2, ACTOR_SPRITES.GRETEL_W3, ACTOR_SPRITES.GRETEL_W4]),
   guard: chaseFrames("grd", [ACTOR_SPRITES.GRD_W1_1, ACTOR_SPRITES.GRD_W2_1, ACTOR_SPRITES.GRD_W3_1, ACTOR_SPRITES.GRD_W4_1]),
   hitler: mechaChaseFrames(),
   mutant: chaseFrames("mut", [ACTOR_SPRITES.MUT_W1_1, ACTOR_SPRITES.MUT_W2_1, ACTOR_SPRITES.MUT_W3_1, ACTOR_SPRITES.MUT_W4_1]),
   officer: chaseFrames("ofc", [ACTOR_SPRITES.OFC_W1_1, ACTOR_SPRITES.OFC_W2_1, ACTOR_SPRITES.OFC_W3_1, ACTOR_SPRITES.OFC_W4_1]),
   real_hitler: chaseFrames("hitler", [ACTOR_SPRITES.HITLER_W1, ACTOR_SPRITES.HITLER_W2, ACTOR_SPRITES.HITLER_W3, ACTOR_SPRITES.HITLER_W4], [6, 4, 2, 6, 4, 2]),
-  schabbs: chaseFrames("schabb", [ACTOR_SPRITES.SCHABB_W1, ACTOR_SPRITES.SCHABB_W2, ACTOR_SPRITES.SCHABB_W3, ACTOR_SPRITES.SCHABB_W4]),
+  schabbs: chaseFrames("schabb", [ACTOR_SPRITES.SCHABB_W1, ACTOR_SPRITES.SCHABB_W2, ACTOR_SPRITES.SCHABB_W3, ACTOR_SPRITES.SCHABB_W4], undefined, "projectileBossChase"),
   ss: chaseFrames("ss", [ACTOR_SPRITES.SS_W1_1, ACTOR_SPRITES.SS_W2_1, ACTOR_SPRITES.SS_W3_1, ACTOR_SPRITES.SS_W4_1])
 };
 const ACTOR_DEATH_STATES: Record<string, ActorStateFrame[]> = {
@@ -2869,17 +2877,7 @@ class WLGame {
       this.T_Stand(actor, tics);
     } else if (actor.mode === "patrol" || actor.mode === "chase") {
       this.MoveLoopingActorState(actor, tics);
-      if (actor.mode === "patrol") {
-        this.T_Path(actor, tics);
-      } else if (actor.mode === "chase") {
-        if (actor.kind === "fake_hitler") {
-          this.T_Fake(actor, tics);
-        } else if (actor.kind === "fat" || actor.kind === "gift" || actor.kind === "schabbs") {
-          this.T_ProjectileBossChase(actor, tics);
-        } else {
-          this.T_Chase(actor, tics);
-        }
-      }
+      this.RunActorFrameThink(actor, this.CurrentActorFrame(actor), tics);
     }
   }
 
@@ -2933,7 +2931,7 @@ class WLGame {
       }
     }
 
-    this.T_Ghosts(actor, tics);
+    this.RunActorFrameThink(actor, this.CurrentActorFrame(actor), tics);
   }
 
   private MoveVictoryState(actor: PortActor, tics: number): void {
@@ -4916,9 +4914,43 @@ class WLGame {
       case "bjRun":
         this.T_BJRun(actor, tics);
         break;
+      case "chase":
+        this.T_Chase(actor, tics);
+        break;
+      case "dogChase":
+        this.T_DogChase(actor, tics);
+        break;
+      case "fake":
+        this.T_Fake(actor, tics);
+        break;
+      case "ghosts":
+        this.T_Ghosts(actor, tics);
+        break;
+      case "path":
+        this.T_Path(actor, tics);
+        break;
+      case "projectileBossChase":
+        this.T_ProjectileBossChase(actor, tics);
+        break;
       default:
         break;
     }
+  }
+
+  private CurrentActorFrame(actor: PortActor): ActorStateFrame | undefined {
+    if (actor.mode === "patrol") {
+      return ACTOR_PATROL_STATES[actor.kind]?.[actor.stateIndex];
+    }
+
+    if (actor.mode === "chase") {
+      return ACTOR_CHASE_STATES[actor.kind]?.[actor.stateIndex];
+    }
+
+    if (actor.mode === "ghost") {
+      return ACTOR_GHOST_STATES[actor.kind]?.[actor.stateIndex];
+    }
+
+    return undefined;
   }
 
   private SetActorSequenceState(
@@ -6459,25 +6491,26 @@ function scanInfoPlane(map: WolfMap, difficulty: SourceDifficulty): ScanInfoPlan
 }
 
 function pathFrames(prefix: string, walkSprites: [number, number, number, number]): ActorStateFrame[] {
-  return walkFrames(prefix, "path", walkSprites, [20, 5, 15, 20, 5, 15]);
+  return walkFrames(prefix, "path", walkSprites, [20, 5, 15, 20, 5, 15], "path");
 }
 
 function chaseFrames(
   prefix: string,
   walkSprites: [number, number, number, number],
-  tics: [number, number, number, number, number, number] = [10, 3, 8, 10, 3, 8]
+  tics: [number, number, number, number, number, number] = [10, 3, 8, 10, 3, 8],
+  think: ActorFrameThink = "chase"
 ): ActorStateFrame[] {
-  return walkFrames(prefix, "chase", walkSprites, tics);
+  return walkFrames(prefix, "chase", walkSprites, tics, think);
 }
 
 function mechaChaseFrames(): ActorStateFrame[] {
   return [
-    { action: "mechaSound", name: "s_mechachase1", shapenum: ACTOR_SPRITES.MECHA_W1, tics: 10 },
+    { action: "mechaSound", name: "s_mechachase1", shapenum: ACTOR_SPRITES.MECHA_W1, think: "chase", tics: 10 },
     { name: "s_mechachase1s", shapenum: ACTOR_SPRITES.MECHA_W1, tics: 6 },
-    { name: "s_mechachase2", shapenum: ACTOR_SPRITES.MECHA_W2, tics: 8 },
-    { action: "mechaSound", name: "s_mechachase3", shapenum: ACTOR_SPRITES.MECHA_W3, tics: 10 },
+    { name: "s_mechachase2", shapenum: ACTOR_SPRITES.MECHA_W2, think: "chase", tics: 8 },
+    { action: "mechaSound", name: "s_mechachase3", shapenum: ACTOR_SPRITES.MECHA_W3, think: "chase", tics: 10 },
     { name: "s_mechachase3s", shapenum: ACTOR_SPRITES.MECHA_W3, tics: 6 },
-    { name: "s_mechachase4", shapenum: ACTOR_SPRITES.MECHA_W4, tics: 8 }
+    { name: "s_mechachase4", shapenum: ACTOR_SPRITES.MECHA_W4, think: "chase", tics: 8 }
   ];
 }
 
@@ -6485,15 +6518,16 @@ function walkFrames(
   prefix: string,
   stateKind: "chase" | "path",
   [w1, w2, w3, w4]: [number, number, number, number],
-  [t1, t1s, t2, t3, t3s, t4]: [number, number, number, number, number, number]
+  [t1, t1s, t2, t3, t3s, t4]: [number, number, number, number, number, number],
+  think: ActorFrameThink
 ): ActorStateFrame[] {
   return [
-    { name: `s_${prefix}${stateKind}1`, shapenum: w1, tics: t1 },
+    { name: `s_${prefix}${stateKind}1`, shapenum: w1, think, tics: t1 },
     { name: `s_${prefix}${stateKind}1s`, shapenum: w1, tics: t1s },
-    { name: `s_${prefix}${stateKind}2`, shapenum: w2, tics: t2 },
-    { name: `s_${prefix}${stateKind}3`, shapenum: w3, tics: t3 },
+    { name: `s_${prefix}${stateKind}2`, shapenum: w2, think, tics: t2 },
+    { name: `s_${prefix}${stateKind}3`, shapenum: w3, think, tics: t3 },
     { name: `s_${prefix}${stateKind}3s`, shapenum: w3, tics: t3s },
-    { name: `s_${prefix}${stateKind}4`, shapenum: w4, tics: t4 }
+    { name: `s_${prefix}${stateKind}4`, shapenum: w4, think, tics: t4 }
   ];
 }
 
