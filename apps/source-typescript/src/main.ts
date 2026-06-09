@@ -359,10 +359,14 @@ const MAX_LIVES = 9;
 const MAX_SCORES = 7;
 const OPENTICS = 300;
 const RUNSPEED = 6000;
+const SOURCE_ANGLES = 360;
+const SOURCE_ANGLESCALE = 20;
 const SOURCE_BASEMOVE = 35;
 const SOURCE_FORWARD_MOVESCALE = 150;
 const SOURCE_BACK_MOVESCALE = 100;
 const SOURCE_LEVEL_RATIO_COUNT = 8;
+const SOURCE_MAX_CONTROL = 100;
+const SOURCE_MINDIST = 0x5800;
 const SOURCE_PAR_AMOUNT = 500;
 const SOURCE_PERCENT_100_BONUS = 10000;
 const SOURCE_RUNMOVE = 70;
@@ -1491,6 +1495,7 @@ class WLMain {
       })),
       madeNoise: this.wl_game.madeNoise,
       facecount: this.wl_game.facecount,
+      anglefrac: this.wl_game.anglefrac,
       thrustSpeed: this.wl_game.thrustSpeed,
       damage: {
         killer: this.wl_game.killer,
@@ -1747,6 +1752,7 @@ class WLPlay {
 }
 
 class WLGame {
+  anglefrac = 0;
   facecount = 0;
   map = createFallbackMap();
   madeNoise = false;
@@ -1838,6 +1844,7 @@ class WLGame {
     this.lastHighScoreCheck = null;
     this.lastLevelCompletion = null;
     this.levelRatios = createLevelRatios();
+    this.anglefrac = 0;
     this.facecount = 0;
     this.lastAttacker = null;
     this.killer = null;
@@ -1921,6 +1928,7 @@ class WLGame {
     }
 
     this.gamestate.angle = normalizeAngle(spawn.angle);
+    this.anglefrac = 0;
     this.gamestate.attackcount = 0;
     this.gamestate.attackframe = 0;
     this.attackButtonHeld = false;
@@ -1965,7 +1973,7 @@ class WLGame {
         return false;
       }
 
-      moved = this.ControlMovement(id_in, ticMs);
+      moved = this.ControlMovement(id_in, tics);
       if (this.gamestate.victoryflag) {
         return moved;
       }
@@ -1989,7 +1997,7 @@ class WLGame {
         this.Cmd_Fire();
       }
 
-      moved = this.ControlMovement(id_in, ticMs);
+      moved = this.ControlMovement(id_in, tics);
     }
 
     if (!attackDown) {
@@ -2029,67 +2037,44 @@ class WLGame {
     }
   }
 
-  ControlMovement(id_in: IDIN, ticMs: number): boolean {
-    const seconds = ticMs / 1000;
+  ControlMovement(id_in: IDIN, tics: number): boolean {
     const sourceMove = id_in.IN_KeyDown(RUN_KEY_CODE) ? SOURCE_RUNMOVE : SOURCE_BASEMOVE;
-    const sourceMoveScale = sourceMove / SOURCE_BASEMOVE;
-    const moveSpeed = 2.4 * seconds * sourceMoveScale;
-    const turnSpeed = 2.6 * seconds * sourceMoveScale;
+    const rightDown = id_in.IN_KeyDown(39) || id_in.IN_KeyDown(68);
+    const leftDown = id_in.IN_KeyDown(37) || id_in.IN_KeyDown(65);
+    const forwardDown = id_in.IN_KeyDown(38) || id_in.IN_KeyDown(87);
+    const backwardDown = id_in.IN_KeyDown(40) || id_in.IN_KeyDown(83);
+    const controlX = clampSourceControl(
+      (rightDown ? sourceMove * tics : 0) - (leftDown ? sourceMove * tics : 0),
+      tics
+    );
+    const controlY = clampSourceControl(
+      (backwardDown ? sourceMove * tics : 0) - (forwardDown ? sourceMove * tics : 0),
+      tics
+    );
     let moved = false;
     this.thrustSpeed = 0;
 
-    const side =
-      (id_in.IN_KeyDown(39) || id_in.IN_KeyDown(68) ? 1 : 0) -
-      (id_in.IN_KeyDown(37) || id_in.IN_KeyDown(65) ? 1 : 0);
     const strafeDown = id_in.IN_KeyDown(STRAFE_KEY_CODE);
     if (strafeDown) {
-      if (side !== 0) {
-        this.thrustSpeed += sourceMove * SOURCE_FORWARD_MOVESCALE;
-        const strafeAngle = this.gamestate.angle + (side > 0 ? Math.PI / 2 : -Math.PI / 2);
-        const nextX = this.gamestate.x + Math.cos(strafeAngle) * moveSpeed;
-        const nextY = this.gamestate.y + Math.sin(strafeAngle) * moveSpeed;
-        if (!this.IsWall(nextX, this.gamestate.y)) {
-          this.gamestate.x = nextX;
-        }
-
-        if (!this.IsWall(this.gamestate.x, nextY)) {
-          this.gamestate.y = nextY;
-        }
-
-        moved = true;
+      if (controlX > 0) {
+        moved = this.Thrust(this.gamestate.angle + Math.PI / 2, controlX * SOURCE_FORWARD_MOVESCALE) || moved;
+      } else if (controlX < 0) {
+        moved = this.Thrust(this.gamestate.angle - Math.PI / 2, -controlX * SOURCE_FORWARD_MOVESCALE) || moved;
       }
     } else {
-      if (side < 0) {
-        this.gamestate.angle -= turnSpeed;
-        moved = true;
-      }
-
-      if (side > 0) {
-        this.gamestate.angle += turnSpeed;
+      this.anglefrac += controlX;
+      const angleUnits = Math.trunc(this.anglefrac / SOURCE_ANGLESCALE);
+      this.anglefrac -= angleUnits * SOURCE_ANGLESCALE;
+      if (angleUnits !== 0) {
+        this.gamestate.angle += sourceAngleUnitsToRadians(angleUnits);
         moved = true;
       }
     }
 
-    const forward =
-      (id_in.IN_KeyDown(38) || id_in.IN_KeyDown(87) ? 1 : 0) -
-      (id_in.IN_KeyDown(40) || id_in.IN_KeyDown(83) ? 1 : 0);
-
-    if (forward !== 0) {
-      this.thrustSpeed +=
-        sourceMove * (forward > 0 ? SOURCE_FORWARD_MOVESCALE : SOURCE_BACK_MOVESCALE);
-      const playerMoveSpeed =
-        moveSpeed * (forward > 0 ? 1 : SOURCE_BACK_MOVESCALE / SOURCE_FORWARD_MOVESCALE);
-      const nextX = this.gamestate.x + Math.cos(this.gamestate.angle) * playerMoveSpeed * forward;
-      const nextY = this.gamestate.y + Math.sin(this.gamestate.angle) * playerMoveSpeed * forward;
-      if (!this.IsWall(nextX, this.gamestate.y)) {
-        this.gamestate.x = nextX;
-      }
-
-      if (!this.IsWall(this.gamestate.x, nextY)) {
-        this.gamestate.y = nextY;
-      }
-
-      moved = true;
+    if (controlY < 0) {
+      moved = this.Thrust(this.gamestate.angle, -controlY * SOURCE_FORWARD_MOVESCALE) || moved;
+    } else if (controlY > 0) {
+      moved = this.Thrust(this.gamestate.angle + Math.PI, controlY * SOURCE_BACK_MOVESCALE) || moved;
     }
 
     this.gamestate.angle = normalizeAngle(this.gamestate.angle);
@@ -2098,6 +2083,42 @@ class WLGame {
     this.TryPickupBonusAt(Math.floor(this.gamestate.x), Math.floor(this.gamestate.y));
     this.gamestate.ticcount += 1;
     return moved;
+  }
+
+  private Thrust(angle: number, speed: number): boolean {
+    this.thrustSpeed += speed;
+    const clippedSpeed = speed >= SOURCE_MINDIST * 2 ? SOURCE_MINDIST * 2 - 1 : speed;
+    const moveScale = clippedSpeed / TILEGLOBAL;
+    return this.ClipMove(Math.cos(angle) * moveScale, Math.sin(angle) * moveScale);
+  }
+
+  private ClipMove(xmove: number, ymove: number): boolean {
+    const baseX = this.gamestate.x;
+    const baseY = this.gamestate.y;
+    const targetX = baseX + xmove;
+    const targetY = baseY + ymove;
+
+    if (!this.IsWall(targetX, targetY)) {
+      this.gamestate.x = targetX;
+      this.gamestate.y = targetY;
+      return true;
+    }
+
+    if (!this.IsWall(targetX, baseY)) {
+      this.gamestate.x = targetX;
+      this.gamestate.y = baseY;
+      return true;
+    }
+
+    if (!this.IsWall(baseX, targetY)) {
+      this.gamestate.x = baseX;
+      this.gamestate.y = targetY;
+      return true;
+    }
+
+    this.gamestate.x = baseX;
+    this.gamestate.y = baseY;
+    return false;
   }
 
   Cmd_Fire(): void {
@@ -6622,6 +6643,15 @@ function delay(milliseconds: number): Promise<void> {
 
 function ticsFromMilliseconds(milliseconds: number): number {
   return Math.max(1, Math.round((milliseconds * SOURCE_TICS_PER_SECOND) / 1000));
+}
+
+function clampSourceControl(value: number, tics: number): number {
+  const max = SOURCE_MAX_CONTROL * tics;
+  return Math.max(-max, Math.min(max, value));
+}
+
+function sourceAngleUnitsToRadians(angleUnits: number): number {
+  return (angleUnits / SOURCE_ANGLES) * Math.PI * 2;
 }
 
 function normalizeAngle(angle: number): number {
