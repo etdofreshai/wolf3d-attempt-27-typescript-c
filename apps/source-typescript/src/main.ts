@@ -379,6 +379,7 @@ const SPDDOG = 1500;
 const SPDPATROL = 512;
 const STARTAMMO = 8;
 const TILEGLOBAL = 65536;
+const SOURCE_PLAYERSIZE_TILES = SOURCE_MINDIST / TILEGLOBAL;
 const TILE_DISTANCE = 1;
 const MINACTORDIST_TILES = 0x10000 / TILEGLOBAL;
 const PROJECTILE_PROBE_TILES = 0x2000 / TILEGLOBAL;
@@ -2098,19 +2099,19 @@ class WLGame {
     const targetX = baseX + xmove;
     const targetY = baseY + ymove;
 
-    if (!this.IsWall(targetX, targetY)) {
+    if (this.TryPlayerMove(targetX, targetY)) {
       this.gamestate.x = targetX;
       this.gamestate.y = targetY;
       return true;
     }
 
-    if (!this.IsWall(targetX, baseY)) {
+    if (this.TryPlayerMove(targetX, baseY)) {
       this.gamestate.x = targetX;
       this.gamestate.y = baseY;
       return true;
     }
 
-    if (!this.IsWall(baseX, targetY)) {
+    if (this.TryPlayerMove(baseX, targetY)) {
       this.gamestate.x = baseX;
       this.gamestate.y = targetY;
       return true;
@@ -2119,6 +2120,46 @@ class WLGame {
     this.gamestate.x = baseX;
     this.gamestate.y = baseY;
     return false;
+  }
+
+  private TryPlayerMove(x: number, y: number): boolean {
+    const xl = Math.floor(x - SOURCE_PLAYERSIZE_TILES);
+    const xh = Math.floor(x + SOURCE_PLAYERSIZE_TILES);
+    const yl = Math.floor(y - SOURCE_PLAYERSIZE_TILES);
+    const yh = Math.floor(y + SOURCE_PLAYERSIZE_TILES);
+
+    for (let tileY = yl; tileY <= yh; tileY += 1) {
+      for (let tileX = xl; tileX <= xh; tileX += 1) {
+        if (this.GetTile(tileX, tileY) !== 0 || this.map.blockingStaticKeys.has(tileKey(tileX, tileY))) {
+          return false;
+        }
+      }
+    }
+
+    for (const actor of this.map.actors) {
+      if (!actor.shootable) {
+        continue;
+      }
+
+      const actorTileX = Math.floor(actor.x);
+      const actorTileY = Math.floor(actor.y);
+      if (actorTileX < xl - 1 || actorTileX > xh + 1 || actorTileY < yl - 1 || actorTileY > yh + 1) {
+        continue;
+      }
+
+      const actorCenterX = actor.x + 0.5;
+      const actorCenterY = actor.y + 0.5;
+      if (
+        x - actorCenterX >= -MINACTORDIST_TILES &&
+        x - actorCenterX <= MINACTORDIST_TILES &&
+        y - actorCenterY >= -MINACTORDIST_TILES &&
+        y - actorCenterY <= MINACTORDIST_TILES
+      ) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   Cmd_Fire(): void {
