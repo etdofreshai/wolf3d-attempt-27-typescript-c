@@ -209,6 +209,7 @@ type ActorFrameAction =
   | "bite"
   | "bjDone"
   | "bjYell"
+  | "deathScream"
   | "fakeFire"
   | "hitlerMorph"
   | "shoot"
@@ -288,6 +289,7 @@ type DecodedTexturePage = {
 type PageKind = "sound" | "sprite" | "texture";
 type PaletteSource = "fallback" | "GAMEPAL.OBJ";
 type SourceSoundName =
+  | "AHHHGSND"
   | "ATKGATLINGSND"
   | "ATKKNIFESND"
   | "ATKMACHINEGUNSND"
@@ -299,12 +301,24 @@ type SourceSoundName =
   | "BONUS1UPSND"
   | "BOSSFIRESND"
   | "CLOSEDOORSND"
+  | "DEATHSCREAM1SND"
+  | "DEATHSCREAM2SND"
+  | "DEATHSCREAM3SND"
+  | "DEATHSCREAM4SND"
+  | "DEATHSCREAM5SND"
+  | "DEATHSCREAM6SND"
+  | "DEATHSCREAM7SND"
+  | "DEATHSCREAM8SND"
+  | "DEATHSCREAM9SND"
   | "DIESND"
   | "DONOTHINGSND"
   | "DOGBARKSND"
   | "DOGATTACKSND"
+  | "DOGDEATHSND"
+  | "DONNERSND"
   | "EINESND"
   | "ERLAUBENSND"
+  | "EVASND"
   | "FLAMETHROWERSND"
   | "GETAMMOSND"
   | "GETGATLINGSND"
@@ -312,18 +326,26 @@ type SourceSoundName =
   | "GETMACHINESND"
   | "GUTENTAGSND"
   | "HALTSND"
+  | "HITLERHASND"
   | "HITWALLSND"
   | "HEALTH1SND"
   | "HEALTH2SND"
   | "KEINSND"
   | "LEVELDONESND"
+  | "LEBENSND"
+  | "MEINGOTTSND"
+  | "MEINSND"
   | "MISSILEFIRESND"
+  | "MUTTISND"
   | "NAZIFIRESND"
+  | "NEINSOVASSND"
   | "NOWAYSND"
   | "OPENDOORSND"
   | "PUSHWALLSND"
+  | "ROSESND"
   | "SCHABBSHASND"
   | "SCHABBSTHROWSND"
+  | "SCHEISTSND"
   | "SCHUTZADSND"
   | "SLURPIESND"
   | "SPIONSND"
@@ -459,6 +481,7 @@ const STRAFE_KEY_CODE = 18;
 const USE_KEY_CODE = 32;
 const GETGATLINGSND: SourceSoundName = "GETGATLINGSND";
 const SOURCE_SOUND_CHUNKS: Record<SourceSoundName, number> = {
+  AHHHGSND: 52,
   ATKGATLINGSND: 11,
   ATKKNIFESND: 23,
   ATKMACHINEGUNSND: 26,
@@ -470,12 +493,24 @@ const SOURCE_SOUND_CHUNKS: Record<SourceSoundName, number> = {
   BONUS1UPSND: 44,
   BOSSFIRESND: 59,
   CLOSEDOORSND: 19,
+  DEATHSCREAM1SND: 29,
+  DEATHSCREAM2SND: 22,
+  DEATHSCREAM3SND: 25,
+  DEATHSCREAM4SND: 73,
+  DEATHSCREAM5SND: 74,
+  DEATHSCREAM6SND: 75,
+  DEATHSCREAM7SND: 76,
+  DEATHSCREAM8SND: 77,
+  DEATHSCREAM9SND: 78,
   DIESND: 53,
   DONOTHINGSND: 20,
   DOGBARKSND: 41,
   DOGATTACKSND: 68,
+  DOGDEATHSND: 10,
+  DONNERSND: 79,
   EINESND: 80,
   ERLAUBENSND: 81,
+  EVASND: 54,
   FLAMETHROWERSND: 69,
   GETAMMOSND: 31,
   GETGATLINGSND: 38,
@@ -483,18 +518,26 @@ const SOURCE_SOUND_CHUNKS: Record<SourceSoundName, number> = {
   GETMACHINESND: 30,
   GUTENTAGSND: 55,
   HALTSND: 21,
+  HITLERHASND: 65,
   HITWALLSND: 0,
   HEALTH1SND: 33,
   HEALTH2SND: 34,
   KEINSND: 82,
   LEVELDONESND: 40,
+  LEBENSND: 56,
+  MEINGOTTSND: 63,
+  MEINSND: 83,
   MISSILEFIRESND: 85,
+  MUTTISND: 50,
   NAZIFIRESND: 58,
+  NEINSOVASSND: 67,
   NOWAYSND: 6,
   OPENDOORSND: 18,
   PUSHWALLSND: 46,
+  ROSESND: 84,
   SCHABBSHASND: 64,
   SCHABBSTHROWSND: 8,
+  SCHEISTSND: 57,
   SCHUTZADSND: 51,
   SLURPIESND: 61,
   SPIONSND: 66,
@@ -502,6 +545,16 @@ const SOURCE_SOUND_CHUNKS: Record<SourceSoundName, number> = {
   TOT_HUNDSND: 62,
   YEAHSND: 72
 };
+const WL6_GUARD_DEATH_SCREAMS = [
+  "DEATHSCREAM1SND",
+  "DEATHSCREAM2SND",
+  "DEATHSCREAM3SND",
+  "DEATHSCREAM4SND",
+  "DEATHSCREAM5SND",
+  "DEATHSCREAM7SND",
+  "DEATHSCREAM8SND",
+  "DEATHSCREAM9SND"
+] as const satisfies readonly SourceSoundName[];
 const WP_KNIFE = 0;
 const WP_PISTOL = 1;
 const WP_MACHINEGUN = 2;
@@ -1035,19 +1088,19 @@ const ACTOR_CHASE_STATES: Record<string, ActorStateFrame[]> = {
 };
 const ACTOR_DEATH_STATES: Record<string, ActorStateFrame[]> = {
   boss: deathFrames([
-    ["s_bossdie1", ACTOR_SPRITES.BOSS_DIE1, 15],
+    ["s_bossdie1", ACTOR_SPRITES.BOSS_DIE1, 15, false, "deathScream"],
     ["s_bossdie2", ACTOR_SPRITES.BOSS_DIE2, 15],
     ["s_bossdie3", ACTOR_SPRITES.BOSS_DIE3, 15],
     ["s_bossdie4", ACTOR_SPRITES.BOSS_DEAD, 0, true]
   ]),
   dog: deathFrames([
-    ["s_dogdie1", ACTOR_SPRITES.DOG_DIE_1, 15],
+    ["s_dogdie1", ACTOR_SPRITES.DOG_DIE_1, 15, false, "deathScream"],
     ["s_dogdie2", ACTOR_SPRITES.DOG_DIE_2, 15],
     ["s_dogdie3", ACTOR_SPRITES.DOG_DIE_3, 15],
     ["s_dogdead", ACTOR_SPRITES.DOG_DEAD, 15, true]
   ]),
   fake_hitler: deathFrames([
-    ["s_fakedie1", ACTOR_SPRITES.FAKE_DIE1, 10],
+    ["s_fakedie1", ACTOR_SPRITES.FAKE_DIE1, 10, false, "deathScream"],
     ["s_fakedie2", ACTOR_SPRITES.FAKE_DIE2, 10],
     ["s_fakedie3", ACTOR_SPRITES.FAKE_DIE3, 10],
     ["s_fakedie4", ACTOR_SPRITES.FAKE_DIE4, 10],
@@ -1055,7 +1108,7 @@ const ACTOR_DEATH_STATES: Record<string, ActorStateFrame[]> = {
     ["s_fakedie6", ACTOR_SPRITES.FAKE_DEAD, 0, true]
   ]),
   fat: deathFrames([
-    ["s_fatdie1", ACTOR_SPRITES.FAT_W1, 1],
+    ["s_fatdie1", ACTOR_SPRITES.FAT_W1, 1, false, "deathScream"],
     ["s_fatdie2", ACTOR_SPRITES.FAT_W1, 10],
     ["s_fatdie3", ACTOR_SPRITES.FAT_DIE1, 10],
     ["s_fatdie4", ACTOR_SPRITES.FAT_DIE2, 10],
@@ -1063,7 +1116,7 @@ const ACTOR_DEATH_STATES: Record<string, ActorStateFrame[]> = {
     ["s_fatdie6", ACTOR_SPRITES.FAT_DEAD, 20, true]
   ]),
   gift: deathFrames([
-    ["s_giftdie1", ACTOR_SPRITES.GIFT_W1, 1],
+    ["s_giftdie1", ACTOR_SPRITES.GIFT_W1, 1, false, "deathScream"],
     ["s_giftdie2", ACTOR_SPRITES.GIFT_W1, 10],
     ["s_giftdie3", ACTOR_SPRITES.GIFT_DIE1, 10],
     ["s_giftdie4", ACTOR_SPRITES.GIFT_DIE2, 10],
@@ -1071,39 +1124,39 @@ const ACTOR_DEATH_STATES: Record<string, ActorStateFrame[]> = {
     ["s_giftdie6", ACTOR_SPRITES.GIFT_DEAD, 20, true]
   ]),
   gretel: deathFrames([
-    ["s_greteldie1", ACTOR_SPRITES.GRETEL_DIE1, 15],
+    ["s_greteldie1", ACTOR_SPRITES.GRETEL_DIE1, 15, false, "deathScream"],
     ["s_greteldie2", ACTOR_SPRITES.GRETEL_DIE2, 15],
     ["s_greteldie3", ACTOR_SPRITES.GRETEL_DIE3, 15],
     ["s_greteldie4", ACTOR_SPRITES.GRETEL_DEAD, 0, true]
   ]),
   guard: deathFrames([
-    ["s_grddie1", ACTOR_SPRITES.GRD_DIE_1, 15],
+    ["s_grddie1", ACTOR_SPRITES.GRD_DIE_1, 15, false, "deathScream"],
     ["s_grddie2", ACTOR_SPRITES.GRD_DIE_2, 15],
     ["s_grddie3", ACTOR_SPRITES.GRD_DIE_3, 15],
     ["s_grddie4", ACTOR_SPRITES.GRD_DEAD, 0, true]
   ]),
   hitler: deathFrames([
-    ["s_mechadie1", ACTOR_SPRITES.MECHA_DIE1, 10],
+    ["s_mechadie1", ACTOR_SPRITES.MECHA_DIE1, 10, false, "deathScream"],
     ["s_mechadie2", ACTOR_SPRITES.MECHA_DIE2, 10],
     ["s_mechadie3", ACTOR_SPRITES.MECHA_DIE3, 10, false, "hitlerMorph"],
     ["s_mechadie4", ACTOR_SPRITES.MECHA_DEAD, 0, true]
   ]),
   mutant: deathFrames([
-    ["s_mutdie1", ACTOR_SPRITES.MUT_DIE_1, 7],
+    ["s_mutdie1", ACTOR_SPRITES.MUT_DIE_1, 7, false, "deathScream"],
     ["s_mutdie2", ACTOR_SPRITES.MUT_DIE_2, 7],
     ["s_mutdie3", ACTOR_SPRITES.MUT_DIE_3, 7],
     ["s_mutdie4", ACTOR_SPRITES.MUT_DIE_4, 7],
     ["s_mutdie5", ACTOR_SPRITES.MUT_DEAD, 0, true]
   ]),
   officer: deathFrames([
-    ["s_ofcdie1", ACTOR_SPRITES.OFC_DIE_1, 11],
+    ["s_ofcdie1", ACTOR_SPRITES.OFC_DIE_1, 11, false, "deathScream"],
     ["s_ofcdie2", ACTOR_SPRITES.OFC_DIE_2, 11],
     ["s_ofcdie3", ACTOR_SPRITES.OFC_DIE_3, 11],
     ["s_ofcdie4", ACTOR_SPRITES.OFC_DIE_4, 11],
     ["s_ofcdie5", ACTOR_SPRITES.OFC_DEAD, 0, true]
   ]),
   real_hitler: deathFrames([
-    ["s_hitlerdie1", ACTOR_SPRITES.HITLER_W1, 1],
+    ["s_hitlerdie1", ACTOR_SPRITES.HITLER_W1, 1, false, "deathScream"],
     ["s_hitlerdie2", ACTOR_SPRITES.HITLER_W1, 10],
     ["s_hitlerdie3", ACTOR_SPRITES.HITLER_DIE1, 10],
     ["s_hitlerdie4", ACTOR_SPRITES.HITLER_DIE2, 10],
@@ -1115,7 +1168,7 @@ const ACTOR_DEATH_STATES: Record<string, ActorStateFrame[]> = {
     ["s_hitlerdie10", ACTOR_SPRITES.HITLER_DEAD, 20, true]
   ]),
   schabbs: deathFrames([
-    ["s_schabbdie1", ACTOR_SPRITES.SCHABB_W1, 10],
+    ["s_schabbdie1", ACTOR_SPRITES.SCHABB_W1, 10, false, "deathScream"],
     ["s_schabbdie2", ACTOR_SPRITES.SCHABB_W1, 10],
     ["s_schabbdie3", ACTOR_SPRITES.SCHABB_DIE1, 10],
     ["s_schabbdie4", ACTOR_SPRITES.SCHABB_DIE2, 10],
@@ -1123,7 +1176,7 @@ const ACTOR_DEATH_STATES: Record<string, ActorStateFrame[]> = {
     ["s_schabbdie6", ACTOR_SPRITES.SCHABB_DEAD, 20, true]
   ]),
   ss: deathFrames([
-    ["s_ssdie1", ACTOR_SPRITES.SS_DIE_1, 15],
+    ["s_ssdie1", ACTOR_SPRITES.SS_DIE_1, 15, false, "deathScream"],
     ["s_ssdie2", ACTOR_SPRITES.SS_DIE_2, 15],
     ["s_ssdie3", ACTOR_SPRITES.SS_DIE_3, 15],
     ["s_ssdie4", ACTOR_SPRITES.SS_DEAD, 0, true]
@@ -1214,6 +1267,7 @@ const CARDINAL_TILE_DELTAS = [
   { dx: 0, dy: 1 },
   { dx: -1, dy: 0 }
 ];
+const WL6_SECRET_DEATH_SCREAM_ACTORS = new Set(["dog", "guard", "mutant", "officer", "ss"]);
 const ACTOR_SIDE_DOOR_KINDS = new Set([
   "blinky",
   "boss",
@@ -4424,6 +4478,56 @@ class WLGame {
     }
 
     this.NewActorState(actor, sequence, 0);
+    this.RunActorFrameAction(actor, sequence[0]);
+  }
+
+  private A_DeathScream(actor: PortActor): void {
+    if (
+      this.gamestate.mapon === 9
+      && WL6_SECRET_DEATH_SCREAM_ACTORS.has(actor.kind)
+      && this.US_RndT() === 0
+    ) {
+      this.id_sd.SD_PlaySound("DEATHSCREAM6SND");
+      return;
+    }
+
+    const deathSound = this.ActorDeathSound(actor.kind);
+    if (deathSound) {
+      this.id_sd.SD_PlaySound(deathSound);
+    }
+  }
+
+  private ActorDeathSound(kind: string): SourceSoundName | null {
+    switch (kind) {
+      case "boss":
+        return "MUTTISND";
+      case "dog":
+        return "DOGDEATHSND";
+      case "fake_hitler":
+        return "HITLERHASND";
+      case "fat":
+        return "ROSESND";
+      case "gift":
+        return "DONNERSND";
+      case "gretel":
+        return "MEINSND";
+      case "guard":
+        return WL6_GUARD_DEATH_SCREAMS[this.US_RndT() % 8] ?? "DEATHSCREAM1SND";
+      case "hitler":
+        return "SCHEISTSND";
+      case "mutant":
+        return "AHHHGSND";
+      case "officer":
+        return "NEINSOVASSND";
+      case "real_hitler":
+        return "EVASND";
+      case "schabbs":
+        return "MEINGOTTSND";
+      case "ss":
+        return "LEBENSND";
+      default:
+        return null;
+    }
   }
 
   private FirstSighting(actor: PortActor): void {
@@ -4491,6 +4595,9 @@ class WLGame {
         break;
       case "bjYell":
         this.T_BJYell();
+        break;
+      case "deathScream":
+        this.A_DeathScream(actor);
         break;
       case "fakeFire":
         this.T_FakeFire(actor);
