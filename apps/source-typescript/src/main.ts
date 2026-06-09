@@ -484,6 +484,7 @@ const SOURCE_BACK_MOVESCALE = 100;
 const SOURCE_DIGITIZED_BOSS_DEATH_TICS = 140;
 const SOURCE_LEVEL_RATIO_COUNT = 8;
 const SOURCE_MAX_CONTROL = 100;
+const SOURCE_MAX_STATS = 400;
 const SOURCE_MINDIST = 0x5800;
 const SOURCE_PAR_AMOUNT = 500;
 const SOURCE_PERCENT_100_BONUS = 10000;
@@ -4806,7 +4807,16 @@ class WLGame {
 
   private PlaceItemType(item: keyof typeof DROPPED_ITEM_TYPES, x: number, y: number): void {
     const type = DROPPED_ITEM_TYPES[item];
-    this.map.statics.push(staticFromStaticType(type, x, y));
+    const stat = staticFromStaticType(type, x, y);
+    const freeIndex = this.map.statics.findIndex((candidate) => candidate.collected);
+    if (freeIndex >= 0) {
+      this.map.statics[freeIndex] = stat;
+      return;
+    }
+
+    if (this.map.statics.length < SOURCE_MAX_STATS) {
+      this.map.statics.push(stat);
+    }
   }
 
   private StartDeathState(actor: PortActor): void {
