@@ -6514,7 +6514,8 @@ function scanInfoPlane(
 
   return {
     actors,
-    killTotal: actors.filter((actor) => actor.mode !== "ghost" && actor.mode !== "dead").length,
+    // WL_ACT2.C SpawnGhosts increments gamestate.killtotal even though ghosts are not shootable.
+    killTotal: actors.filter((actor) => actor.mode !== "dead").length,
     secretTotal,
     spawn,
     statics,
