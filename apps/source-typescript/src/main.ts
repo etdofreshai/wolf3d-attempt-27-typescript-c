@@ -287,7 +287,19 @@ type DecodedTexturePage = {
 
 type PageKind = "sound" | "sprite" | "texture";
 type PaletteSource = "fallback" | "GAMEPAL.OBJ";
-type SourceSoundName = "GETGATLINGSND";
+type SourceSoundName =
+  | "BONUS1SND"
+  | "BONUS2SND"
+  | "BONUS3SND"
+  | "BONUS4SND"
+  | "BONUS1UPSND"
+  | "GETAMMOSND"
+  | "GETGATLINGSND"
+  | "GETKEYSND"
+  | "GETMACHINESND"
+  | "HEALTH1SND"
+  | "HEALTH2SND"
+  | "SLURPIESND";
 
 type PageInfo = {
   index: number;
@@ -417,7 +429,18 @@ const STRAFE_KEY_CODE = 18;
 const USE_KEY_CODE = 32;
 const GETGATLINGSND: SourceSoundName = "GETGATLINGSND";
 const SOURCE_SOUND_CHUNKS: Record<SourceSoundName, number> = {
-  GETGATLINGSND: 38
+  BONUS1SND: 35,
+  BONUS2SND: 36,
+  BONUS3SND: 37,
+  BONUS4SND: 45,
+  BONUS1UPSND: 44,
+  GETAMMOSND: 31,
+  GETGATLINGSND: 38,
+  GETKEYSND: 12,
+  GETMACHINESND: 30,
+  HEALTH1SND: 33,
+  HEALTH2SND: 34,
+  SLURPIESND: 61
 };
 const WP_KNIFE = 0;
 const WP_PISTOL = 1;
@@ -3515,6 +3538,7 @@ class WLGame {
     if (this.gamestate.lives < MAX_LIVES) {
       this.gamestate.lives += 1;
     }
+    this.id_sd.SD_PlaySound("BONUS1UPSND");
   }
 
   GivePoints(points: number): void {
@@ -4532,6 +4556,7 @@ class WLGame {
         if (this.gamestate.health === MAX_HEALTH) {
           return false;
         }
+        this.id_sd.SD_PlaySound("HEALTH2SND");
         this.HealSelf(25);
         break;
       case "bo_key1":
@@ -4539,11 +4564,25 @@ class WLGame {
       case "bo_key3":
       case "bo_key4":
         this.GiveKey(keyNumberForBonus(stat.item));
+        this.id_sd.SD_PlaySound("GETKEYSND");
         break;
       case "bo_cross":
+        this.id_sd.SD_PlaySound("BONUS1SND");
+        this.GivePoints(treasureScoreForBonus(stat.item));
+        this.gamestate.treasurecount += 1;
+        break;
       case "bo_chalice":
+        this.id_sd.SD_PlaySound("BONUS2SND");
+        this.GivePoints(treasureScoreForBonus(stat.item));
+        this.gamestate.treasurecount += 1;
+        break;
       case "bo_bible":
+        this.id_sd.SD_PlaySound("BONUS3SND");
+        this.GivePoints(treasureScoreForBonus(stat.item));
+        this.gamestate.treasurecount += 1;
+        break;
       case "bo_crown":
+        this.id_sd.SD_PlaySound("BONUS4SND");
         this.GivePoints(treasureScoreForBonus(stat.item));
         this.gamestate.treasurecount += 1;
         break;
@@ -4551,15 +4590,18 @@ class WLGame {
         if (this.gamestate.ammo === MAX_AMMO) {
           return false;
         }
+        this.id_sd.SD_PlaySound("GETAMMOSND");
         this.GiveAmmo(8);
         break;
       case "bo_clip2":
         if (this.gamestate.ammo === MAX_AMMO) {
           return false;
         }
+        this.id_sd.SD_PlaySound("GETAMMOSND");
         this.GiveAmmo(4);
         break;
       case "bo_machinegun":
+        this.id_sd.SD_PlaySound("GETMACHINESND");
         this.GiveWeapon(WP_MACHINEGUN);
         break;
       case "bo_chaingun":
@@ -4569,6 +4611,7 @@ class WLGame {
         this.gotgatgun = true;
         break;
       case "bo_fullheal":
+        this.id_sd.SD_PlaySound("BONUS1UPSND");
         this.HealSelf(99);
         this.GiveAmmo(25);
         this.GiveExtraMan();
@@ -4578,18 +4621,21 @@ class WLGame {
         if (this.gamestate.health === MAX_HEALTH) {
           return false;
         }
+        this.id_sd.SD_PlaySound("HEALTH1SND");
         this.HealSelf(10);
         break;
       case "bo_alpo":
         if (this.gamestate.health === MAX_HEALTH) {
           return false;
         }
+        this.id_sd.SD_PlaySound("HEALTH1SND");
         this.HealSelf(4);
         break;
       case "bo_gibs":
         if (this.gamestate.health > 10) {
           return false;
         }
+        this.id_sd.SD_PlaySound("SLURPIESND");
         this.HealSelf(1);
         break;
       default:
