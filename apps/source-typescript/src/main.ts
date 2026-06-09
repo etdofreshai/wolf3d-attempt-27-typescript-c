@@ -2733,6 +2733,11 @@ class WLGame {
   }
 
   MoveDoors(tics: number): void {
+    // WL_ACT1.C MoveDoors stops doors during the victory sequence.
+    if (this.gamestate.victoryflag) {
+      return;
+    }
+
     for (const door of this.map.doors) {
       if (door.action === "open") {
         this.DoorOpen(door, tics);
