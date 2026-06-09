@@ -3368,11 +3368,74 @@ class WLGame {
   }
 
   CloseDoor(door: PortDoor): void {
-    if (this.PlayerIntersectsDoor(door)) {
+    if (this.DoorBlockedForClose(door)) {
       return;
     }
 
     door.action = "closing";
+  }
+
+  private DoorBlockedForClose(door: PortDoor): boolean {
+    const playerTileX = Math.floor(this.gamestate.x);
+    const playerTileY = Math.floor(this.gamestate.y);
+    if (this.DoorCenterOccupied(door)) {
+      return true;
+    }
+
+    if (door.vertical) {
+      if (
+        playerTileY === door.y &&
+        (Math.floor(this.gamestate.x + SOURCE_PLAYERSIZE_TILES) === door.x ||
+          Math.floor(this.gamestate.x - SOURCE_PLAYERSIZE_TILES) === door.x)
+      ) {
+        return true;
+      }
+
+      return (
+        this.ActorTouchesDoorSide(door.x - 1, door.y, door.x, "x", SOURCE_PLAYERSIZE_TILES) ||
+        this.ActorTouchesDoorSide(door.x + 1, door.y, door.x, "x", -SOURCE_PLAYERSIZE_TILES)
+      );
+    }
+
+    if (
+      playerTileX === door.x &&
+      (Math.floor(this.gamestate.y + SOURCE_PLAYERSIZE_TILES) === door.y ||
+        Math.floor(this.gamestate.y - SOURCE_PLAYERSIZE_TILES) === door.y)
+    ) {
+      return true;
+    }
+
+    return (
+      this.ActorTouchesDoorSide(door.x, door.y - 1, door.y, "y", SOURCE_PLAYERSIZE_TILES) ||
+      this.ActorTouchesDoorSide(door.x, door.y + 1, door.y, "y", -SOURCE_PLAYERSIZE_TILES)
+    );
+  }
+
+  private ActorOccupiesDoorTile(door: PortDoor): boolean {
+    return this.map.actors.some(
+      (actor) => actor.shootable && Math.floor(actor.x) === door.x && Math.floor(actor.y) === door.y
+    );
+  }
+
+  private DoorCenterOccupied(door: PortDoor): boolean {
+    return this.PlayerIntersectsDoor(door) || this.ActorOccupiesDoorTile(door);
+  }
+
+  private ActorTouchesDoorSide(
+    tileX: number,
+    tileY: number,
+    doorTile: number,
+    axis: "x" | "y",
+    offset: number
+  ): boolean {
+    return this.map.actors.some((actor) => {
+      if (!actor.shootable || Math.floor(actor.x) !== tileX || Math.floor(actor.y) !== tileY) {
+        return false;
+      }
+
+      const center = axis === "x" ? actor.x + 0.5 : actor.y + 0.5;
+      return Math.floor(center + offset) === doorTile;
+    });
   }
 
   GiveKey(key: number): void {
@@ -4343,7 +4406,7 @@ class WLGame {
   }
 
   private DoorClosing(door: PortDoor, tics: number): void {
-    if (this.PlayerIntersectsDoor(door)) {
+    if (this.DoorCenterOccupied(door)) {
       this.OpenDoor(door);
       return;
     }
