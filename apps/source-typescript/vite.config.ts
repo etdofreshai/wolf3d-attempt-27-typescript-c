@@ -1,3 +1,4 @@
+import { createReadStream } from "node:fs";
 import { access, readdir } from "node:fs/promises";
 import path from "node:path";
 import { defineConfig, type Plugin } from "vite";
@@ -28,7 +29,31 @@ function sourceTypescriptStatusPlugin(): Plugin {
     apply: "serve",
     configureServer(server) {
       server.middlewares.use(async (request, response, next) => {
-        if ((request.url ?? "") !== "/__source-typescript/status") {
+        const requestUrl = request.url ?? "";
+
+        if (requestUrl.startsWith("/__source-typescript/asset/")) {
+          const fileName = decodeURIComponent(
+            requestUrl.replace("/__source-typescript/asset/", "")
+          ).toUpperCase();
+          if (!DOS_ASSET_FILES.includes(fileName as (typeof DOS_ASSET_FILES)[number])) {
+            next();
+            return;
+          }
+
+          const filePath = path.join(steamBase, fileName);
+          if (!(await exists(filePath))) {
+            response.statusCode = 404;
+            response.end("Missing local DOS asset");
+            return;
+          }
+
+          response.setHeader("Content-Type", "application/octet-stream");
+          response.setHeader("Cache-Control", "no-store");
+          createReadStream(filePath).pipe(response);
+          return;
+        }
+
+        if (requestUrl !== "/__source-typescript/status") {
           next();
           return;
         }

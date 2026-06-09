@@ -23,7 +23,10 @@ This repo is being split into separate browser-facing lanes:
 - `apps/source-typescript`: browser-native TypeScript source-port scaffold. It
   starts with original-source naming (`WLMain`, `WLGame`, `WLPlay`, `WLDraw`,
   `IDCA`, `IDIN`, `IDSD`, `IDUS`, `IDVL`) and accepts the same demo plans as the
-  modified DOS lane.
+  modified DOS lane. Its `IDCA` path now loads `MAPHEAD.WL6` and
+  `GAMEMAPS.WL6` locally, decodes the first WL6 map planes, places the player
+  from the original spawn tile, and uses that wall plane for collision and
+  raycasting.
 - Port app: future portable/full port lane. This should advance after the
   original DOS/source and TypeScript artifact outputs are comparable.
 

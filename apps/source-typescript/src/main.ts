@@ -1,4 +1,5 @@
 import "./styles.css";
+import { findPlayerSpawn, parseWolfMap, type PlayerSpawn, type WolfMap } from "./wl6Map";
 
 type SourceTypescriptStatus = {
   assets: Array<{
@@ -39,6 +40,15 @@ type DemoPlanStep =
       state?: boolean;
       wav?: boolean;
     };
+
+type PortMap = {
+  height: number;
+  name: string;
+  objects: Uint16Array;
+  source: "fallback" | "wl6";
+  walls: Uint16Array;
+  width: number;
+};
 
 const KEY_CODES: Record<string, number> = {
   ALT: 18,
@@ -103,6 +113,10 @@ root.innerHTML = `
             <dd id="asset-count">--</dd>
           </div>
           <div>
+            <dt>Map</dt>
+            <dd id="map-state">fallback</dd>
+          </div>
+          <div>
             <dt>Runtime</dt>
             <dd id="runtime-state">--</dd>
           </div>
@@ -124,6 +138,7 @@ const screen = requireElement<HTMLCanvasElement>("#screen");
 const statusLine = requireElement<HTMLElement>("#status-line");
 const sourceCount = requireElement<HTMLElement>("#source-count");
 const assetCount = requireElement<HTMLElement>("#asset-count");
+const mapState = requireElement<HTMLElement>("#map-state");
 const runtimeState = requireElement<HTMLElement>("#runtime-state");
 const demoState = requireElement<HTMLElement>("#demo-state");
 const classGrid = requireElement<HTMLElement>("#class-grid");
@@ -147,6 +162,7 @@ class WLMain {
   readonly wl_play: WLPlay;
 
   private artifactUrls: string[] = [];
+  private animationStarted = false;
   private demoRunning = false;
   private lastTime = 0;
   private readonly demoPlan: DemoPlan | null;
@@ -163,17 +179,34 @@ class WLMain {
     this.wl_play = new WLPlay(this.wl_game, this.wl_draw, this.id_in, this.id_sd);
   }
 
-  StartGame(): void {
+  async StartGame(): Promise<void> {
     this.id_us.US_Print("StartGame");
-    this.wl_game.SetupGameLevel(0);
+    statusLine.textContent = "Loading ID_CA map";
+    try {
+      const status = await this.id_ca.CacheStartup();
+      renderSourceStatus(status);
+      const wolfMap = await this.id_ca.CA_CacheMap(0);
+      this.wl_game.SetupGameLevel(0, wolfMap);
+      this.id_us.US_Print(
+        `CA_CacheMap ${wolfMap.header.name || `map ${wolfMap.index}`} ${wolfMap.header.width}x${wolfMap.header.height}`
+      );
+    } catch (error) {
+      this.wl_game.SetupGameLevel(0);
+      this.id_us.US_Print(error instanceof Error ? `Fallback map: ${error.message}` : "Fallback map");
+    }
+
     this.lastTime = window.performance.now();
-    requestAnimationFrame((time) => this.GameLoop(time));
+    if (!this.animationStarted) {
+      this.animationStarted = true;
+      requestAnimationFrame((time) => this.GameLoop(time));
+    }
+
     this.RenderUi();
   }
 
   ResetGame(): void {
     this.id_sd.SD_StopDigitized();
-    this.wl_game.SetupGameLevel(0);
+    this.wl_game.SetupGameLevel(0, this.id_ca.currentMap);
     this.wl_play.PlayLoop(1000 / 60);
     this.id_us.US_Print("ResetGame");
     this.RenderUi();
@@ -228,6 +261,7 @@ class WLMain {
       JSON.stringify({
         audioSamples: this.id_sd.sampleCount,
         game: this.wl_game.gamestate,
+        map: this.wl_game.mapMetadata,
         runner: "source-typescript",
         ticcount: this.wl_game.gamestate.ticcount
       })
@@ -305,6 +339,7 @@ class WLMain {
   }
 
   private RenderUi(): void {
+    mapState.textContent = this.wl_game.mapMetadata;
     runtimeState.textContent = `tic ${this.wl_game.gamestate.ticcount} / ${this.wl_game.gamestate.x.toFixed(2)}, ${this.wl_game.gamestate.y.toFixed(2)}`;
     demoState.textContent = this.demoPlan
       ? this.demoRunning
@@ -333,6 +368,8 @@ class WLPlay {
 }
 
 class WLGame {
+  map = createFallbackMap();
+
   readonly gamestate = {
     angle: 0,
     health: 100,
@@ -343,29 +380,39 @@ class WLGame {
     y: 3.5
   };
 
-  readonly map = [
-    "111111111111",
-    "100000000001",
-    "101110111101",
-    "100010100001",
-    "111010101111",
-    "100010100001",
-    "101110111101",
-    "100000000001",
-    "101011110101",
-    "100000000001",
-    "100001000001",
-    "111111111111"
-  ];
+  get mapMetadata(): string {
+    return `${this.map.name} ${this.map.width}x${this.map.height}`;
+  }
 
-  SetupGameLevel(level: number): void {
-    this.gamestate.angle = 0;
+  SetupGameLevel(level: number, wolfMap: WolfMap | null = null): void {
+    let spawn: PlayerSpawn = {
+      angle: 0,
+      tile: 0,
+      x: 3.5,
+      y: 3.5
+    };
+
+    if (wolfMap) {
+      this.map = {
+        height: wolfMap.header.height,
+        name: `WL6 ${wolfMap.index} ${wolfMap.header.name || "unnamed"}`,
+        objects: wolfMap.planes[1],
+        source: "wl6",
+        walls: wolfMap.planes[0],
+        width: wolfMap.header.width
+      };
+      spawn = findPlayerSpawn(wolfMap);
+    } else if (this.map.source !== "wl6") {
+      this.map = createFallbackMap();
+    }
+
+    this.gamestate.angle = normalizeAngle(spawn.angle);
     this.gamestate.health = 100;
     this.gamestate.level = level;
     this.gamestate.score = 0;
     this.gamestate.ticcount = 0;
-    this.gamestate.x = 3.5;
-    this.gamestate.y = 3.5;
+    this.gamestate.x = spawn.x;
+    this.gamestate.y = spawn.y;
   }
 
   ControlMovement(id_in: IDIN, ticMs: number): boolean {
@@ -408,14 +455,17 @@ class WLGame {
   }
 
   IsWall(x: number, y: number): boolean {
+    return this.GetTile(x, y) !== 0;
+  }
+
+  GetTile(x: number, y: number): number {
     const tileX = Math.floor(x);
     const tileY = Math.floor(y);
-    const row = this.map[tileY];
-    if (!row) {
-      return true;
+    if (tileX < 0 || tileY < 0 || tileX >= this.map.width || tileY >= this.map.height) {
+      return 1;
     }
 
-    return row[tileX] !== "0";
+    return this.map.walls[tileY * this.map.width + tileX] ?? 1;
   }
 }
 
@@ -443,9 +493,10 @@ class WLDraw {
       const y1 = Math.min(SCREEN_HEIGHT - 1, Math.floor(horizon + wallHeight / 2));
       const shade = Math.max(48, Math.floor(196 - corrected * 24));
       const channelOffset = hit.side === 0 ? 0 : -24;
+      const wall = wallRgb(hit.tile, shade / 255, channelOffset);
 
       for (let y = y0; y <= y1; y += 1) {
-        this.id_vl.VL_Plot(image, x, y, shade, Math.max(40, shade + channelOffset), Math.max(36, shade - 72));
+        this.id_vl.VL_Plot(image, x, y, wall[0], wall[1], wall[2]);
       }
     }
 
@@ -453,16 +504,18 @@ class WLDraw {
     this.id_vl.VL_Present(image);
   }
 
-  private CastRay(wl_game: WLGame, angle: number): { distance: number; side: number } {
+  private CastRay(wl_game: WLGame, angle: number): { distance: number; side: number; tile: number } {
     const step = 0.025;
     let distance = 0;
     while (distance < 16) {
       const x = wl_game.gamestate.x + Math.cos(angle) * distance;
       const y = wl_game.gamestate.y + Math.sin(angle) * distance;
-      if (wl_game.IsWall(x, y)) {
+      const tile = wl_game.GetTile(x, y);
+      if (tile !== 0) {
         return {
           distance,
-          side: Math.abs(Math.cos(angle)) > Math.abs(Math.sin(angle)) ? 0 : 1
+          side: Math.abs(Math.cos(angle)) > Math.abs(Math.sin(angle)) ? 0 : 1,
+          tile
         };
       }
 
@@ -471,7 +524,8 @@ class WLDraw {
 
     return {
       distance: 16,
-      side: 0
+      side: 0,
+      tile: 1
     };
   }
 
@@ -572,6 +626,8 @@ class IDSD {
 }
 
 class IDCA {
+  currentMap: WolfMap | null = null;
+
   async CacheStartup(): Promise<SourceTypescriptStatus> {
     const response = await fetch("/__source-typescript/status");
     if (!response.ok) {
@@ -579,6 +635,16 @@ class IDCA {
     }
 
     return (await response.json()) as SourceTypescriptStatus;
+  }
+
+  async CA_CacheMap(mapIndex: number): Promise<WolfMap> {
+    const [mapHeadBytes, gameMapsBytes] = await Promise.all([
+      fetchBytes("/__source-typescript/asset/MAPHEAD.WL6"),
+      fetchBytes("/__source-typescript/asset/GAMEMAPS.WL6")
+    ]);
+
+    this.currentMap = parseWolfMap(mapHeadBytes, gameMapsBytes, mapIndex);
+    return this.currentMap;
   }
 }
 
@@ -668,18 +734,89 @@ function startSourceTypescriptApp(): void {
     })
   );
 
-  void wlMain.id_ca.CacheStartup().then((status) => {
-    const presentAssets = status.assets.filter((asset) => asset.present).length;
-    sourceCount.textContent = `${status.sourceCounts.c} C / ${status.sourceCounts.asm} ASM / ${status.sourceCounts.h} H`;
-    assetCount.textContent = `${presentAssets}/${status.assets.length} WL6`;
-  });
-
-  wlMain.StartGame();
+  void wlMain.StartGame();
   if (demoPlan && demoPlan.autoStart !== false) {
     window.setTimeout(() => {
       void wlMain.RunDemoPlan();
     }, 500);
   }
+}
+
+async function fetchBytes(url: string): Promise<Uint8Array> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`${url} returned ${response.status}`);
+  }
+
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+function renderSourceStatus(status: SourceTypescriptStatus): void {
+  const presentAssets = status.assets.filter((asset) => asset.present).length;
+  sourceCount.textContent = `${status.sourceCounts.c} C / ${status.sourceCounts.asm} ASM / ${status.sourceCounts.h} H`;
+  assetCount.textContent = `${presentAssets}/${status.assets.length} WL6`;
+}
+
+function createFallbackMap(): PortMap {
+  const rows = [
+    "111111111111",
+    "100000000001",
+    "101110111101",
+    "100010100001",
+    "111010101111",
+    "100010100001",
+    "101110111101",
+    "100000000001",
+    "101011110101",
+    "100000000001",
+    "100001000001",
+    "111111111111"
+  ];
+  const width = rows[0]?.length ?? 0;
+  const height = rows.length;
+  const walls = new Uint16Array(width * height);
+  const objects = new Uint16Array(width * height);
+
+  for (let y = 0; y < height; y += 1) {
+    const row = rows[y] ?? "";
+    for (let x = 0; x < width; x += 1) {
+      walls[y * width + x] = row[x] === "0" ? 0 : 1;
+    }
+  }
+
+  return {
+    height,
+    name: "fallback scaffold",
+    objects,
+    source: "fallback",
+    walls,
+    width
+  };
+}
+
+function wallRgb(tile: number, shade: number, channelOffset: number): [number, number, number] {
+  const fallback: [number, number, number] = [143, 54, 45];
+  const palette: Array<[number, number, number]> = [
+    fallback,
+    [96, 126, 70],
+    [69, 109, 154],
+    [185, 155, 80],
+    [118, 79, 132],
+    [157, 82, 54],
+    [78, 139, 132],
+    [176, 176, 148]
+  ];
+  const base = palette[Math.abs(tile) % palette.length] ?? fallback;
+
+  return [
+    clampByte(base[0] * shade),
+    clampByte(base[1] * shade + channelOffset),
+    clampByte(base[2] * shade - 24)
+  ];
+}
+
+function clampByte(value: number): number {
+  return Math.max(0, Math.min(255, Math.floor(value)));
 }
 
 function requireElement<T extends HTMLElement>(selector: string): T {
