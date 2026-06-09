@@ -82,12 +82,15 @@ type PortStatic = {
 };
 
 type PortActor = {
+  ambush: boolean;
   attackMode: boolean;
   distance: number;
   dir: number;
+  firstAttack: boolean;
   hitpoints: number;
   kind: string;
   mode: "boss" | "chase" | "dead" | "dying" | "ghost" | "pain" | "patrol" | "stand";
+  reactionTime: number;
   shootable: boolean;
   speed: number;
   stateIndex: number;
@@ -214,6 +217,7 @@ const KEY_CODES: Record<string, number> = {
 };
 
 const DEMO_DEFAULT_HOLD_MS = 90;
+const AMBUSHTILE = 106;
 const AREATILE = 107;
 const ICONARROWS = 90;
 const NODIR = 8;
@@ -686,6 +690,7 @@ const US_RND_TABLE = [
 const COMBAT_FOV = Math.PI / 3;
 const SHOOT_CENTER_DELTA_PIXELS = 20;
 const KNIFE_RANGE_TILES = 0x18000 / 0x10000;
+const MINSIGHT_TILES = 0x18000 / 0x10000;
 const DIRECTION_DELTAS: Record<number, { dx: number; dy: number }> = {
   0: { dx: 1, dy: 0 },
   1: { dx: 1, dy: -1 },
@@ -697,7 +702,24 @@ const DIRECTION_DELTAS: Record<number, { dx: number; dy: number }> = {
   7: { dx: 1, dy: 1 }
 };
 const CARDINAL_DIRECTIONS = new Set([0, 2, 4, 6]);
-const ACTOR_SIDE_DOOR_KINDS = new Set(["boss", "guard", "gretel", "hitler", "mutant", "officer", "ss"]);
+const CARDINAL_TILE_DELTAS = [
+  { dx: 1, dy: 0 },
+  { dx: 0, dy: -1 },
+  { dx: 0, dy: 1 },
+  { dx: -1, dy: 0 }
+];
+const ACTOR_SIDE_DOOR_KINDS = new Set([
+  "boss",
+  "fat",
+  "gift",
+  "gretel",
+  "guard",
+  "hitler",
+  "mutant",
+  "officer",
+  "schabbs",
+  "ss"
+]);
 
 const root = document.querySelector<HTMLElement>("#app");
 if (!root) {
@@ -904,15 +926,19 @@ class WLMain {
         x: door.x,
         y: door.y
       })),
+      madeNoise: this.wl_game.madeNoise,
       objects: {
         actors: this.wl_game.map.actors.length,
         actorsDetail: this.wl_game.map.actors.map((actor) => ({
+          ambush: actor.ambush,
           attackMode: actor.attackMode,
           distance: actor.distance,
           dir: actor.dir,
+          firstAttack: actor.firstAttack,
           hitpoints: actor.hitpoints,
           kind: actor.kind,
           mode: actor.mode,
+          reactionTime: actor.reactionTime,
           shootable: actor.shootable,
           speed: actor.speed,
           stateIndex: actor.stateIndex,
@@ -1077,6 +1103,7 @@ class WLPlay {
 
 class WLGame {
   map = createFallbackMap();
+  madeNoise = false;
   private attackButtonHeld = false;
   private rndIndex = 0;
 
@@ -1157,6 +1184,7 @@ class WLGame {
     this.gamestate.attackcount = 0;
     this.gamestate.attackframe = 0;
     this.attackButtonHeld = false;
+    this.madeNoise = false;
     this.rndIndex = 0;
     this.gamestate.bestweapon = WP_PISTOL;
     this.gamestate.chosenweapon = WP_PISTOL;
@@ -1298,6 +1326,8 @@ class WLGame {
       this.MoveDeathState(actor, tics);
     } else if (actor.mode === "pain") {
       this.MovePainState(actor, tics);
+    } else if (actor.mode === "boss" || actor.mode === "stand") {
+      this.T_Stand(actor, tics);
     } else if (actor.mode === "patrol" || actor.mode === "chase") {
       this.MoveLoopingActorState(actor, tics);
       if (actor.mode === "patrol") {
@@ -1350,7 +1380,15 @@ class WLGame {
     }
   }
 
+  private T_Stand(actor: PortActor, tics: number): void {
+    this.SightPlayer(actor, tics);
+  }
+
   private T_Path(actor: PortActor, tics: number): void {
+    if (this.SightPlayer(actor, tics)) {
+      return;
+    }
+
     if (actor.dir === NODIR) {
       this.SelectPathDir(actor);
       if (actor.dir === NODIR) {
@@ -1653,6 +1691,7 @@ class WLGame {
     }
 
     this.gamestate.ammo -= 1;
+    this.madeNoise = true;
     const target = this.TargetActorInCrosshair();
     if (!target) {
       return;
@@ -1726,6 +1765,126 @@ class WLGame {
     return bestActor;
   }
 
+  private SightPlayer(actor: PortActor, tics: number): boolean {
+    if (actor.attackMode || !actor.shootable) {
+      return false;
+    }
+
+    if (actor.reactionTime > 0) {
+      actor.reactionTime -= tics;
+      if (actor.reactionTime > 0) {
+        return false;
+      }
+
+      actor.reactionTime = 0;
+      this.FirstSighting(actor);
+      return true;
+    }
+
+    if (!this.ActorAreaCanReachPlayer(actor)) {
+      return false;
+    }
+
+    const canSeePlayer = this.CheckSight(actor);
+    if (actor.ambush) {
+      if (!canSeePlayer) {
+        return false;
+      }
+
+      actor.ambush = false;
+    } else if (!this.madeNoise && !canSeePlayer) {
+      return false;
+    }
+
+    actor.reactionTime = reactionDelayForActor(actor.kind, () => this.US_RndT());
+    return false;
+  }
+
+  private CheckSight(actor: PortActor): boolean {
+    if (!this.ActorAreaCanReachPlayer(actor)) {
+      return false;
+    }
+
+    const actorCenterX = actor.x + 0.5;
+    const actorCenterY = actor.y + 0.5;
+    const deltaX = this.gamestate.x - actorCenterX;
+    const deltaY = this.gamestate.y - actorCenterY;
+    if (
+      deltaX > -MINSIGHT_TILES &&
+      deltaX < MINSIGHT_TILES &&
+      deltaY > -MINSIGHT_TILES &&
+      deltaY < MINSIGHT_TILES
+    ) {
+      return true;
+    }
+
+    switch (actor.dir) {
+      case 0:
+        if (deltaX < 0) {
+          return false;
+        }
+        break;
+      case 2:
+        if (deltaY > 0) {
+          return false;
+        }
+        break;
+      case 4:
+        if (deltaX > 0) {
+          return false;
+        }
+        break;
+      case 6:
+        if (deltaY < 0) {
+          return false;
+        }
+        break;
+      default:
+        break;
+    }
+
+    return this.CheckLineToActor(actor);
+  }
+
+  private ActorAreaCanReachPlayer(actor: PortActor): boolean {
+    const actorArea = this.AreaNumberAt(Math.floor(actor.x), Math.floor(actor.y));
+    const playerArea = this.AreaNumberAt(Math.floor(this.gamestate.x), Math.floor(this.gamestate.y));
+    if (actorArea !== null && playerArea !== null && actorArea === playerArea) {
+      return true;
+    }
+
+    return this.CheckLineToActor(actor);
+  }
+
+  private AreaNumberAt(tileX: number, tileY: number): number | null {
+    if (tileX < 0 || tileY < 0 || tileX >= this.map.width || tileY >= this.map.height) {
+      return null;
+    }
+
+    const tile = this.map.walls[tileY * this.map.width + tileX] ?? 0;
+    if (tile >= AREATILE) {
+      return tile - AREATILE;
+    }
+
+    if (tile === AMBUSHTILE) {
+      return this.NeighborAreaNumber(tileX, tileY);
+    }
+
+    return null;
+  }
+
+  private NeighborAreaNumber(tileX: number, tileY: number): number | null {
+    let area: number | null = null;
+    for (const delta of CARDINAL_TILE_DELTAS) {
+      const tile = this.map.walls[(tileY + delta.dy) * this.map.width + tileX + delta.dx] ?? 0;
+      if (tile >= AREATILE) {
+        area = tile - AREATILE;
+      }
+    }
+
+    return area;
+  }
+
   private CheckLineToActor(actor: PortActor): boolean {
     const actorTileX = Math.floor(actor.x);
     const actorTileY = Math.floor(actor.y);
@@ -1764,6 +1923,7 @@ class WLGame {
       return;
     }
 
+    this.madeNoise = true;
     const wasAttackMode = actor.attackMode;
     const actualDamage = wasAttackMode ? damage : damage * 2;
     actor.hitpoints -= actualDamage;
@@ -1836,6 +1996,12 @@ class WLGame {
 
   private FirstSighting(actor: PortActor): void {
     actor.attackMode = true;
+    actor.firstAttack = true;
+    if (actor.distance < 0) {
+      actor.distance = 0;
+    }
+
+    actor.speed = actorChaseSpeed(actor.kind, actor.speed);
     this.StartChaseState(actor);
   }
 
@@ -2990,6 +3156,10 @@ function scanInfoPlane(map: WolfMap, difficulty: "easy" | "medium" | "hard"): Sc
 
       const actor = actorFromInfoTile(tile, x, y, difficulty);
       if (actor) {
+        if (actor.mode === "stand" && (map.planes[0][y * width + x] ?? 0) === AMBUSHTILE) {
+          actor.ambush = true;
+        }
+
         actors.push(actor);
       }
     }
@@ -3108,8 +3278,64 @@ function initialActorMovement(
   };
 }
 
+function initialActorAwareness(ambush = false): Pick<PortActor, "ambush" | "firstAttack" | "reactionTime"> {
+  return {
+    ambush,
+    firstAttack: false,
+    reactionTime: 0
+  };
+}
+
 function actorBaseSpeed(kind: string): number {
   return kind === "dog" ? SPDDOG : SPDPATROL;
+}
+
+function actorChaseSpeed(kind: string, currentSpeed: number): number {
+  switch (kind) {
+    case "boss":
+      return SPDPATROL * 3;
+    case "dog":
+      return currentSpeed * 2;
+    case "guard":
+    case "mutant":
+    case "fake_hitler":
+    case "fat":
+    case "gift":
+    case "gretel":
+    case "hitler":
+    case "schabbs":
+      return currentSpeed * 3;
+    case "officer":
+      return currentSpeed * 5;
+    case "ss":
+      return currentSpeed * 4;
+    default:
+      return currentSpeed;
+  }
+}
+
+function reactionDelayForActor(kind: string, rnd: () => number): number {
+  switch (kind) {
+    case "guard":
+      return 1 + Math.floor(rnd() / 4);
+    case "officer":
+      return 2;
+    case "dog":
+      return 1 + Math.floor(rnd() / 8);
+    case "mutant":
+    case "ss":
+      return 1 + Math.floor(rnd() / 6);
+    case "boss":
+    case "fake_hitler":
+    case "fat":
+    case "gift":
+    case "gretel":
+    case "hitler":
+    case "schabbs":
+      return 1;
+    default:
+      return 1;
+  }
 }
 
 function mapDirectionToSourceDir(direction: number): number {
@@ -3119,9 +3345,12 @@ function mapDirectionToSourceDir(direction: number): number {
 function bossInitialDirection(kind: string): number {
   switch (kind) {
     case "boss":
-      return 6;
-    case "gretel":
+    case "fat":
     case "hitler":
+    case "schabbs":
+      return 6;
+    case "gift":
+    case "gretel":
       return 2;
     default:
       return NODIR;
@@ -3179,6 +3408,7 @@ function actorFromInfoTile(
       kind: "dead_guard",
       mode: "dead",
       shootable: false,
+      ...initialActorAwareness(),
       ...initialActorState("dead_guard", "dead", ACTOR_SPRITES.GRD_DEAD),
       ...initialActorMovement("dead_guard", "dead", NODIR, x, y),
       tile,
@@ -3203,6 +3433,7 @@ function actorFromInfoTile(
       attackMode: false,
       hitpoints: actorHitpoints(guard.kind, difficulty),
       shootable: true,
+      ...initialActorAwareness(),
       ...initialActorState(guard.kind, guard.mode),
       ...initialActorMovement(guard.kind, guard.mode, guard.dir, x, y),
       x,
@@ -3220,6 +3451,7 @@ function actorFromInfoTile(
       kind: bossKind,
       mode: "boss",
       shootable: true,
+      ...initialActorAwareness(true),
       ...initialActorState(bossKind, "boss"),
       ...initialActorMovement(bossKind, "boss", dir, x, y),
       tile,
@@ -3237,6 +3469,7 @@ function actorFromInfoTile(
       kind: ghostKind,
       mode: "ghost",
       shootable: false,
+      ...initialActorAwareness(),
       ...initialActorState(ghostKind, "ghost"),
       ...initialActorMovement(ghostKind, "ghost", NODIR, x, y),
       tile,
@@ -3718,7 +3951,7 @@ function fractional(value: number): number {
 }
 
 function collisionTile(tile: number): number {
-  if (tile >= AREATILE) {
+  if (tile === AMBUSHTILE || tile >= AREATILE) {
     return 0;
   }
 
