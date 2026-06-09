@@ -100,6 +100,7 @@ type RayHit = {
 };
 
 type SpriteBillboard = {
+  bitmap: SpriteBitmap | null;
   color: [number, number, number];
   depth: number;
   height: number;
@@ -110,6 +111,16 @@ type SpriteBillboard = {
   x1: number;
   y0: number;
   y1: number;
+};
+
+type SpriteBitmap = {
+  mask: Uint8Array;
+  pixels: Uint8Array;
+};
+
+type DecodedSpritePage = {
+  bitmap: SpriteBitmap;
+  info: SpritePageInfo;
 };
 
 type PageKind = "sound" | "sprite" | "texture";
@@ -128,6 +139,7 @@ type SpritePageInfo = {
   page: number;
   rightpix: number;
   shapenum: number;
+  visiblePixels: number;
   width: number;
 };
 
@@ -233,6 +245,24 @@ const STATIC_INFO_TYPES = [
   "bo_clip2"
 ] as const;
 const TREASURE_STAT_TYPES = new Set(["bo_cross", "bo_chalice", "bo_bible", "bo_crown", "bo_fullheal"]);
+const VGAISH_PALETTE: Array<[number, number, number]> = [
+  [0, 0, 0],
+  [0, 0, 170],
+  [0, 170, 0],
+  [0, 170, 170],
+  [170, 0, 0],
+  [170, 0, 170],
+  [170, 85, 0],
+  [170, 170, 170],
+  [85, 85, 85],
+  [85, 85, 255],
+  [85, 255, 85],
+  [85, 255, 255],
+  [255, 85, 85],
+  [255, 85, 255],
+  [255, 255, 85],
+  [255, 255, 255]
+];
 const BOSS_INFO_TILES: Record<number, string> = {
   160: "fake_hitler",
   178: "hitler",
@@ -366,7 +396,7 @@ class WLMain {
       renderSourceStatus(status);
       const pageStatus = await this.id_pm.PM_Startup();
       this.id_us.US_Print(
-        `PM_Startup VSWAP ${pageStatus.chunksInFile} chunks / ${pageStatus.spriteCount} sprites`
+        `PM_Startup VSWAP ${pageStatus.chunksInFile} chunks / ${pageStatus.spriteCount} sprites / first ${pageStatus.firstSpriteVisiblePixels} px`
       );
       const wolfMap = await this.id_ca.CA_CacheMap(0);
       this.wl_game.SetupGameLevel(0, wolfMap);
@@ -1163,7 +1193,8 @@ class WLDraw {
         fov,
         horizon,
         staticRgb(stat),
-        this.id_pm.PM_GetSpritePageInfo(stat.shapenum)?.width ?? 64
+        this.id_pm.PM_GetSpritePageInfo(stat.shapenum)?.width ?? 64,
+        this.id_pm.PM_GetSpriteBitmap(stat.shapenum)
       );
       if (sprite) {
         sprites.push(sprite);
@@ -1178,7 +1209,8 @@ class WLDraw {
         fov,
         horizon,
         actorRgb(actor),
-        64
+        64,
+        null
       );
       if (sprite) {
         sprites.push(sprite);
@@ -1198,7 +1230,8 @@ class WLDraw {
     fov: number,
     horizon: number,
     color: [number, number, number],
-    sourceWidth: number
+    sourceWidth: number,
+    bitmap: SpriteBitmap | null
   ): SpriteBillboard | null {
     const dx = worldX - wl_game.gamestate.x;
     const dy = worldY - wl_game.gamestate.y;
@@ -1229,6 +1262,7 @@ class WLDraw {
     }
 
     return {
+      bitmap,
       color,
       depth,
       height,
@@ -1253,17 +1287,20 @@ class WLDraw {
       const u = (x - (sprite.screenX - sprite.width / 2)) / Math.max(1, sprite.width);
       for (let y = sprite.y0; y <= sprite.y1; y += 1) {
         const v = (y - (SCREEN_HEIGHT / 2 - sprite.height / 2)) / Math.max(1, sprite.height);
-        if (!spriteMask(u, v)) {
+        const source = sampleSpritePixel(sprite, u, v);
+        if (!source.visible) {
           continue;
         }
+
+        const color = source.index === null ? sprite.color : paletteIndexRgb(source.index);
 
         this.id_vl.VL_Plot(
           image,
           x,
           y,
-          clampByte(sprite.color[0] * shade),
-          clampByte(sprite.color[1] * shade),
-          clampByte(sprite.color[2] * shade)
+          clampByte(color[0] * shade),
+          clampByte(color[1] * shade),
+          clampByte(color[2] * shade)
         );
       }
     }
@@ -1369,17 +1406,25 @@ class IDPM {
   private chunksInFile = 0;
   private pageBytes: Uint8Array | null = null;
   private readonly pages: PageInfo[] = [];
+  private readonly spriteBitmaps = new Map<number, SpriteBitmap>();
   private readonly sprites = new Map<number, SpritePageInfo>();
   private spriteStart = 0;
   private soundStart = 0;
 
-  async PM_Startup(): Promise<{ chunksInFile: number; soundStart: number; spriteCount: number; spriteStart: number }> {
+  async PM_Startup(): Promise<{
+    chunksInFile: number;
+    firstSpriteVisiblePixels: number;
+    soundStart: number;
+    spriteCount: number;
+    spriteStart: number;
+  }> {
     const bytes = await fetchBytes("/__source-typescript/asset/VSWAP.WL6");
     this.pageBytes = bytes;
     this.chunksInFile = readUint16LE(bytes, 0);
     this.spriteStart = readUint16LE(bytes, 2);
     this.soundStart = readUint16LE(bytes, 4);
     this.pages.length = 0;
+    this.spriteBitmaps.clear();
     this.sprites.clear();
 
     const offsetsStart = 6;
@@ -1400,13 +1445,15 @@ class IDPM {
       if (kind === "sprite") {
         const sprite = this.DecodeSpritePage(index, page);
         if (sprite) {
-          this.sprites.set(sprite.shapenum, sprite);
+          this.sprites.set(sprite.info.shapenum, sprite.info);
+          this.spriteBitmaps.set(sprite.info.shapenum, sprite.bitmap);
         }
       }
     }
 
     return {
       chunksInFile: this.chunksInFile,
+      firstSpriteVisiblePixels: this.sprites.get(0)?.visiblePixels ?? 0,
       soundStart: this.soundStart,
       spriteCount: this.sprites.size,
       spriteStart: this.spriteStart
@@ -1426,6 +1473,10 @@ class IDPM {
     return this.sprites.get(shapenum) ?? null;
   }
 
+  PM_GetSpriteBitmap(shapenum: number): SpriteBitmap | null {
+    return this.spriteBitmaps.get(shapenum) ?? null;
+  }
+
   StateSnapshot(): Record<string, unknown> {
     return {
       chunksInFile: this.chunksInFile,
@@ -1437,7 +1488,7 @@ class IDPM {
     };
   }
 
-  private DecodeSpritePage(pageIndex: number, page: PageInfo): SpritePageInfo | null {
+  private DecodeSpritePage(pageIndex: number, page: PageInfo): DecodedSpritePage | null {
     const bytes = this.PM_GetPage(pageIndex);
     if (!bytes || bytes.length < 4 + 64 * 2) {
       return null;
@@ -1449,22 +1500,62 @@ class IDPM {
       return null;
     }
 
+    const mask = new Uint8Array(64 * 64);
+    const pixels = new Uint8Array(64 * 64);
     let columnOffsetCount = 0;
+    let visiblePixels = 0;
     for (let column = leftpix; column <= rightpix; column += 1) {
-      const dataOffset = readUint16LE(bytes, 4 + column * 2);
-      if (dataOffset > 0 && dataOffset < page.length) {
-        columnOffsetCount += 1;
+      let dataOffset = readUint16LE(bytes, 4 + (column - leftpix) * 2);
+      if (dataOffset <= 0 || dataOffset >= page.length) {
+        continue;
+      }
+
+      columnOffsetCount += 1;
+      let guard = 0;
+      while (dataOffset + 6 <= page.length && guard < 64) {
+        guard += 1;
+        const endWord = readUint16LE(bytes, dataOffset);
+        if (endWord === 0) {
+          break;
+        }
+
+        const top = signed16(readUint16LE(bytes, dataOffset + 2));
+        const start = Math.floor(readUint16LE(bytes, dataOffset + 4) / 2);
+        const end = Math.floor(endWord / 2);
+        dataOffset += 6;
+
+        for (let y = Math.max(0, start); y < Math.min(64, end); y += 1) {
+          const sourceIndex = top + y;
+          if (sourceIndex < 0 || sourceIndex >= bytes.length) {
+            continue;
+          }
+
+          const targetIndex = y * 64 + column;
+          if (!mask[targetIndex]) {
+            visiblePixels += 1;
+          }
+
+          mask[targetIndex] = 1;
+          pixels[targetIndex] = bytes[sourceIndex] ?? 0;
+        }
       }
     }
 
     return {
-      columnOffsetCount,
-      height: 64,
-      leftpix,
-      page: pageIndex,
-      rightpix,
-      shapenum: pageIndex - this.spriteStart,
-      width: rightpix - leftpix + 1
+      bitmap: {
+        mask,
+        pixels
+      },
+      info: {
+        columnOffsetCount,
+        height: 64,
+        leftpix,
+        page: pageIndex,
+        rightpix,
+        shapenum: pageIndex - this.spriteStart,
+        visiblePixels,
+        width: rightpix - leftpix + 1
+      }
     };
   }
 }
@@ -1621,6 +1712,10 @@ function readUint32LE(bytes: Uint8Array, offset: number): number {
     | ((bytes[offset + 2] ?? 0) << 16)
     | ((bytes[offset + 3] ?? 0) << 24)
   ) >>> 0;
+}
+
+function signed16(value: number): number {
+  return value & 0x8000 ? value - 0x10000 : value;
 }
 
 function renderSourceStatus(status: SourceTypescriptStatus): void {
@@ -1985,6 +2080,49 @@ function actorRgb(actor: PortActor): [number, number, number] {
     default:
       return [92, 126, 78];
   }
+}
+
+function sampleSpritePixel(sprite: SpriteBillboard, u: number, v: number): { index: number | null; visible: boolean } {
+  if (sprite.bitmap) {
+    if (u < 0 || u > 1 || v < 0 || v > 1) {
+      return {
+        index: null,
+        visible: false
+      };
+    }
+
+    const sourceX = Math.max(0, Math.min(63, Math.floor(u * 64)));
+    const sourceY = Math.max(0, Math.min(63, Math.floor(v * 64)));
+    const sourceIndex = sourceY * 64 + sourceX;
+    if (!sprite.bitmap.mask[sourceIndex]) {
+      return {
+        index: null,
+        visible: false
+      };
+    }
+
+    return {
+      index: sprite.bitmap.pixels[sourceIndex] ?? 0,
+      visible: true
+    };
+  }
+
+  return {
+    index: null,
+    visible: spriteMask(u, v)
+  };
+}
+
+function paletteIndexRgb(index: number): [number, number, number] {
+  const low = index & 0x0f;
+  const high = index >> 4;
+  const base = VGAISH_PALETTE[low] ?? [128, 128, 128];
+  const lift = high * 5;
+  return [
+    clampByte(base[0] + lift),
+    clampByte(base[1] + lift),
+    clampByte(base[2] + lift)
+  ];
 }
 
 function spriteMask(u: number, v: number): boolean {
