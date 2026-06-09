@@ -213,6 +213,8 @@ type ActorFrameAction =
   | "fakeFire"
   | "hitlerMorph"
   | "shoot"
+  | "slurpie"
+  | "startDeathCam"
   | "throwNeedle"
   | "throwRocket";
 type ActorFrameThink = "bjJump" | "bjRun";
@@ -479,6 +481,10 @@ const ATTACK_KEY_CODE = 17;
 const RUN_KEY_CODE = 16;
 const STRAFE_KEY_CODE = 18;
 const USE_KEY_CODE = 32;
+const SOURCE_DEATH_CAM_DONE_TICS = 20;
+const SOURCE_DEATH_CAM_START_DISTANCE = 0x14000 / TILEGLOBAL;
+const SOURCE_DEATH_CAM_DISTANCE_STEP = 0x1000 / TILEGLOBAL;
+const SOURCE_DEATH_CAM_MAX_STEPS = 64;
 const GETGATLINGSND: SourceSoundName = "GETGATLINGSND";
 const SOURCE_SOUND_CHUNKS: Record<SourceSoundName, number> = {
   AHHHGSND: 52,
@@ -1113,7 +1119,7 @@ const ACTOR_DEATH_STATES: Record<string, ActorStateFrame[]> = {
     ["s_fatdie3", ACTOR_SPRITES.FAT_DIE1, 10],
     ["s_fatdie4", ACTOR_SPRITES.FAT_DIE2, 10],
     ["s_fatdie5", ACTOR_SPRITES.FAT_DIE3, 10],
-    ["s_fatdie6", ACTOR_SPRITES.FAT_DEAD, 20, true]
+    ["s_fatdie6", ACTOR_SPRITES.FAT_DEAD, 20, true, "startDeathCam"]
   ]),
   gift: deathFrames([
     ["s_giftdie1", ACTOR_SPRITES.GIFT_W1, 1, false, "deathScream"],
@@ -1121,7 +1127,7 @@ const ACTOR_DEATH_STATES: Record<string, ActorStateFrame[]> = {
     ["s_giftdie3", ACTOR_SPRITES.GIFT_DIE1, 10],
     ["s_giftdie4", ACTOR_SPRITES.GIFT_DIE2, 10],
     ["s_giftdie5", ACTOR_SPRITES.GIFT_DIE3, 10],
-    ["s_giftdie6", ACTOR_SPRITES.GIFT_DEAD, 20, true]
+    ["s_giftdie6", ACTOR_SPRITES.GIFT_DEAD, 20, true, "startDeathCam"]
   ]),
   gretel: deathFrames([
     ["s_greteldie1", ACTOR_SPRITES.GRETEL_DIE1, 15, false, "deathScream"],
@@ -1158,14 +1164,14 @@ const ACTOR_DEATH_STATES: Record<string, ActorStateFrame[]> = {
   real_hitler: deathFrames([
     ["s_hitlerdie1", ACTOR_SPRITES.HITLER_W1, 1, false, "deathScream"],
     ["s_hitlerdie2", ACTOR_SPRITES.HITLER_W1, 10],
-    ["s_hitlerdie3", ACTOR_SPRITES.HITLER_DIE1, 10],
+    ["s_hitlerdie3", ACTOR_SPRITES.HITLER_DIE1, 10, false, "slurpie"],
     ["s_hitlerdie4", ACTOR_SPRITES.HITLER_DIE2, 10],
     ["s_hitlerdie5", ACTOR_SPRITES.HITLER_DIE3, 10],
     ["s_hitlerdie6", ACTOR_SPRITES.HITLER_DIE4, 10],
     ["s_hitlerdie7", ACTOR_SPRITES.HITLER_DIE5, 10],
     ["s_hitlerdie8", ACTOR_SPRITES.HITLER_DIE6, 10],
     ["s_hitlerdie9", ACTOR_SPRITES.HITLER_DIE7, 10],
-    ["s_hitlerdie10", ACTOR_SPRITES.HITLER_DEAD, 20, true]
+    ["s_hitlerdie10", ACTOR_SPRITES.HITLER_DEAD, 20, true, "startDeathCam"]
   ]),
   schabbs: deathFrames([
     ["s_schabbdie1", ACTOR_SPRITES.SCHABB_W1, 10, false, "deathScream"],
@@ -1173,7 +1179,7 @@ const ACTOR_DEATH_STATES: Record<string, ActorStateFrame[]> = {
     ["s_schabbdie3", ACTOR_SPRITES.SCHABB_DIE1, 10],
     ["s_schabbdie4", ACTOR_SPRITES.SCHABB_DIE2, 10],
     ["s_schabbdie5", ACTOR_SPRITES.SCHABB_DIE3, 10],
-    ["s_schabbdie6", ACTOR_SPRITES.SCHABB_DEAD, 20, true]
+    ["s_schabbdie6", ACTOR_SPRITES.SCHABB_DEAD, 20, true, "startDeathCam"]
   ]),
   ss: deathFrames([
     ["s_ssdie1", ACTOR_SPRITES.SS_DIE_1, 15, false, "deathScream"],
@@ -1934,6 +1940,7 @@ class WLGame {
   playstate: SourcePlayState = "ex_stillplaying";
   victorySummary: SourceVictorySummary | null = null;
   private attackButtonHeld = false;
+  private bossDeathCamCountdown = 0;
   private completedLevelTransitionApplied = false;
   private diedTransitionApplied = false;
   private rndIndex = 0;
@@ -2011,6 +2018,7 @@ class WLGame {
 
   NewGameState(difficulty: SourceDifficulty = this.gamestate.difficulty, episode = 0): void {
     this.attackButtonHeld = false;
+    this.bossDeathCamCountdown = 0;
     this.completedLevelTransitionApplied = false;
     this.diedTransitionApplied = false;
     this.lastHighScoreCheck = null;
@@ -2108,6 +2116,7 @@ class WLGame {
     this.gamestate.attackframe = 0;
     this.attackButtonHeld = false;
     this.useButtonHeld = false;
+    this.bossDeathCamCountdown = 0;
     this.completedLevelTransitionApplied = false;
     this.diedTransitionApplied = false;
     this.madeNoise = false;
@@ -2146,7 +2155,7 @@ class WLGame {
     if (wasAttacking) {
       this.UpdateFace(tics);
       if (this.gamestate.victoryflag) {
-        this.VictorySpin(tics);
+        this.UpdateVictoryCamera(tics);
         this.gamestate.ticcount += 1;
         return false;
       }
@@ -2159,7 +2168,7 @@ class WLGame {
       this.T_Attack(tics, attackDown && this.attackButtonHeld);
     } else {
       if (this.gamestate.victoryflag) {
-        this.VictorySpin(tics);
+        this.UpdateVictoryCamera(tics);
         this.gamestate.ticcount += 1;
         return false;
       }
@@ -4206,6 +4215,63 @@ class WLGame {
     });
   }
 
+  private A_Slurpie(): void {
+    this.id_sd.SD_PlaySound("SLURPIESND");
+  }
+
+  private A_StartDeathCam(actor: PortActor): void {
+    if (this.gamestate.victoryflag) {
+      this.SetPlayState("ex_victorious");
+      return;
+    }
+
+    this.gamestate.victoryflag = true;
+    this.bossDeathCamCountdown = SOURCE_DEATH_CAM_DONE_TICS;
+    this.PlaceBossDeathCamera(actor);
+  }
+
+  private PlaceBossDeathCamera(actor: PortActor): void {
+    const bossX = actor.x + 0.5;
+    const bossY = actor.y + 0.5;
+    const sourceX = this.gamestate.killx || this.gamestate.x;
+    const sourceY = this.gamestate.killy || this.gamestate.y;
+    const angle = normalizeAngle(Math.atan2(bossY - sourceY, bossX - sourceX));
+
+    this.gamestate.angle = angle;
+    this.gamestate.x = sourceX;
+    this.gamestate.y = sourceY;
+
+    for (let step = 0; step < SOURCE_DEATH_CAM_MAX_STEPS; step += 1) {
+      const dist = SOURCE_DEATH_CAM_START_DISTANCE + SOURCE_DEATH_CAM_DISTANCE_STEP * step;
+      const candidateX = bossX - Math.cos(angle) * dist;
+      const candidateY = bossY - Math.sin(angle) * dist;
+      if (this.PlayerCameraPositionOk(candidateX, candidateY)) {
+        this.gamestate.x = candidateX;
+        this.gamestate.y = candidateY;
+        break;
+      }
+    }
+
+    this.ConnectAreas();
+  }
+
+  private PlayerCameraPositionOk(x: number, y: number): boolean {
+    const xl = Math.floor(x - SOURCE_PLAYERSIZE_TILES);
+    const xh = Math.floor(x + SOURCE_PLAYERSIZE_TILES);
+    const yl = Math.floor(y - SOURCE_PLAYERSIZE_TILES);
+    const yh = Math.floor(y + SOURCE_PLAYERSIZE_TILES);
+
+    for (let tileY = yl; tileY <= yh; tileY += 1) {
+      for (let tileX = xl; tileX <= xh; tileX += 1) {
+        if (this.GetTile(tileX, tileY) !== 0) {
+          return false;
+        }
+      }
+    }
+
+    return true;
+  }
+
   private A_Smoke(projectile: PortProjectile, spawnedProjectiles: PortProjectile[]): void {
     const frame = PROJECTILE_STATES.smoke[0];
     if (!frame) {
@@ -4349,6 +4415,26 @@ class WLGame {
       x: this.gamestate.x - 0.5,
       y: this.gamestate.y - 0.5
     });
+  }
+
+  private UpdateVictoryCamera(tics: number): void {
+    if (this.bossDeathCamCountdown > 0) {
+      this.AdvanceBossDeathCam(tics);
+      return;
+    }
+
+    this.VictorySpin(tics);
+  }
+
+  private AdvanceBossDeathCam(tics: number): void {
+    if (this.bossDeathCamCountdown <= 0) {
+      return;
+    }
+
+    this.bossDeathCamCountdown = Math.max(0, this.bossDeathCamCountdown - tics);
+    if (this.bossDeathCamCountdown === 0) {
+      this.SetPlayState("ex_victorious");
+    }
   }
 
   private VictorySpin(tics: number): void {
@@ -4607,6 +4693,12 @@ class WLGame {
         break;
       case "shoot":
         this.T_Shoot(actor);
+        break;
+      case "slurpie":
+        this.A_Slurpie();
+        break;
+      case "startDeathCam":
+        this.A_StartDeathCam(actor);
         break;
       case "throwNeedle":
         this.T_SchabbThrow(actor);
