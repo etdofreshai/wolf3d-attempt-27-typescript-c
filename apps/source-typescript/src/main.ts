@@ -2777,12 +2777,20 @@ class WLGame {
 
     actor.stateTics -= tics;
     while (actor.mode === "dying" && actor.stateTics <= 0) {
-      const nextIndex = Math.min(actor.stateIndex + 1, sequence.length - 1);
-      this.NewActorState(actor, sequence, nextIndex, actor.stateTics);
-      this.RunActorFrameAction(actor, sequence[nextIndex]);
-      if (nextIndex === sequence.length - 1) {
+      const currentFrame = sequence[actor.stateIndex];
+      this.RunActorFrameAction(actor, currentFrame);
+      if (actor.mode !== "dying") {
         return;
       }
+
+      if (currentFrame?.final) {
+        actor.mode = "dead";
+        actor.stateTics = 0;
+        return;
+      }
+
+      const nextIndex = Math.min(actor.stateIndex + 1, sequence.length - 1);
+      this.NewActorState(actor, sequence, nextIndex, actor.stateTics);
     }
   }
 
@@ -2850,6 +2858,11 @@ class WLGame {
     actor.stateTics -= tics;
     while (actor.mode === "attack" && actor.stateTics <= 0) {
       const currentFrame = sequence[actor.stateIndex];
+      this.RunActorFrameAction(actor, currentFrame);
+      if (actor.mode !== "attack") {
+        return;
+      }
+
       if (!currentFrame || currentFrame.nextMode === "chase" || actor.stateIndex >= sequence.length - 1) {
         this.StartChaseState(actor, actor.stateTics);
         return;
@@ -2863,7 +2876,6 @@ class WLGame {
       }
 
       this.SetActorSequenceState(actor, sequence, nextIndex, "attack", actor.stateTics);
-      this.RunActorFrameAction(actor, nextFrame);
     }
   }
 
@@ -4579,7 +4591,6 @@ class WLGame {
     }
 
     this.NewActorState(actor, sequence, 0);
-    this.RunActorFrameAction(actor, sequence[0]);
   }
 
   private A_DeathScream(actor: PortActor): void {
@@ -4663,7 +4674,6 @@ class WLGame {
     }
 
     this.SetActorSequenceState(actor, sequence, 0, "attack");
-    this.RunActorFrameAction(actor, sequence[0]);
     return true;
   }
 
@@ -4754,7 +4764,7 @@ class WLGame {
       return;
     }
 
-    actor.mode = frame.final ? "dead" : mode;
+    actor.mode = frame.final && !frame.action ? "dead" : mode;
     actor.stateIndex = index;
     actor.stateName = frame.name;
     actor.stateShapenum = frame.shapenum;
