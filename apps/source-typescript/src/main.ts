@@ -1930,6 +1930,8 @@ class WLGame {
     this.gamestate.lives -= 1;
 
     if (this.gamestate.lives > -1) {
+      // WL_GAME.C GameLoop restores the level-start score before replaying a level after death.
+      this.gamestate.score = this.gamestate.oldscore;
       this.gamestate.health = MAX_HEALTH;
       this.gamestate.weapon = WP_PISTOL;
       this.gamestate.bestweapon = WP_PISTOL;
