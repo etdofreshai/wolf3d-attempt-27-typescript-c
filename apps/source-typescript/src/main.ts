@@ -82,7 +82,7 @@ type PortStatic = {
   y: number;
 };
 
-type ProjectileKind = "fire" | "needle" | "rocket";
+type ProjectileKind = "boom" | "fire" | "needle" | "rocket" | "smoke";
 
 type PortProjectile = {
   angle: number;
@@ -380,6 +380,9 @@ const DIR_ANGLE_DEGREES = [0, 45, 90, 135, 180, 225, 270, 315, 360] as const;
 const ACTOR_SPRITES = {
   BLINKY_W1: 288,
   BLINKY_W2: 289,
+  BOOM_1: 382,
+  BOOM_2: 383,
+  BOOM_3: 384,
   BOSS_DEAD: 303,
   BOSS_DIE1: 304,
   BOSS_DIE2: 305,
@@ -490,6 +493,10 @@ const ACTOR_SPRITES = {
   MECHA_W3: 336,
   MECHA_W4: 337,
   ROCKET_1: 370,
+  SMOKE_1: 378,
+  SMOKE_2: 379,
+  SMOKE_3: 380,
+  SMOKE_4: 381,
   MUT_DEAD: 233,
   MUT_DIE_1: 228,
   MUT_DIE_2: 229,
@@ -711,6 +718,11 @@ const ACTOR_ATTACK_STATES: Record<string, ActorStateFrame[]> = {
   ]
 };
 const PROJECTILE_STATES: Record<ProjectileKind, ProjectileStateFrame[]> = {
+  boom: [
+    { name: "s_boom1", shapenum: ACTOR_SPRITES.BOOM_1, tics: 6 },
+    { name: "s_boom2", shapenum: ACTOR_SPRITES.BOOM_2, tics: 6 },
+    { name: "s_boom3", shapenum: ACTOR_SPRITES.BOOM_3, tics: 6 }
+  ],
   fire: [
     { name: "s_fire1", shapenum: ACTOR_SPRITES.FIRE1, tics: 6 },
     { name: "s_fire2", shapenum: ACTOR_SPRITES.FIRE2, tics: 6 }
@@ -721,8 +733,15 @@ const PROJECTILE_STATES: Record<ProjectileKind, ProjectileStateFrame[]> = {
     { name: "s_needle3", shapenum: ACTOR_SPRITES.HYPO3, tics: 6 },
     { name: "s_needle4", shapenum: ACTOR_SPRITES.HYPO4, tics: 6 }
   ],
-  rocket: [{ name: "s_rocket", rotate: true, shapenum: ACTOR_SPRITES.ROCKET_1, tics: 3 }]
+  rocket: [{ name: "s_rocket", rotate: true, shapenum: ACTOR_SPRITES.ROCKET_1, tics: 3 }],
+  smoke: [
+    { name: "s_smoke1", shapenum: ACTOR_SPRITES.SMOKE_1, tics: 3 },
+    { name: "s_smoke2", shapenum: ACTOR_SPRITES.SMOKE_2, tics: 3 },
+    { name: "s_smoke3", shapenum: ACTOR_SPRITES.SMOKE_3, tics: 3 },
+    { name: "s_smoke4", shapenum: ACTOR_SPRITES.SMOKE_4, tics: 3 }
+  ]
 };
+const LOOPING_PROJECTILE_KINDS = new Set<ProjectileKind>(["fire", "needle", "rocket"]);
 const ACTOR_PATROL_STATES: Record<string, ActorStateFrame[]> = {
   dog: pathFrames("dog", [ACTOR_SPRITES.DOG_W1_1, ACTOR_SPRITES.DOG_W2_1, ACTOR_SPRITES.DOG_W3_1, ACTOR_SPRITES.DOG_W4_1]),
   guard: pathFrames("grd", [ACTOR_SPRITES.GRD_W1_1, ACTOR_SPRITES.GRD_W2_1, ACTOR_SPRITES.GRD_W3_1, ACTOR_SPRITES.GRD_W4_1]),
@@ -1546,14 +1565,20 @@ class WLGame {
 
   MoveProjectiles(tics: number): void {
     const activeProjectiles: PortProjectile[] = [];
+    const spawnedProjectiles: PortProjectile[] = [];
     for (const projectile of this.map.projectiles) {
-      this.MoveProjectileState(projectile, tics);
-      if (this.T_Projectile(projectile, tics)) {
+      if (!this.MoveProjectileState(projectile, tics, spawnedProjectiles)) {
+        continue;
+      }
+
+      if (this.ProjectileIsEffect(projectile)) {
+        activeProjectiles.push(projectile);
+      } else if (this.T_Projectile(projectile, tics)) {
         activeProjectiles.push(projectile);
       }
     }
 
-    this.map.projectiles = activeProjectiles;
+    this.map.projectiles = activeProjectiles.concat(spawnedProjectiles);
   }
 
   private MoveActorState(actor: PortActor, tics: number): void {
@@ -1667,13 +1692,30 @@ class WLGame {
     }
   }
 
-  private MoveProjectileState(projectile: PortProjectile, tics: number): void {
+  private MoveProjectileState(
+    projectile: PortProjectile,
+    tics: number,
+    spawnedProjectiles: PortProjectile[]
+  ): boolean {
     const sequence = PROJECTILE_STATES[projectile.kind];
     projectile.stateTics -= tics;
     while (projectile.stateTics <= 0) {
-      const nextIndex = (projectile.stateIndex + 1) % sequence.length;
+      let nextIndex = projectile.stateIndex + 1;
+      if (nextIndex >= sequence.length) {
+        if (!LOOPING_PROJECTILE_KINDS.has(projectile.kind)) {
+          return false;
+        }
+
+        nextIndex = 0;
+      }
+
       this.SetProjectileSequenceState(projectile, sequence, nextIndex, projectile.stateTics);
+      if (projectile.kind === "rocket") {
+        this.A_Smoke(projectile, spawnedProjectiles);
+      }
     }
+
+    return true;
   }
 
   private T_Stand(actor: PortActor, tics: number): void {
@@ -1696,6 +1738,10 @@ class WLGame {
     projectile.y += dy;
 
     if (!this.ProjectileTryMove(projectile)) {
+      if (projectile.kind === "rocket") {
+        return this.StartProjectileImpact(projectile);
+      }
+
       return false;
     }
 
@@ -2742,6 +2788,45 @@ class WLGame {
       x,
       y
     });
+  }
+
+  private A_Smoke(projectile: PortProjectile, spawnedProjectiles: PortProjectile[]): void {
+    const frame = PROJECTILE_STATES.smoke[0];
+    if (!frame) {
+      return;
+    }
+
+    spawnedProjectiles.push({
+      angle: 0,
+      kind: "smoke",
+      speed: 0,
+      stateIndex: 0,
+      stateName: frame.name,
+      stateShapenum: frame.shapenum,
+      stateTics: 6,
+      x: projectile.x,
+      y: projectile.y
+    });
+  }
+
+  private StartProjectileImpact(projectile: PortProjectile): boolean {
+    const frame = PROJECTILE_STATES.boom[0];
+    if (!frame) {
+      return false;
+    }
+
+    projectile.angle = 0;
+    projectile.kind = "boom";
+    projectile.speed = 0;
+    projectile.stateIndex = 0;
+    projectile.stateName = frame.name;
+    projectile.stateShapenum = frame.shapenum;
+    projectile.stateTics = frame.tics;
+    return true;
+  }
+
+  private ProjectileIsEffect(projectile: PortProjectile): boolean {
+    return projectile.kind === "boom" || projectile.kind === "smoke";
   }
 
   private ProjectileTryMove(projectile: PortProjectile): boolean {
@@ -4582,12 +4667,16 @@ function staticRgb(stat: PortStatic): [number, number, number] {
 
 function projectileRgb(projectile: PortProjectile): [number, number, number] {
   switch (projectile.kind) {
+    case "boom":
+      return [244, 190, 70];
     case "fire":
       return [238, 72, 48];
     case "needle":
       return [96, 212, 126];
     case "rocket":
       return [228, 132, 52];
+    case "smoke":
+      return [132, 132, 126];
     default:
       return [220, 220, 190];
   }
