@@ -1233,6 +1233,7 @@ class WLMain {
   private readonly demoPlan: DemoPlan | null;
   private readonly startDifficulty: SourceDifficulty;
   private readonly startLevel: number;
+  private transitionInProgress = false;
 
   constructor(screenCanvas: HTMLCanvasElement, demoPlan: DemoPlan | null) {
     this.demoPlan = demoPlan;
@@ -1279,6 +1280,7 @@ class WLMain {
   }
 
   ResetGame(): void {
+    this.transitionInProgress = false;
     this.id_sd.SD_StopDigitized();
     this.wl_game.NewGameState(this.startDifficulty, Math.floor(this.startLevel / 10));
     this.wl_game.SetupGameLevel(this.startLevel, this.id_ca.currentMap);
@@ -1287,9 +1289,86 @@ class WLMain {
     this.RenderUi();
   }
 
-  Tick(ticMs: number): void {
+  async Tick(ticMs: number): Promise<void> {
+    if (this.transitionInProgress) {
+      return;
+    }
+
     this.wl_play.PlayLoop(ticMs);
+    await this.ApplyGameLoopTransition();
     this.RenderUi();
+  }
+
+  private async ApplyGameLoopTransition(): Promise<boolean> {
+    const playstate = this.wl_game.playstate;
+    if (
+      playstate !== "ex_completed" &&
+      playstate !== "ex_secretlevel" &&
+      playstate !== "ex_died" &&
+      playstate !== "ex_victorious"
+    ) {
+      return false;
+    }
+
+    this.transitionInProgress = true;
+    try {
+      if (playstate === "ex_completed" || playstate === "ex_secretlevel") {
+        const applied = this.wl_game.ApplyCompletedLevelTransition();
+        if (!applied) {
+          return false;
+        }
+
+        const level = this.wl_game.gamestate.level;
+        this.id_us.US_Print(
+          `GameLoop ${playstate} mapon ${this.wl_game.gamestate.mapon} level ${level}`
+        );
+        await this.SetupTransitionLevel(level, playstate);
+        return true;
+      }
+
+      if (playstate === "ex_died") {
+        const applied = this.wl_game.ApplyDiedTransition();
+        if (!applied) {
+          return false;
+        }
+
+        this.id_us.US_Print(`GameLoop ex_died lives ${this.wl_game.gamestate.lives}`);
+        if (this.wl_game.gamestate.lives > -1) {
+          await this.SetupTransitionLevel(this.wl_game.gamestate.level, playstate);
+        }
+
+        return true;
+      }
+
+      const applied = this.wl_game.ApplyVictoriousTransition();
+      if (applied && this.wl_game.victorySummary) {
+        const summary = this.wl_game.victorySummary;
+        this.id_us.US_Print(
+          `GameLoop ex_victorious time ${formatClockSeconds(summary.totalTime)} avg ${summary.averageKill}/${summary.averageSecret}/${summary.averageTreasure}`
+        );
+      }
+
+      return applied;
+    } finally {
+      this.transitionInProgress = false;
+    }
+  }
+
+  private async SetupTransitionLevel(level: number, playstate: SourcePlayState): Promise<void> {
+    try {
+      const wolfMap = await this.id_ca.CA_CacheMap(level);
+      this.wl_game.SetupGameLevel(level, wolfMap);
+      this.id_us.US_Print(
+        `SetupGameLevel after ${playstate}: ${wolfMap.header.name || `map ${wolfMap.index}`}`
+      );
+    } catch (error) {
+      this.wl_game.SetupGameLevel(level);
+      this.id_us.US_Print(
+        error instanceof Error
+          ? `SetupGameLevel after ${playstate}: fallback map: ${error.message}`
+          : `SetupGameLevel after ${playstate}: fallback map`
+      );
+    }
   }
 
   ApplyCompletedLevelTransition(): boolean {
@@ -1384,6 +1463,7 @@ class WLMain {
             steps: this.demoPlan.steps
           }
         : null,
+      transitionInProgress: this.transitionInProgress,
       game: this.wl_game.gamestate,
       map: this.wl_game.mapMetadata,
       areas: {
@@ -1511,7 +1591,7 @@ class WLMain {
     const elapsed = Math.min(100, time - this.lastTime);
     this.lastTime = time;
     if (!this.demoRunning) {
-      this.Tick(elapsed);
+      void this.Tick(elapsed);
     }
     requestAnimationFrame((nextTime) => this.GameLoop(nextTime));
   }
@@ -1563,7 +1643,7 @@ class WLMain {
     let steps = 0;
     while (remaining > 0) {
       const step = Math.min(ticMs, remaining);
-      this.Tick(step);
+      await this.Tick(step);
       remaining -= step;
       steps += 1;
       if (steps % 64 === 0) {
@@ -5174,7 +5254,7 @@ function startSourceTypescriptApp(): void {
       reset: () => void;
       runDemo: () => Promise<void>;
       state: () => Record<string, unknown>;
-      tick: (ticMs?: number) => void;
+      tick: (ticMs?: number) => Promise<void>;
     };
   }).wolf3dTypeScriptHarness = {
     applyCompletedLevelTransition: () => wlMain.ApplyCompletedLevelTransition(),
@@ -5195,7 +5275,7 @@ function startSourceTypescriptApp(): void {
   });
 
   buttonTick.addEventListener("click", () => {
-    wlMain.Tick(1000 / 60);
+    void wlMain.Tick(1000 / 60);
   });
 
   buttonRunDemo.addEventListener("click", () => {
