@@ -1606,7 +1606,7 @@ class WLGame {
 
     if (this.gamestate.attackcount > 0) {
       moved = this.ControlMovement(id_in, ticMs);
-      this.T_Attack(tics, attackDown);
+      this.T_Attack(tics, attackDown && this.attackButtonHeld);
     } else {
       this.CheckWeaponChange(id_in);
 
