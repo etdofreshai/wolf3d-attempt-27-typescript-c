@@ -18,6 +18,7 @@ const plan = {
   steps: []
 };
 let target = "source-modified-dos";
+let difficulty = null;
 let mapIndex = null;
 let outPath = null;
 
@@ -41,6 +42,11 @@ for (let index = 0; index < args.length; index += 1) {
 
   if (arg === "--map" || arg === "--level") {
     mapIndex = numberValue(needValue(args, ++index, arg), arg);
+    continue;
+  }
+
+  if (arg === "--difficulty" || arg === "--skill") {
+    difficulty = difficultyValue(needValue(args, ++index, arg), arg);
     continue;
   }
 
@@ -151,6 +157,10 @@ if (mapIndex !== null) {
   query.set("map", String(clampMapIndex(mapIndex)));
 }
 
+if (difficulty !== null) {
+  query.set("difficulty", difficulty);
+}
+
 const url = `http://127.0.0.1:${targetInfo.port}/?${query.toString()}`;
 
 if (outPath) {
@@ -202,6 +212,15 @@ function numberValue(value, flag) {
   return number;
 }
 
+function difficultyValue(value, flag) {
+  const normalized = value.trim().toLowerCase();
+  if (["baby", "easy", "medium", "hard"].includes(normalized)) {
+    return normalized;
+  }
+
+  throw new Error(`${flag} must be baby, easy, medium, or hard.`);
+}
+
 function clampMapIndex(value) {
   return Math.max(0, Math.min(59, Math.trunc(value)));
 }
@@ -223,6 +242,8 @@ Steps:
   --up <name>           Release a key
   --map <index>         Load a WL6 map index, 0-59
   --level <index>       Alias for --map
+  --difficulty <name>   Set source difficulty: baby, easy, medium, hard
+  --skill <name>        Alias for --difficulty
   --capture [label]     Capture a PNG at this point
   --state               Include a BIN state artifact in the latest capture
   --wav                 Include a WAV artifact in the latest capture

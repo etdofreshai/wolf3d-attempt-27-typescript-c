@@ -49,7 +49,7 @@ and capture PNG/WAV/BIN artifacts. The helper script prints a ready-to-open URL:
 
 ```powershell
 npm run demo:plan -- --target source-modified-dos --name boot --wait 1200 --key Enter:90 --wait 500 --capture menu --state --wav
-npm run demo:plan -- --target source-typescript --name turn-test --wait 300 --key ArrowRight:250 --capture turn --state
+npm run demo:plan -- --target source-typescript --name turn-test --map 0 --difficulty hard --wait 300 --key ArrowRight:250 --capture turn --state
 ```
 
 Local DOS build dependencies are intentionally private. To let `apps/source-dos`

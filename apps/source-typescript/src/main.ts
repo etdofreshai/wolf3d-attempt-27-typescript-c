@@ -13,6 +13,8 @@ type SourceTypescriptStatus = {
   };
 };
 
+type SourceDifficulty = "baby" | "easy" | "medium" | "hard";
+
 type DemoPlan = {
   name: string;
   autoStart?: boolean;
@@ -927,7 +929,7 @@ const GHOST_INFO_TILES: Record<number, string> = {
   226: "pinky",
   227: "inky"
 };
-// WL_ACT2.C starthitpoints[4][NUMENEMIES], with the UI difficulties mapped to rows 1-3.
+// WL_ACT2.C starthitpoints[4][NUMENEMIES], indexed by gd_baby..gd_hard.
 const START_HITPOINTS = [
   [25, 50, 100, 1, 850, 850, 200, 800, 45, 25, 25, 25, 25, 850, 850, 850, 5, 1450, 850, 1050, 950, 1250],
   [25, 50, 100, 1, 950, 950, 300, 950, 55, 25, 25, 25, 25, 950, 950, 950, 10, 1550, 950, 1150, 1050, 1350],
@@ -1117,10 +1119,12 @@ class WLMain {
   private demoStepIndex: number | null = null;
   private lastTime = 0;
   private readonly demoPlan: DemoPlan | null;
+  private readonly startDifficulty: SourceDifficulty;
   private readonly startLevel: number;
 
   constructor(screenCanvas: HTMLCanvasElement, demoPlan: DemoPlan | null) {
     this.demoPlan = demoPlan;
+    this.startDifficulty = readDifficulty();
     this.startLevel = readStartLevel();
     this.id_vl = new IDVL(screenCanvas);
     this.id_in = new IDIN();
@@ -1128,7 +1132,7 @@ class WLMain {
     this.id_sd = new IDSD();
     this.id_us = new IDUS();
     this.id_ca = new IDCA();
-    this.wl_game = new WLGame();
+    this.wl_game = new WLGame(this.startDifficulty);
     this.wl_draw = new WLDraw(this.id_vl, this.id_pm);
     this.wl_play = new WLPlay(this.wl_game, this.wl_draw, this.id_in, this.id_sd);
   }
@@ -1146,7 +1150,7 @@ class WLMain {
       const wolfMap = await this.id_ca.CA_CacheMap(this.startLevel);
       this.wl_game.SetupGameLevel(this.startLevel, wolfMap);
       this.id_us.US_Print(
-        `CA_CacheMap ${wolfMap.header.name || `map ${wolfMap.index}`} ${wolfMap.header.width}x${wolfMap.header.height}`
+        `CA_CacheMap ${wolfMap.header.name || `map ${wolfMap.index}`} ${wolfMap.header.width}x${wolfMap.header.height} difficulty ${this.startDifficulty}`
       );
     } catch (error) {
       this.wl_game.SetupGameLevel(this.startLevel);
@@ -1509,7 +1513,7 @@ class WLGame {
     attackframe: 0,
     bestweapon: WP_PISTOL,
     chosenweapon: WP_PISTOL,
-    difficulty: "medium" as "easy" | "medium" | "hard",
+    difficulty: "medium" as SourceDifficulty,
     health: MAX_HEALTH,
     keys: 0,
     killcount: 0,
@@ -1530,8 +1534,12 @@ class WLGame {
     y: 3.5
   };
 
+  constructor(difficulty: SourceDifficulty = "medium") {
+    this.gamestate.difficulty = difficulty;
+  }
+
   get mapMetadata(): string {
-    return `${this.map.name} ${this.map.width}x${this.map.height}`;
+    return `${this.map.name} ${this.map.width}x${this.map.height} / ${this.gamestate.difficulty}`;
   }
 
   get objectMetadata(): string {
@@ -3275,7 +3283,9 @@ class WLGame {
 
   private TakeDamage(points: number, attacker: PortActor | PortProjectile | null = null): void {
     this.lastAttacker = attacker ? this.DamageSource(attacker) : null;
-    this.gamestate.health = Math.max(0, this.gamestate.health - Math.max(0, points));
+    const sourcePoints = Math.max(0, Math.trunc(points));
+    const actualPoints = this.gamestate.difficulty === "baby" ? sourcePoints >> 2 : sourcePoints;
+    this.gamestate.health = Math.max(0, this.gamestate.health - actualPoints);
     if (this.gamestate.health === 0) {
       this.gamestate.playstate = "died";
       this.killer = this.lastAttacker;
@@ -4678,7 +4688,7 @@ function scanWallPlaneForDoors(map: WolfMap): PortDoor[] {
   return doors;
 }
 
-function scanInfoPlane(map: WolfMap, difficulty: "easy" | "medium" | "hard"): ScanInfoPlaneResult {
+function scanInfoPlane(map: WolfMap, difficulty: SourceDifficulty): ScanInfoPlaneResult {
   const statics: PortStatic[] = [];
   const actors: PortActor[] = [];
   let secretTotal = 0;
@@ -4978,7 +4988,7 @@ function actorFromInfoTile(
   tile: number,
   x: number,
   y: number,
-  difficulty: "easy" | "medium" | "hard"
+  difficulty: SourceDifficulty
 ): PortActor | null {
   if (tile === 124) {
     return {
@@ -5063,7 +5073,7 @@ function actorFromInfoTile(
 
 function directionalEnemy(
   tile: number,
-  difficulty: "easy" | "medium" | "hard",
+  difficulty: SourceDifficulty,
   kind: string,
   easyBase: number,
   mediumBase: number,
@@ -5108,15 +5118,24 @@ function directionalEnemy(
   return null;
 }
 
-function difficultyRank(difficulty: "easy" | "medium" | "hard"): number {
+function difficultyRank(difficulty: SourceDifficulty): number {
   return difficulty === "hard" ? 2 : difficulty === "medium" ? 1 : 0;
 }
 
-function hitpointRowForDifficulty(difficulty: "easy" | "medium" | "hard"): 1 | 2 | 3 {
-  return difficulty === "hard" ? 3 : difficulty === "medium" ? 2 : 1;
+function hitpointRowForDifficulty(difficulty: SourceDifficulty): 0 | 1 | 2 | 3 {
+  switch (difficulty) {
+    case "baby":
+      return 0;
+    case "easy":
+      return 1;
+    case "medium":
+      return 2;
+    case "hard":
+      return 3;
+  }
 }
 
-function actorHitpoints(kind: string, difficulty: "easy" | "medium" | "hard"): number {
+function actorHitpoints(kind: string, difficulty: SourceDifficulty): number {
   if (kind === "real_hitler") {
     return realHitlerHitpoints(difficulty);
   }
@@ -5125,7 +5144,7 @@ function actorHitpoints(kind: string, difficulty: "easy" | "medium" | "hard"): n
   return START_HITPOINTS[hitpointRowForDifficulty(difficulty)][enemyIndex] ?? 25;
 }
 
-function realHitlerHitpoints(difficulty: "easy" | "medium" | "hard"): number {
+function realHitlerHitpoints(difficulty: SourceDifficulty): number {
   return REAL_HITLER_HITPOINTS[hitpointRowForDifficulty(difficulty)] ?? 700;
 }
 
@@ -5673,6 +5692,25 @@ function readStartLevel(): number {
   }
 
   return Math.max(0, Math.min(59, level));
+}
+
+function readDifficulty(): SourceDifficulty {
+  const params = new URLSearchParams(window.location.search);
+  return normalizeDifficulty(params.get("difficulty") ?? params.get("skill")) ?? "medium";
+}
+
+function normalizeDifficulty(value: string | null): SourceDifficulty | null {
+  const normalized = value?.trim().toLowerCase();
+  if (
+    normalized === "baby"
+    || normalized === "easy"
+    || normalized === "medium"
+    || normalized === "hard"
+  ) {
+    return normalized;
+  }
+
+  return null;
 }
 
 function normalizeDemoPlan(value: unknown): DemoPlan | null {
