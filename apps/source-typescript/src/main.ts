@@ -280,6 +280,10 @@ const MAX_AMMO = 99;
 const MAX_HEALTH = 100;
 const MAX_LIVES = 9;
 const OPENTICS = 300;
+const RUNSPEED = 6000;
+const SOURCE_CONTROL_MAX = 100;
+const SOURCE_FORWARD_MOVESCALE = 150;
+const SOURCE_BACK_MOVESCALE = 100;
 const PUSHABLETILE = 98;
 const SCREEN_WIDTH = 320;
 const SCREEN_HEIGHT = 200;
@@ -1243,6 +1247,7 @@ class WLMain {
         y: door.y
       })),
       madeNoise: this.wl_game.madeNoise,
+      thrustSpeed: this.wl_game.thrustSpeed,
       objects: {
         actors: this.wl_game.map.actors.length,
         actorsDetail: this.wl_game.map.actors.map((actor) => ({
@@ -1477,6 +1482,7 @@ class WLPlay {
 class WLGame {
   map = createFallbackMap();
   madeNoise = false;
+  thrustSpeed = 0;
   private attackButtonHeld = false;
   private rndIndex = 0;
 
@@ -1622,6 +1628,7 @@ class WLGame {
     const moveSpeed = 2.4 * seconds;
     const turnSpeed = 2.6 * seconds;
     let moved = false;
+    this.thrustSpeed = 0;
 
     if (id_in.IN_KeyDown(37) || id_in.IN_KeyDown(65)) {
       this.gamestate.angle -= turnSpeed;
@@ -1638,6 +1645,8 @@ class WLGame {
       (id_in.IN_KeyDown(40) || id_in.IN_KeyDown(83) ? 1 : 0);
 
     if (forward !== 0) {
+      this.thrustSpeed +=
+        SOURCE_CONTROL_MAX * (forward > 0 ? SOURCE_FORWARD_MOVESCALE : SOURCE_BACK_MOVESCALE);
       const nextX = this.gamestate.x + Math.cos(this.gamestate.angle) * moveSpeed * forward;
       const nextY = this.gamestate.y + Math.sin(this.gamestate.angle) * moveSpeed * forward;
       if (!this.IsWall(nextX, this.gamestate.y)) {
@@ -3011,6 +3020,23 @@ class WLGame {
     return dx <= MINACTORDIST_TILES && dy <= MINACTORDIST_TILES;
   }
 
+  private ActorVisibleToPlayer(actor: PortActor): boolean {
+    const actorCenterX = actor.x + 0.5;
+    const actorCenterY = actor.y + 0.5;
+    const dx = actorCenterX - this.gamestate.x;
+    const dy = actorCenterY - this.gamestate.y;
+    const facingX = Math.cos(this.gamestate.angle);
+    const facingY = Math.sin(this.gamestate.angle);
+    const depth = dx * facingX + dy * facingY;
+    if (depth <= 0) {
+      return false;
+    }
+
+    const angleToActor = Math.atan2(dy, dx);
+    const delta = Math.abs(normalizeAngle(angleToActor - this.gamestate.angle + Math.PI) - Math.PI);
+    return delta <= COMBAT_FOV / 2 && this.CheckLineToActor(actor);
+  }
+
   private T_Shoot(actor: PortActor): void {
     if (!this.ActorAreaCanReachPlayer(actor) || !this.CheckLineToActor(actor)) {
       return;
@@ -3021,7 +3047,11 @@ class WLGame {
       dist = Math.floor((dist * 2) / 3);
     }
 
-    const hitChance = 256 - dist * 16;
+    const playerCanSeeToDodge = this.ActorVisibleToPlayer(actor);
+    const hitChance =
+      this.thrustSpeed >= RUNSPEED
+        ? 160 - dist * (playerCanSeeToDodge ? 16 : 8)
+        : 256 - dist * (playerCanSeeToDodge ? 16 : 8);
     if (this.US_RndT() >= hitChance) {
       return;
     }
