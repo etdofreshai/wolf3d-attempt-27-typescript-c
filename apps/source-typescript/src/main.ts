@@ -340,6 +340,7 @@ type SourceSoundName =
   | "MEINGOTTSND"
   | "MEINSND"
   | "MISSILEFIRESND"
+  | "MISSILEHITSND"
   | "MUTTISND"
   | "NAZIFIRESND"
   | "NEINSOVASSND"
@@ -537,6 +538,7 @@ const SOURCE_SOUND_CHUNKS: Record<SourceSoundName, number> = {
   MEINGOTTSND: 63,
   MEINSND: 83,
   MISSILEFIRESND: 85,
+  MISSILEHITSND: 86,
   MUTTISND: 50,
   NAZIFIRESND: 58,
   NEINSOVASSND: 67,
@@ -4325,6 +4327,7 @@ class WLGame {
     }
 
     projectile.angle = 0;
+    this.id_sd.SD_PlaySound("MISSILEHITSND");
     projectile.kind = "boom";
     projectile.speed = 0;
     projectile.stateIndex = 0;
