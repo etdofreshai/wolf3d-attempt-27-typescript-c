@@ -86,11 +86,22 @@ type PortActor = {
   dir: number;
   hitpoints: number;
   kind: string;
-  mode: "boss" | "dead" | "ghost" | "patrol" | "stand";
+  mode: "boss" | "dead" | "dying" | "ghost" | "patrol" | "stand";
   shootable: boolean;
+  stateIndex: number;
+  stateName: string;
+  stateShapenum: number | null;
+  stateTics: number;
   tile: number;
   x: number;
   y: number;
+};
+
+type ActorStateFrame = {
+  final?: boolean;
+  name: string;
+  shapenum: number;
+  tics: number;
 };
 
 type RayHit = {
@@ -325,24 +336,84 @@ const DIR_ANGLE_DEGREES = [0, 45, 90, 135, 180, 225, 270, 315, 360] as const;
 // WL_DEF.H sprite enum values for WL6 with the SPEAR branches disabled.
 const ACTOR_SPRITES = {
   BLINKY_W1: 288,
+  BOSS_DEAD: 303,
+  BOSS_DIE1: 304,
+  BOSS_DIE2: 305,
+  BOSS_DIE3: 306,
   BOSS_W1: 296,
   CLYDE_W1: 292,
+  DOG_DEAD: 134,
+  DOG_DIE_1: 131,
+  DOG_DIE_2: 132,
+  DOG_DIE_3: 133,
   DOG_W1_1: 99,
+  FAKE_DEAD: 333,
+  FAKE_DIE1: 328,
+  FAKE_DIE2: 329,
+  FAKE_DIE3: 330,
+  FAKE_DIE4: 331,
+  FAKE_DIE5: 332,
   FAKE_W1: 321,
+  FAT_DEAD: 407,
+  FAT_DIE1: 404,
+  FAT_DIE2: 405,
+  FAT_DIE3: 406,
   FAT_W1: 396,
+  GIFT_DEAD: 369,
+  GIFT_DIE1: 366,
+  GIFT_DIE2: 367,
+  GIFT_DIE3: 368,
   GIFT_W1: 360,
   GRD_DEAD: 95,
+  GRD_DIE_1: 91,
+  GRD_DIE_2: 92,
+  GRD_DIE_3: 93,
   GRD_S_1: 50,
   GRD_W1_1: 58,
+  GRETEL_DEAD: 392,
+  GRETEL_DIE1: 393,
+  GRETEL_DIE2: 394,
+  GRETEL_DIE3: 395,
   GRETEL_W1: 385,
+  HITLER_DEAD: 352,
+  HITLER_DIE1: 353,
+  HITLER_DIE2: 354,
+  HITLER_DIE3: 355,
+  HITLER_DIE4: 356,
+  HITLER_DIE5: 357,
+  HITLER_DIE6: 358,
+  HITLER_DIE7: 359,
+  HITLER_W1: 345,
   INKY_W1: 294,
+  MECHA_DEAD: 341,
+  MECHA_DIE1: 342,
+  MECHA_DIE2: 343,
+  MECHA_DIE3: 344,
   MECHA_W1: 334,
+  MUT_DEAD: 233,
+  MUT_DIE_1: 228,
+  MUT_DIE_2: 229,
+  MUT_DIE_3: 230,
+  MUT_DIE_4: 232,
   MUT_S_1: 187,
   MUT_W1_1: 195,
+  OFC_DEAD: 284,
+  OFC_DIE_1: 279,
+  OFC_DIE_2: 280,
+  OFC_DIE_3: 281,
+  OFC_DIE_4: 283,
   OFC_S_1: 238,
   OFC_W1_1: 246,
   PINKY_W1: 290,
+  SCHABB_DEAD: 316,
+  SCHABB_DIE1: 313,
+  SCHABB_DIE2: 314,
+  SCHABB_DIE3: 315,
   SCHABB_W1: 307,
+  SS_DEAD: 183,
+  SS_DIE_1: 179,
+  SS_DIE_2: 180,
+  SS_DIE_3: 181,
   SS_S_1: 138,
   SS_W1_1: 146
 } as const;
@@ -375,6 +446,90 @@ const ACTOR_GHOST_SPRITES: Record<string, number> = {
   clyde: ACTOR_SPRITES.CLYDE_W1,
   inky: ACTOR_SPRITES.INKY_W1,
   pinky: ACTOR_SPRITES.PINKY_W1
+};
+const ACTOR_DEATH_STATES: Record<string, ActorStateFrame[]> = {
+  boss: deathFrames([
+    ["s_bossdie1", ACTOR_SPRITES.BOSS_DIE1, 15],
+    ["s_bossdie2", ACTOR_SPRITES.BOSS_DIE2, 15],
+    ["s_bossdie3", ACTOR_SPRITES.BOSS_DIE3, 15],
+    ["s_bossdie4", ACTOR_SPRITES.BOSS_DEAD, 0, true]
+  ]),
+  dog: deathFrames([
+    ["s_dogdie1", ACTOR_SPRITES.DOG_DIE_1, 15],
+    ["s_dogdie2", ACTOR_SPRITES.DOG_DIE_2, 15],
+    ["s_dogdie3", ACTOR_SPRITES.DOG_DIE_3, 15],
+    ["s_dogdead", ACTOR_SPRITES.DOG_DEAD, 15, true]
+  ]),
+  fake_hitler: deathFrames([
+    ["s_fakedie1", ACTOR_SPRITES.FAKE_DIE1, 10],
+    ["s_fakedie2", ACTOR_SPRITES.FAKE_DIE2, 10],
+    ["s_fakedie3", ACTOR_SPRITES.FAKE_DIE3, 10],
+    ["s_fakedie4", ACTOR_SPRITES.FAKE_DIE4, 10],
+    ["s_fakedie5", ACTOR_SPRITES.FAKE_DIE5, 10],
+    ["s_fakedie6", ACTOR_SPRITES.FAKE_DEAD, 0, true]
+  ]),
+  fat: deathFrames([
+    ["s_fatdie1", ACTOR_SPRITES.FAT_W1, 1],
+    ["s_fatdie2", ACTOR_SPRITES.FAT_W1, 10],
+    ["s_fatdie3", ACTOR_SPRITES.FAT_DIE1, 10],
+    ["s_fatdie4", ACTOR_SPRITES.FAT_DIE2, 10],
+    ["s_fatdie5", ACTOR_SPRITES.FAT_DIE3, 10],
+    ["s_fatdie6", ACTOR_SPRITES.FAT_DEAD, 20, true]
+  ]),
+  gift: deathFrames([
+    ["s_giftdie1", ACTOR_SPRITES.GIFT_W1, 1],
+    ["s_giftdie2", ACTOR_SPRITES.GIFT_W1, 10],
+    ["s_giftdie3", ACTOR_SPRITES.GIFT_DIE1, 10],
+    ["s_giftdie4", ACTOR_SPRITES.GIFT_DIE2, 10],
+    ["s_giftdie5", ACTOR_SPRITES.GIFT_DIE3, 10],
+    ["s_giftdie6", ACTOR_SPRITES.GIFT_DEAD, 20, true]
+  ]),
+  gretel: deathFrames([
+    ["s_greteldie1", ACTOR_SPRITES.GRETEL_DIE1, 15],
+    ["s_greteldie2", ACTOR_SPRITES.GRETEL_DIE2, 15],
+    ["s_greteldie3", ACTOR_SPRITES.GRETEL_DIE3, 15],
+    ["s_greteldie4", ACTOR_SPRITES.GRETEL_DEAD, 0, true]
+  ]),
+  guard: deathFrames([
+    ["s_grddie1", ACTOR_SPRITES.GRD_DIE_1, 15],
+    ["s_grddie2", ACTOR_SPRITES.GRD_DIE_2, 15],
+    ["s_grddie3", ACTOR_SPRITES.GRD_DIE_3, 15],
+    ["s_grddie4", ACTOR_SPRITES.GRD_DEAD, 0, true]
+  ]),
+  hitler: deathFrames([
+    ["s_mechadie1", ACTOR_SPRITES.MECHA_DIE1, 10],
+    ["s_mechadie2", ACTOR_SPRITES.MECHA_DIE2, 10],
+    ["s_mechadie3", ACTOR_SPRITES.MECHA_DIE3, 10],
+    ["s_mechadie4", ACTOR_SPRITES.MECHA_DEAD, 0, true]
+  ]),
+  mutant: deathFrames([
+    ["s_mutdie1", ACTOR_SPRITES.MUT_DIE_1, 7],
+    ["s_mutdie2", ACTOR_SPRITES.MUT_DIE_2, 7],
+    ["s_mutdie3", ACTOR_SPRITES.MUT_DIE_3, 7],
+    ["s_mutdie4", ACTOR_SPRITES.MUT_DIE_4, 7],
+    ["s_mutdie5", ACTOR_SPRITES.MUT_DEAD, 0, true]
+  ]),
+  officer: deathFrames([
+    ["s_ofcdie1", ACTOR_SPRITES.OFC_DIE_1, 11],
+    ["s_ofcdie2", ACTOR_SPRITES.OFC_DIE_2, 11],
+    ["s_ofcdie3", ACTOR_SPRITES.OFC_DIE_3, 11],
+    ["s_ofcdie4", ACTOR_SPRITES.OFC_DIE_4, 11],
+    ["s_ofcdie5", ACTOR_SPRITES.OFC_DEAD, 0, true]
+  ]),
+  schabbs: deathFrames([
+    ["s_schabbdie1", ACTOR_SPRITES.SCHABB_W1, 10],
+    ["s_schabbdie2", ACTOR_SPRITES.SCHABB_W1, 10],
+    ["s_schabbdie3", ACTOR_SPRITES.SCHABB_DIE1, 10],
+    ["s_schabbdie4", ACTOR_SPRITES.SCHABB_DIE2, 10],
+    ["s_schabbdie5", ACTOR_SPRITES.SCHABB_DIE3, 10],
+    ["s_schabbdie6", ACTOR_SPRITES.SCHABB_DEAD, 20, true]
+  ]),
+  ss: deathFrames([
+    ["s_ssdie1", ACTOR_SPRITES.SS_DIE_1, 15],
+    ["s_ssdie2", ACTOR_SPRITES.SS_DIE_2, 15],
+    ["s_ssdie3", ACTOR_SPRITES.SS_DIE_3, 15],
+    ["s_ssdie4", ACTOR_SPRITES.SS_DEAD, 0, true]
+  ])
 };
 const BOSS_INFO_TILES: Record<number, string> = {
   160: "fake_hitler",
@@ -648,11 +803,15 @@ class WLMain {
           kind: actor.kind,
           mode: actor.mode,
           shootable: actor.shootable,
+          stateIndex: actor.stateIndex,
+          stateName: actor.stateName,
+          stateShapenum: actor.stateShapenum,
+          stateTics: actor.stateTics,
           tile: actor.tile,
           x: actor.x,
           y: actor.y
         })),
-        killedActors: this.wl_game.map.actors.filter((actor) => actor.mode === "dead" && actor.kind !== "dead_guard").length,
+        killedActors: this.wl_game.map.actors.filter((actor) => !actor.shootable && actor.kind !== "dead_guard").length,
         shootableActors: this.wl_game.map.actors.filter((actor) => actor.shootable).length,
         blockingStatics: this.wl_game.map.blockingStaticKeys.size,
         collectedBonuses: this.wl_game.map.statics.filter((stat) => stat.collected).length,
@@ -795,6 +954,7 @@ class WLPlay {
   PlayLoop(ticMs: number): void {
     const tics = ticsFromMilliseconds(ticMs);
     const moved = this.wl_game.PlayPlayerInput(this.id_in, ticMs, tics, this.id_in.ConsumeUse());
+    this.wl_game.MoveActors(tics);
     this.wl_game.MoveDoors(tics);
     this.wl_draw.ThreeDRefresh(this.wl_game);
     this.id_sd.SD_Service(moved, ticMs);
@@ -1009,6 +1169,32 @@ class WLGame {
         this.DoorOpening(door, tics);
       } else if (door.action === "closing") {
         this.DoorClosing(door, tics);
+      }
+    }
+  }
+
+  MoveActors(tics: number): void {
+    for (const actor of this.map.actors) {
+      this.MoveActorState(actor, tics);
+    }
+  }
+
+  private MoveActorState(actor: PortActor, tics: number): void {
+    if (actor.mode !== "dying" || actor.stateTics <= 0) {
+      return;
+    }
+
+    const sequence = ACTOR_DEATH_STATES[actor.kind];
+    if (!sequence) {
+      return;
+    }
+
+    actor.stateTics -= tics;
+    while (actor.mode === "dying" && actor.stateTics <= 0) {
+      const nextIndex = Math.min(actor.stateIndex + 1, sequence.length - 1);
+      this.NewActorState(actor, sequence, nextIndex, actor.stateTics);
+      if (nextIndex === sequence.length - 1) {
+        return;
       }
     }
   }
@@ -1297,9 +1483,9 @@ class WLGame {
 
   private KillActor(actor: PortActor): void {
     actor.hitpoints = 0;
-    actor.mode = "dead";
     actor.shootable = false;
     actor.attackMode = false;
+    this.StartDeathState(actor);
     this.gamestate.killcount += 1;
     this.GivePoints(actorKillScore(actor.kind));
     this.PlaceKillDrop(actor);
@@ -1332,6 +1518,33 @@ class WLGame {
   private PlaceItemType(item: keyof typeof DROPPED_ITEM_TYPES, x: number, y: number): void {
     const type = DROPPED_ITEM_TYPES[item];
     this.map.statics.push(staticFromStaticType(type, x, y));
+  }
+
+  private StartDeathState(actor: PortActor): void {
+    const sequence = ACTOR_DEATH_STATES[actor.kind];
+    if (!sequence) {
+      actor.mode = "dead";
+      actor.stateName = "s_grddie4";
+      actor.stateIndex = 0;
+      actor.stateShapenum = ACTOR_SPRITES.GRD_DEAD;
+      actor.stateTics = 0;
+      return;
+    }
+
+    this.NewActorState(actor, sequence, 0);
+  }
+
+  private NewActorState(actor: PortActor, sequence: ActorStateFrame[], index: number, carry = 0): void {
+    const frame = sequence[index] ?? sequence[sequence.length - 1];
+    if (!frame) {
+      return;
+    }
+
+    actor.mode = frame.final ? "dead" : "dying";
+    actor.stateIndex = index;
+    actor.stateName = frame.name;
+    actor.stateShapenum = frame.shapenum;
+    actor.stateTics = Math.max(0, frame.tics + carry);
   }
 
   private DoorOpen(door: PortDoor, tics: number): void {
@@ -2451,6 +2664,61 @@ function scanInfoPlane(map: WolfMap, difficulty: "easy" | "medium" | "hard"): Sc
   };
 }
 
+function deathFrames(frames: Array<[string, number, number, boolean?]>): ActorStateFrame[] {
+  return frames.map(([name, shapenum, tics, final]) => {
+    const frame: ActorStateFrame = {
+      name,
+      shapenum,
+      tics
+    };
+    if (final) {
+      frame.final = true;
+    }
+
+    return frame;
+  });
+}
+
+function initialActorState(
+  kind: string,
+  mode: PortActor["mode"],
+  shapenum: number | null = null
+): Pick<PortActor, "stateIndex" | "stateName" | "stateShapenum" | "stateTics"> {
+  const prefix = actorStatePrefix(kind);
+  const stateName =
+    mode === "dead"
+      ? "s_grddie4"
+      : mode === "ghost"
+        ? `s_${prefix}chase1`
+        : mode === "patrol"
+          ? `s_${prefix}path1`
+          : `s_${prefix}stand`;
+
+  return {
+    stateIndex: 0,
+    stateName,
+    stateShapenum: shapenum,
+    stateTics: 0
+  };
+}
+
+function actorStatePrefix(kind: string): string {
+  switch (kind) {
+    case "fake_hitler":
+      return "fake";
+    case "guard":
+      return "grd";
+    case "hitler":
+      return "mecha";
+    case "mutant":
+      return "mut";
+    case "officer":
+      return "ofc";
+    default:
+      return kind;
+  }
+}
+
 function staticFromInfoTile(tile: number, x: number, y: number): PortStatic {
   return staticFromStaticType(tile - 23, x, y);
 }
@@ -2485,6 +2753,7 @@ function actorFromInfoTile(
       kind: "dead_guard",
       mode: "dead",
       shootable: false,
+      ...initialActorState("dead_guard", "dead", ACTOR_SPRITES.GRD_DEAD),
       tile,
       x,
       y
@@ -2507,6 +2776,7 @@ function actorFromInfoTile(
       attackMode: false,
       hitpoints: actorHitpoints(guard.kind, difficulty),
       shootable: true,
+      ...initialActorState(guard.kind, guard.mode),
       x,
       y
     };
@@ -2521,6 +2791,7 @@ function actorFromInfoTile(
       kind: bossKind,
       mode: "boss",
       shootable: true,
+      ...initialActorState(bossKind, "boss"),
       tile,
       x,
       y
@@ -2536,6 +2807,7 @@ function actorFromInfoTile(
       kind: ghostKind,
       mode: "ghost",
       shootable: false,
+      ...initialActorState(ghostKind, "ghost"),
       tile,
       x,
       y
@@ -2706,7 +2978,7 @@ function staticRgb(stat: PortStatic): [number, number, number] {
 }
 
 function actorRgb(actor: PortActor): [number, number, number] {
-  if (actor.mode === "dead") {
+  if (actor.mode === "dead" || actor.mode === "dying") {
     return [96, 60, 54];
   }
 
@@ -2729,10 +3001,10 @@ function actorRgb(actor: PortActor): [number, number, number] {
 }
 
 function actorSpriteDescriptor(actor: PortActor, playerAngle: number): ActorSpriteDescriptor | null {
-  if (actor.mode === "dead") {
+  if (actor.mode === "dead" || actor.mode === "dying") {
     return {
       rotate: false,
-      shapenum: ACTOR_SPRITES.GRD_DEAD
+      shapenum: actor.stateShapenum ?? ACTOR_SPRITES.GRD_DEAD
     };
   }
 
