@@ -281,9 +281,10 @@ const MAX_HEALTH = 100;
 const MAX_LIVES = 9;
 const OPENTICS = 300;
 const RUNSPEED = 6000;
-const SOURCE_CONTROL_MAX = 100;
+const SOURCE_BASEMOVE = 35;
 const SOURCE_FORWARD_MOVESCALE = 150;
 const SOURCE_BACK_MOVESCALE = 100;
+const SOURCE_RUNMOVE = 70;
 const PUSHABLETILE = 98;
 const SCREEN_WIDTH = 320;
 const SCREEN_HEIGHT = 200;
@@ -296,6 +297,7 @@ const MINACTORDIST_TILES = 0x10000 / TILEGLOBAL;
 const PROJECTILE_PROBE_TILES = 0x2000 / TILEGLOBAL;
 const PROJECTILESIZE_TILES = 0xc000 / TILEGLOBAL;
 const ATTACK_KEY_CODE = 17;
+const RUN_KEY_CODE = 16;
 const STRAFE_KEY_CODE = 18;
 const USE_KEY_CODE = 32;
 const WP_KNIFE = 0;
@@ -1642,8 +1644,10 @@ class WLGame {
 
   ControlMovement(id_in: IDIN, ticMs: number): boolean {
     const seconds = ticMs / 1000;
-    const moveSpeed = 2.4 * seconds;
-    const turnSpeed = 2.6 * seconds;
+    const sourceMove = id_in.IN_KeyDown(RUN_KEY_CODE) ? SOURCE_RUNMOVE : SOURCE_BASEMOVE;
+    const sourceMoveScale = sourceMove / SOURCE_BASEMOVE;
+    const moveSpeed = 2.4 * seconds * sourceMoveScale;
+    const turnSpeed = 2.6 * seconds * sourceMoveScale;
     let moved = false;
     this.thrustSpeed = 0;
 
@@ -1653,7 +1657,7 @@ class WLGame {
     const strafeDown = id_in.IN_KeyDown(STRAFE_KEY_CODE);
     if (strafeDown) {
       if (side !== 0) {
-        this.thrustSpeed += SOURCE_CONTROL_MAX * SOURCE_FORWARD_MOVESCALE;
+        this.thrustSpeed += sourceMove * SOURCE_FORWARD_MOVESCALE;
         const strafeAngle = this.gamestate.angle + (side > 0 ? Math.PI / 2 : -Math.PI / 2);
         const nextX = this.gamestate.x + Math.cos(strafeAngle) * moveSpeed;
         const nextY = this.gamestate.y + Math.sin(strafeAngle) * moveSpeed;
@@ -1685,7 +1689,7 @@ class WLGame {
 
     if (forward !== 0) {
       this.thrustSpeed +=
-        SOURCE_CONTROL_MAX * (forward > 0 ? SOURCE_FORWARD_MOVESCALE : SOURCE_BACK_MOVESCALE);
+        sourceMove * (forward > 0 ? SOURCE_FORWARD_MOVESCALE : SOURCE_BACK_MOVESCALE);
       const nextX = this.gamestate.x + Math.cos(this.gamestate.angle) * moveSpeed * forward;
       const nextY = this.gamestate.y + Math.sin(this.gamestate.angle) * moveSpeed * forward;
       if (!this.IsWall(nextX, this.gamestate.y)) {
