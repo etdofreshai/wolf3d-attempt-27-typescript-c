@@ -245,9 +245,11 @@ type ActorStateFrame = {
 };
 
 type ProjectileStateFrame = {
+  action?: "projectile" | "smoke";
   name: string;
   rotate?: boolean;
   shapenum: number;
+  think?: "projectile";
   tics: number;
 };
 
@@ -1123,17 +1125,18 @@ const PROJECTILE_STATES: Record<ProjectileKind, ProjectileStateFrame[]> = {
     { name: "s_boom2", shapenum: ACTOR_SPRITES.BOOM_2, tics: 6 },
     { name: "s_boom3", shapenum: ACTOR_SPRITES.BOOM_3, tics: 6 }
   ],
+  // WL_ACT2.C s_fire1/s_fire2 run T_Projectile as the state action, not the per-loop think.
   fire: [
-    { name: "s_fire1", shapenum: ACTOR_SPRITES.FIRE1, tics: 6 },
-    { name: "s_fire2", shapenum: ACTOR_SPRITES.FIRE2, tics: 6 }
+    { action: "projectile", name: "s_fire1", shapenum: ACTOR_SPRITES.FIRE1, tics: 6 },
+    { action: "projectile", name: "s_fire2", shapenum: ACTOR_SPRITES.FIRE2, tics: 6 }
   ],
   needle: [
-    { name: "s_needle1", shapenum: ACTOR_SPRITES.HYPO1, tics: 6 },
-    { name: "s_needle2", shapenum: ACTOR_SPRITES.HYPO2, tics: 6 },
-    { name: "s_needle3", shapenum: ACTOR_SPRITES.HYPO3, tics: 6 },
-    { name: "s_needle4", shapenum: ACTOR_SPRITES.HYPO4, tics: 6 }
+    { name: "s_needle1", shapenum: ACTOR_SPRITES.HYPO1, think: "projectile", tics: 6 },
+    { name: "s_needle2", shapenum: ACTOR_SPRITES.HYPO2, think: "projectile", tics: 6 },
+    { name: "s_needle3", shapenum: ACTOR_SPRITES.HYPO3, think: "projectile", tics: 6 },
+    { name: "s_needle4", shapenum: ACTOR_SPRITES.HYPO4, think: "projectile", tics: 6 }
   ],
-  rocket: [{ name: "s_rocket", rotate: true, shapenum: ACTOR_SPRITES.ROCKET_1, tics: 3 }],
+  rocket: [{ action: "smoke", name: "s_rocket", rotate: true, shapenum: ACTOR_SPRITES.ROCKET_1, think: "projectile", tics: 3 }],
   smoke: [
     { name: "s_smoke1", shapenum: ACTOR_SPRITES.SMOKE_1, tics: 3 },
     { name: "s_smoke2", shapenum: ACTOR_SPRITES.SMOKE_2, tics: 3 },
@@ -2853,9 +2856,14 @@ class WLGame {
         continue;
       }
 
+      const frame = PROJECTILE_STATES[projectile.kind]?.[projectile.stateIndex];
       if (this.ProjectileIsEffect(projectile)) {
         activeProjectiles.push(projectile);
-      } else if (this.T_Projectile(projectile, tics)) {
+      } else if (frame?.think === "projectile") {
+        if (this.T_Projectile(projectile, tics)) {
+          activeProjectiles.push(projectile);
+        }
+      } else {
         activeProjectiles.push(projectile);
       }
     }
@@ -3030,6 +3038,10 @@ class WLGame {
     const sequence = PROJECTILE_STATES[projectile.kind];
     projectile.stateTics -= tics;
     while (projectile.stateTics <= 0) {
+      if (!this.RunProjectileFrameAction(projectile, sequence[projectile.stateIndex], spawnedProjectiles, tics)) {
+        return false;
+      }
+
       let nextIndex = projectile.stateIndex + 1;
       if (nextIndex >= sequence.length) {
         if (!LOOPING_PROJECTILE_KINDS.has(projectile.kind)) {
@@ -3040,12 +3052,26 @@ class WLGame {
       }
 
       this.SetProjectileSequenceState(projectile, sequence, nextIndex, projectile.stateTics);
-      if (projectile.kind === "rocket") {
-        this.A_Smoke(projectile, spawnedProjectiles);
-      }
     }
 
     return true;
+  }
+
+  private RunProjectileFrameAction(
+    projectile: PortProjectile,
+    frame: ProjectileStateFrame | undefined,
+    spawnedProjectiles: PortProjectile[],
+    tics: number
+  ): boolean {
+    switch (frame?.action) {
+      case "projectile":
+        return this.T_Projectile(projectile, tics);
+      case "smoke":
+        this.A_Smoke(projectile, spawnedProjectiles);
+        return true;
+      default:
+        return true;
+    }
   }
 
   private T_Stand(actor: PortActor, tics: number): void {
