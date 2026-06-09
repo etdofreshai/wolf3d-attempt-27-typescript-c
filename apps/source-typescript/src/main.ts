@@ -89,7 +89,7 @@ type PortActor = {
   firstAttack: boolean;
   hitpoints: number;
   kind: string;
-  mode: "boss" | "chase" | "dead" | "dying" | "ghost" | "pain" | "patrol" | "stand";
+  mode: "attack" | "boss" | "chase" | "dead" | "dying" | "ghost" | "pain" | "patrol" | "stand";
   reactionTime: number;
   shootable: boolean;
   speed: number;
@@ -104,9 +104,13 @@ type PortActor = {
   y: number;
 };
 
+type ActorFrameAction = "bite" | "shoot";
+
 type ActorStateFrame = {
+  action?: ActorFrameAction;
   final?: boolean;
   name: string;
+  nextMode?: "chase";
   shapenum: number;
   tics: number;
 };
@@ -236,6 +240,7 @@ const SPDPATROL = 512;
 const STARTAMMO = 8;
 const TILEGLOBAL = 65536;
 const TILE_DISTANCE = 1;
+const MINACTORDIST_TILES = 0x10000 / TILEGLOBAL;
 const ATTACK_KEY_CODE = 17;
 const USE_KEY_CODE = 32;
 const WP_KNIFE = 0;
@@ -363,6 +368,9 @@ const ACTOR_SPRITES = {
   DOG_DIE_1: 131,
   DOG_DIE_2: 132,
   DOG_DIE_3: 133,
+  DOG_JUMP1: 135,
+  DOG_JUMP2: 136,
+  DOG_JUMP3: 137,
   DOG_W1_1: 99,
   DOG_W2_1: 107,
   DOG_W3_1: 115,
@@ -400,6 +408,9 @@ const ACTOR_SPRITES = {
   GRD_PAIN_1: 90,
   GRD_PAIN_2: 94,
   GRD_S_1: 50,
+  GRD_SHOOT1: 96,
+  GRD_SHOOT2: 97,
+  GRD_SHOOT3: 98,
   GRD_W1_1: 58,
   GRD_W2_1: 66,
   GRD_W3_1: 74,
@@ -441,6 +452,10 @@ const ACTOR_SPRITES = {
   MUT_PAIN_1: 227,
   MUT_PAIN_2: 231,
   MUT_S_1: 187,
+  MUT_SHOOT1: 234,
+  MUT_SHOOT2: 235,
+  MUT_SHOOT3: 236,
+  MUT_SHOOT4: 237,
   MUT_W1_1: 195,
   MUT_W2_1: 203,
   MUT_W3_1: 211,
@@ -453,6 +468,9 @@ const ACTOR_SPRITES = {
   OFC_PAIN_1: 278,
   OFC_PAIN_2: 282,
   OFC_S_1: 238,
+  OFC_SHOOT1: 285,
+  OFC_SHOOT2: 286,
+  OFC_SHOOT3: 287,
   OFC_W1_1: 246,
   OFC_W2_1: 254,
   OFC_W3_1: 262,
@@ -473,6 +491,9 @@ const ACTOR_SPRITES = {
   SS_PAIN_1: 178,
   SS_PAIN_2: 182,
   SS_S_1: 138,
+  SS_SHOOT1: 184,
+  SS_SHOOT2: 185,
+  SS_SHOOT3: 186,
   SS_W1_1: 146,
   SS_W2_1: 154,
   SS_W3_1: 162,
@@ -525,6 +546,42 @@ const ACTOR_PAIN_STATES: Record<string, [ActorStateFrame, ActorStateFrame]> = {
   ss: [
     { name: "s_sspain", shapenum: ACTOR_SPRITES.SS_PAIN_1, tics: 10 },
     { name: "s_sspain1", shapenum: ACTOR_SPRITES.SS_PAIN_2, tics: 10 }
+  ]
+};
+const ACTOR_ATTACK_STATES: Record<string, ActorStateFrame[]> = {
+  dog: [
+    { name: "s_dogjump1", shapenum: ACTOR_SPRITES.DOG_JUMP1, tics: 10 },
+    { action: "bite", name: "s_dogjump2", shapenum: ACTOR_SPRITES.DOG_JUMP2, tics: 10 },
+    { name: "s_dogjump3", shapenum: ACTOR_SPRITES.DOG_JUMP3, tics: 10 },
+    { name: "s_dogjump4", shapenum: ACTOR_SPRITES.DOG_JUMP1, tics: 10 },
+    { name: "s_dogjump5", nextMode: "chase", shapenum: ACTOR_SPRITES.DOG_W1_1, tics: 10 }
+  ],
+  guard: [
+    { name: "s_grdshoot1", shapenum: ACTOR_SPRITES.GRD_SHOOT1, tics: 20 },
+    { action: "shoot", name: "s_grdshoot2", shapenum: ACTOR_SPRITES.GRD_SHOOT2, tics: 20 },
+    { name: "s_grdshoot3", nextMode: "chase", shapenum: ACTOR_SPRITES.GRD_SHOOT3, tics: 20 }
+  ],
+  mutant: [
+    { action: "shoot", name: "s_mutshoot1", shapenum: ACTOR_SPRITES.MUT_SHOOT1, tics: 6 },
+    { name: "s_mutshoot2", shapenum: ACTOR_SPRITES.MUT_SHOOT2, tics: 20 },
+    { action: "shoot", name: "s_mutshoot3", shapenum: ACTOR_SPRITES.MUT_SHOOT3, tics: 10 },
+    { name: "s_mutshoot4", nextMode: "chase", shapenum: ACTOR_SPRITES.MUT_SHOOT4, tics: 20 }
+  ],
+  officer: [
+    { name: "s_ofcshoot1", shapenum: ACTOR_SPRITES.OFC_SHOOT1, tics: 6 },
+    { action: "shoot", name: "s_ofcshoot2", shapenum: ACTOR_SPRITES.OFC_SHOOT2, tics: 20 },
+    { name: "s_ofcshoot3", nextMode: "chase", shapenum: ACTOR_SPRITES.OFC_SHOOT3, tics: 10 }
+  ],
+  ss: [
+    { name: "s_ssshoot1", shapenum: ACTOR_SPRITES.SS_SHOOT1, tics: 20 },
+    { action: "shoot", name: "s_ssshoot2", shapenum: ACTOR_SPRITES.SS_SHOOT2, tics: 20 },
+    { name: "s_ssshoot3", shapenum: ACTOR_SPRITES.SS_SHOOT3, tics: 10 },
+    { action: "shoot", name: "s_ssshoot4", shapenum: ACTOR_SPRITES.SS_SHOOT2, tics: 10 },
+    { name: "s_ssshoot5", shapenum: ACTOR_SPRITES.SS_SHOOT3, tics: 10 },
+    { action: "shoot", name: "s_ssshoot6", shapenum: ACTOR_SPRITES.SS_SHOOT2, tics: 10 },
+    { name: "s_ssshoot7", shapenum: ACTOR_SPRITES.SS_SHOOT3, tics: 10 },
+    { action: "shoot", name: "s_ssshoot8", shapenum: ACTOR_SPRITES.SS_SHOOT2, tics: 10 },
+    { name: "s_ssshoot9", nextMode: "chase", shapenum: ACTOR_SPRITES.SS_SHOOT3, tics: 10 }
   ]
 };
 const ACTOR_PATROL_STATES: Record<string, ActorStateFrame[]> = {
@@ -1333,6 +1390,8 @@ class WLGame {
       this.MoveDeathState(actor, tics);
     } else if (actor.mode === "pain") {
       this.MovePainState(actor, tics);
+    } else if (actor.mode === "attack") {
+      this.MoveAttackState(actor, tics);
     } else if (actor.mode === "boss" || actor.mode === "stand") {
       this.T_Stand(actor, tics);
     } else if (actor.mode === "patrol" || actor.mode === "chase") {
@@ -1376,6 +1435,33 @@ class WLGame {
     }
   }
 
+  private MoveAttackState(actor: PortActor, tics: number): void {
+    const sequence = ACTOR_ATTACK_STATES[actor.kind];
+    if (!sequence) {
+      this.StartChaseState(actor);
+      return;
+    }
+
+    actor.stateTics -= tics;
+    while (actor.mode === "attack" && actor.stateTics <= 0) {
+      const currentFrame = sequence[actor.stateIndex];
+      if (!currentFrame || currentFrame.nextMode === "chase" || actor.stateIndex >= sequence.length - 1) {
+        this.StartChaseState(actor, actor.stateTics);
+        return;
+      }
+
+      const nextIndex = actor.stateIndex + 1;
+      const nextFrame = sequence[nextIndex];
+      if (!nextFrame) {
+        this.StartChaseState(actor, actor.stateTics);
+        return;
+      }
+
+      this.SetActorSequenceState(actor, sequence, nextIndex, "attack", actor.stateTics);
+      this.RunActorFrameAction(actor, nextFrame);
+    }
+  }
+
   private MoveLoopingActorState(actor: PortActor, tics: number): void {
     const sequence = actor.mode === "patrol" ? ACTOR_PATROL_STATES[actor.kind] : ACTOR_CHASE_STATES[actor.kind];
     if (!sequence) {
@@ -1394,7 +1480,22 @@ class WLGame {
   }
 
   private T_Chase(actor: PortActor, tics: number): void {
-    const dodge = this.CheckLineToActor(actor);
+    if (actor.kind === "dog") {
+      this.T_DogChase(actor, tics);
+      return;
+    }
+
+    let dodge = false;
+    if (this.CheckLineToActor(actor)) {
+      const dist = this.ActorTileDistance(actor);
+      const chance = dist === 0 || (dist === 1 && actor.distance < 0.25) ? 300 : (tics << 4) / Math.max(1, dist);
+      if (ACTOR_ATTACK_STATES[actor.kind] && this.US_RndT() < chance && this.StartAttackState(actor)) {
+        return;
+      }
+
+      dodge = true;
+    }
+
     if (actor.dir === NODIR) {
       if (dodge) {
         this.SelectDodgeDir(actor);
@@ -1441,6 +1542,53 @@ class WLGame {
         this.SelectChaseDir(actor);
       }
 
+      if (actor.dir === NODIR) {
+        return;
+      }
+    }
+  }
+
+  private T_DogChase(actor: PortActor, tics: number): void {
+    if (actor.dir === NODIR) {
+      this.SelectDodgeDir(actor);
+      if (actor.dir === NODIR) {
+        return;
+      }
+    }
+
+    let move = (actor.speed * tics) / TILEGLOBAL;
+    while (move > 0) {
+      if (this.ActorWithinDogJumpRange(actor, move) && this.StartAttackState(actor)) {
+        return;
+      }
+
+      if (actor.distance < 0) {
+        const door = this.map.doors[-actor.distance - 1];
+        if (!door) {
+          actor.dir = NODIR;
+          return;
+        }
+
+        this.OpenDoor(door);
+        if (door.action !== "open") {
+          return;
+        }
+
+        actor.distance = TILE_DISTANCE;
+      }
+
+      if (actor.distance > 0 && move < actor.distance) {
+        this.MoveObj(actor, move);
+        break;
+      }
+
+      actor.x = actor.targetX;
+      actor.y = actor.targetY;
+      if (actor.distance > 0) {
+        move -= actor.distance;
+      }
+
+      this.SelectDodgeDir(actor);
       if (actor.dir === NODIR) {
         return;
       }
@@ -2112,6 +2260,59 @@ class WLGame {
     return Math.max(Math.abs(Math.floor(actor.x) - playerTileX), Math.abs(Math.floor(actor.y) - playerTileY));
   }
 
+  private ActorWithinDogJumpRange(actor: PortActor, move: number): boolean {
+    const actorCenterX = actor.x + 0.5;
+    const actorCenterY = actor.y + 0.5;
+    const dx = Math.abs(this.gamestate.x - actorCenterX) - move;
+    const dy = Math.abs(this.gamestate.y - actorCenterY) - move;
+    return dx <= MINACTORDIST_TILES && dy <= MINACTORDIST_TILES;
+  }
+
+  private ActorCanBite(actor: PortActor): boolean {
+    const actorCenterX = actor.x + 0.5;
+    const actorCenterY = actor.y + 0.5;
+    const dx = Math.abs(this.gamestate.x - actorCenterX) - TILE_DISTANCE;
+    const dy = Math.abs(this.gamestate.y - actorCenterY) - TILE_DISTANCE;
+    return dx <= MINACTORDIST_TILES && dy <= MINACTORDIST_TILES;
+  }
+
+  private T_Shoot(actor: PortActor): void {
+    if (!this.ActorAreaCanReachPlayer(actor) || !this.CheckLineToActor(actor)) {
+      return;
+    }
+
+    let dist = this.ActorTileDistance(actor);
+    if (actor.kind === "ss" || actor.kind === "boss") {
+      dist = Math.floor((dist * 2) / 3);
+    }
+
+    const hitChance = 256 - dist * 16;
+    if (this.US_RndT() >= hitChance) {
+      return;
+    }
+
+    let damage: number;
+    if (dist < 2) {
+      damage = this.US_RndT() >> 2;
+    } else if (dist < 4) {
+      damage = this.US_RndT() >> 3;
+    } else {
+      damage = this.US_RndT() >> 4;
+    }
+
+    this.TakeDamage(damage);
+  }
+
+  private T_Bite(actor: PortActor): void {
+    if (this.ActorCanBite(actor) && this.US_RndT() < 180) {
+      this.TakeDamage(this.US_RndT() >> 4);
+    }
+  }
+
+  private TakeDamage(points: number): void {
+    this.gamestate.health = Math.max(0, this.gamestate.health - Math.max(0, points));
+  }
+
   private DamageActor(actor: PortActor, damage: number): void {
     if (!actor.shootable || actor.mode === "dead") {
       return;
@@ -2208,6 +2409,17 @@ class WLGame {
     this.SetActorSequenceState(actor, sequence, 0, "chase", carry);
   }
 
+  private StartAttackState(actor: PortActor): boolean {
+    const sequence = ACTOR_ATTACK_STATES[actor.kind];
+    if (!sequence) {
+      return false;
+    }
+
+    this.SetActorSequenceState(actor, sequence, 0, "attack");
+    this.RunActorFrameAction(actor, sequence[0]);
+    return true;
+  }
+
   private StartPainState(actor: PortActor): void {
     const painStates = ACTOR_PAIN_STATES[actor.kind];
     if (!painStates) {
@@ -2225,6 +2437,19 @@ class WLGame {
 
   private NewActorState(actor: PortActor, sequence: ActorStateFrame[], index: number, carry = 0): void {
     this.SetActorSequenceState(actor, sequence, index, "dying", carry);
+  }
+
+  private RunActorFrameAction(actor: PortActor, frame: ActorStateFrame | undefined): void {
+    switch (frame?.action) {
+      case "bite":
+        this.T_Bite(actor);
+        break;
+      case "shoot":
+        this.T_Shoot(actor);
+        break;
+      default:
+        break;
+    }
   }
 
   private SetActorSequenceState(
@@ -3867,6 +4092,13 @@ function actorSpriteDescriptor(actor: PortActor, playerAngle: number): ActorSpri
   }
 
   if (actor.mode === "pain") {
+    return {
+      rotate: false,
+      shapenum: actor.stateShapenum ?? ACTOR_STAND_SPRITES[actor.kind] ?? ACTOR_SPRITES.GRD_S_1
+    };
+  }
+
+  if (actor.mode === "attack") {
     return {
       rotate: false,
       shapenum: actor.stateShapenum ?? ACTOR_STAND_SPRITES[actor.kind] ?? ACTOR_SPRITES.GRD_S_1
