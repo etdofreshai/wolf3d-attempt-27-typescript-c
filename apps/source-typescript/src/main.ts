@@ -1489,6 +1489,7 @@ class WLMain {
         y: door.y
       })),
       madeNoise: this.wl_game.madeNoise,
+      facecount: this.wl_game.facecount,
       thrustSpeed: this.wl_game.thrustSpeed,
       damage: {
         killer: this.wl_game.killer,
@@ -1743,6 +1744,7 @@ class WLPlay {
 }
 
 class WLGame {
+  facecount = 0;
   map = createFallbackMap();
   madeNoise = false;
   thrustSpeed = 0;
@@ -1833,6 +1835,7 @@ class WLGame {
     this.lastHighScoreCheck = null;
     this.lastLevelCompletion = null;
     this.levelRatios = createLevelRatios();
+    this.facecount = 0;
     this.lastAttacker = null;
     this.killer = null;
     this.madeNoise = false;
@@ -1951,13 +1954,14 @@ class WLGame {
     const attackDown = id_in.IN_AttackDown();
     let moved = false;
 
-    if (this.gamestate.victoryflag) {
-      this.VictorySpin(tics);
-      this.gamestate.ticcount += 1;
-      return false;
-    }
-
     if (this.gamestate.attackcount > 0) {
+      this.UpdateFace(tics);
+      if (this.gamestate.victoryflag) {
+        this.VictorySpin(tics);
+        this.gamestate.ticcount += 1;
+        return false;
+      }
+
       moved = this.ControlMovement(id_in, ticMs);
       if (this.gamestate.victoryflag) {
         return moved;
@@ -1965,6 +1969,13 @@ class WLGame {
 
       this.T_Attack(tics, attackDown && this.attackButtonHeld);
     } else {
+      if (this.gamestate.victoryflag) {
+        this.VictorySpin(tics);
+        this.gamestate.ticcount += 1;
+        return false;
+      }
+
+      this.UpdateFace(tics);
       this.CheckWeaponChange(id_in);
 
       if (id_in.ConsumeUse()) {
@@ -1983,6 +1994,22 @@ class WLGame {
     }
 
     return moved;
+  }
+
+  private UpdateFace(tics: number): void {
+    // WL_AGENT.C UpdateFace consumes the table RNG while waiting to change BJ's face frame.
+    this.facecount += tics;
+    if (this.facecount <= this.US_RndT()) {
+      return;
+    }
+
+    let faceframe = this.US_RndT() >> 6;
+    if (faceframe === 3) {
+      faceframe = 1;
+    }
+
+    this.gamestate.faceframe = faceframe;
+    this.facecount = 0;
   }
 
   CheckWeaponChange(id_in: IDIN): void {
