@@ -134,11 +134,20 @@ const DEMO_DEFAULT_HOLD_MS = 90;
 const AREATILE = 107;
 const DOOR_POSITION_MAX = 0xffff;
 const DOOR_POSITION_RATE_SHIFT = 10;
+const EXTRAPOINTS = 40000;
+const MAX_AMMO = 99;
+const MAX_HEALTH = 100;
+const MAX_LIVES = 9;
 const OPENTICS = 300;
 const PUSHABLETILE = 98;
 const SCREEN_WIDTH = 320;
 const SCREEN_HEIGHT = 200;
+const STARTAMMO = 8;
 const USE_KEY_CODE = 32;
+const WP_KNIFE = 0;
+const WP_PISTOL = 1;
+const WP_MACHINEGUN = 2;
+const WP_CHAINGUN = 3;
 const STATIC_INFO_TYPES = [
   "dressing",
   "block",
@@ -495,7 +504,7 @@ class WLMain {
   private RenderUi(): void {
     mapState.textContent = this.wl_game.mapMetadata;
     objectState.textContent = this.wl_game.objectMetadata;
-    runtimeState.textContent = `tic ${this.wl_game.gamestate.ticcount} / ${this.wl_game.gamestate.x.toFixed(2)}, ${this.wl_game.gamestate.y.toFixed(2)} / keys ${this.wl_game.gamestate.keys}`;
+    runtimeState.textContent = `tic ${this.wl_game.gamestate.ticcount} / ${this.wl_game.gamestate.x.toFixed(2)}, ${this.wl_game.gamestate.y.toFixed(2)} / hp ${this.wl_game.gamestate.health} ammo ${this.wl_game.gamestate.ammo} wp ${this.wl_game.gamestate.weapon} keys ${this.wl_game.gamestate.keys}`;
     demoState.textContent = this.demoPlan
       ? this.demoRunning
         ? `Running ${this.demoPlan.name}`
@@ -533,18 +542,25 @@ class WLGame {
 
   readonly gamestate = {
     angle: 0,
+    ammo: STARTAMMO,
+    attackframe: 0,
+    bestweapon: WP_PISTOL,
+    chosenweapon: WP_PISTOL,
     difficulty: "medium" as "easy" | "medium" | "hard",
-    health: 100,
+    health: MAX_HEALTH,
     keys: 0,
     killcount: 0,
     killtotal: 0,
     level: 0,
+    lives: 3,
+    nextextra: EXTRAPOINTS,
     score: 0,
     secretcount: 0,
     secrettotal: 0,
     treasurecount: 0,
     treasuretotal: 0,
     ticcount: 0,
+    weapon: WP_PISTOL,
     x: 3.5,
     y: 3.5
   };
@@ -594,17 +610,24 @@ class WLGame {
     }
 
     this.gamestate.angle = normalizeAngle(spawn.angle);
-    this.gamestate.health = 100;
+    this.gamestate.ammo = STARTAMMO;
+    this.gamestate.attackframe = 0;
+    this.gamestate.bestweapon = WP_PISTOL;
+    this.gamestate.chosenweapon = WP_PISTOL;
+    this.gamestate.health = MAX_HEALTH;
     this.gamestate.keys = 0;
     this.gamestate.killcount = 0;
     this.gamestate.killtotal = this.map.killTotal;
     this.gamestate.level = level;
+    this.gamestate.lives = 3;
+    this.gamestate.nextextra = EXTRAPOINTS;
     this.gamestate.score = 0;
     this.gamestate.secretcount = 0;
     this.gamestate.secrettotal = this.map.secretTotal;
     this.gamestate.treasurecount = 0;
     this.gamestate.treasuretotal = this.map.treasureTotal;
     this.gamestate.ticcount = 0;
+    this.gamestate.weapon = WP_PISTOL;
     this.gamestate.x = spawn.x;
     this.gamestate.y = spawn.y;
   }
@@ -714,6 +737,41 @@ class WLGame {
     this.gamestate.keys |= 1 << key;
   }
 
+  GiveAmmo(ammo: number): void {
+    if (this.gamestate.ammo === 0 && this.gamestate.attackframe === 0) {
+      this.gamestate.weapon = this.gamestate.chosenweapon;
+    }
+
+    this.gamestate.ammo = Math.min(MAX_AMMO, this.gamestate.ammo + ammo);
+  }
+
+  GiveWeapon(weapon: number): void {
+    this.GiveAmmo(6);
+    if (this.gamestate.bestweapon < weapon) {
+      this.gamestate.bestweapon = weapon;
+      this.gamestate.weapon = weapon;
+      this.gamestate.chosenweapon = weapon;
+    }
+  }
+
+  GiveExtraMan(): void {
+    if (this.gamestate.lives < MAX_LIVES) {
+      this.gamestate.lives += 1;
+    }
+  }
+
+  GivePoints(points: number): void {
+    this.gamestate.score += points;
+    while (this.gamestate.score >= this.gamestate.nextextra) {
+      this.gamestate.nextextra += EXTRAPOINTS;
+      this.GiveExtraMan();
+    }
+  }
+
+  HealSelf(points: number): void {
+    this.gamestate.health = Math.min(MAX_HEALTH, this.gamestate.health + points);
+  }
+
   IsWall(x: number, y: number): boolean {
     const tileX = Math.floor(x);
     const tileY = Math.floor(y);
@@ -785,21 +843,74 @@ class WLGame {
       return false;
     }
 
-    const keyNumber = keyNumberForBonus(stat.item);
-    if (keyNumber !== null) {
-      this.GiveKey(keyNumber);
-      stat.collected = true;
-      return true;
+    switch (stat.item) {
+      case "bo_firstaid":
+        if (this.gamestate.health === MAX_HEALTH) {
+          return false;
+        }
+        this.HealSelf(25);
+        break;
+      case "bo_key1":
+      case "bo_key2":
+      case "bo_key3":
+      case "bo_key4":
+        this.GiveKey(keyNumberForBonus(stat.item));
+        break;
+      case "bo_cross":
+      case "bo_chalice":
+      case "bo_bible":
+      case "bo_crown":
+        this.GivePoints(treasureScoreForBonus(stat.item));
+        this.gamestate.treasurecount += 1;
+        break;
+      case "bo_clip":
+        if (this.gamestate.ammo === MAX_AMMO) {
+          return false;
+        }
+        this.GiveAmmo(8);
+        break;
+      case "bo_clip2":
+        if (this.gamestate.ammo === MAX_AMMO) {
+          return false;
+        }
+        this.GiveAmmo(4);
+        break;
+      case "bo_machinegun":
+        this.GiveWeapon(WP_MACHINEGUN);
+        break;
+      case "bo_chaingun":
+        this.GiveWeapon(WP_CHAINGUN);
+        break;
+      case "bo_fullheal":
+        this.HealSelf(99);
+        this.GiveAmmo(25);
+        this.GiveExtraMan();
+        this.gamestate.treasurecount += 1;
+        break;
+      case "bo_food":
+        if (this.gamestate.health === MAX_HEALTH) {
+          return false;
+        }
+        this.HealSelf(10);
+        break;
+      case "bo_alpo":
+        if (this.gamestate.health === MAX_HEALTH) {
+          return false;
+        }
+        this.HealSelf(4);
+        break;
+      case "bo_gibs":
+        if (this.gamestate.health > 10) {
+          return false;
+        }
+        this.HealSelf(1);
+        break;
+      default:
+        return false;
     }
 
-    if (stat.treasure) {
-      this.gamestate.treasurecount += 1;
-      this.gamestate.score += treasureScoreForBonus(stat.item);
-      stat.collected = true;
-      return true;
-    }
-
-    return false;
+    stat.collected = true;
+    return true;
   }
 
   private TryPickupBonusAt(tileX: number, tileY: number): void {
@@ -1489,7 +1600,7 @@ function difficultyRank(difficulty: "easy" | "medium" | "hard"): number {
   return difficulty === "hard" ? 2 : difficulty === "medium" ? 1 : 0;
 }
 
-function keyNumberForBonus(item: string): number | null {
+function keyNumberForBonus(item: string): number {
   switch (item) {
     case "bo_key1":
       return 0;
@@ -1500,7 +1611,7 @@ function keyNumberForBonus(item: string): number | null {
     case "bo_key4":
       return 3;
     default:
-      return null;
+      throw new Error(`Unsupported key bonus: ${item}`);
   }
 }
 
