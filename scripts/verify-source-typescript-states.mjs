@@ -8,6 +8,8 @@ const repoRoot = path.resolve(scriptDir, "..");
 const sourceHeaderPath = path.join(repoRoot, "source", "WOLFSRC", "WL_DEF.H");
 const sourceAct1Path = path.join(repoRoot, "source", "WOLFSRC", "WL_ACT1.C");
 const sourceAgentPath = path.join(repoRoot, "source", "WOLFSRC", "WL_AGENT.C");
+const sourceGamePath = path.join(repoRoot, "source", "WOLFSRC", "WL_GAME.C");
+const sourceInterPath = path.join(repoRoot, "source", "WOLFSRC", "WL_INTER.C");
 const sourcePath = path.join(repoRoot, "source", "WOLFSRC", "WL_ACT2.C");
 const sourceStatePath = path.join(repoRoot, "source", "WOLFSRC", "WL_STATE.C");
 const sourceUserAsmPath = path.join(repoRoot, "source", "WOLFSRC", "ID_US_A.ASM");
@@ -76,6 +78,8 @@ const [
   sourceHeaderText,
   sourceAct1Text,
   sourceAgentText,
+  sourceGameText,
+  sourceInterText,
   sourceText,
   sourceStateText,
   sourceUserAsmText,
@@ -84,6 +88,8 @@ const [
   readFile(sourceHeaderPath, "utf8"),
   readFile(sourceAct1Path, "utf8"),
   readFile(sourceAgentPath, "utf8"),
+  readFile(sourceGamePath, "utf8"),
+  readFile(sourceInterPath, "utf8"),
   readFile(sourcePath, "utf8"),
   readFile(sourceStatePath, "utf8"),
   readFile(sourceUserAsmPath, "utf8"),
@@ -100,12 +106,16 @@ const sourceStartHitpoints = parseSourceStartHitpoints(sourceText);
 const sourceRealHitlerHitpoints = parseSourceRealHitlerHitpoints(sourceText);
 const sourceOppositeDirections = parseSourceDirectionList(sourceStateText, "opposite", sourceDirectionIndexes);
 const sourceDiagonalDirections = parseSourceDirectionMatrix(sourceStateText, "diagonal", sourceDirectionIndexes);
+const sourceElevatorBackTo = parseSourceElevatorBackTo(sourceGameText);
+const sourceParTimesSeconds = parseSourceParTimesSeconds(sourceInterText);
 const sourceRndTable = parseSourceRndTable(sourceUserAsmText);
 const sourceStates = parseSourceStates(sourceText, sourceSprites);
 const constants = parseNumericConstants(typescriptText);
 const typescriptDirectionDeltas = parseTypescriptDirectionDeltas(typescriptText);
 const typescriptOppositeDirections = parseTypescriptOppositeDirections(typescriptText, constants);
 const typescriptDiagonalDirections = parseTypescriptDiagonalDirections(typescriptText, constants);
+const typescriptElevatorBackTo = parseTypescriptElevatorBackTo(typescriptText, constants);
+const typescriptParTimesSeconds = parseTypescriptParTimesSeconds(typescriptText, constants);
 const typescriptWeaponIndexes = parseTypescriptWeaponIndexes(typescriptText);
 const typescriptEnemyHitpointIndexes = parseTypescriptEnemyHitpointIndexes(typescriptText);
 const typescriptStaticInfo = parseTypescriptStaticInfo(typescriptText);
@@ -152,6 +162,8 @@ compareRealHitlerHitpoints(sourceRealHitlerHitpoints, typescriptRealHitlerHitpoi
 compareDirectionDeltas(sourceDirectionIndexes, typescriptDirectionDeltas, problems);
 compareDirectionList("opposite", sourceOppositeDirections, typescriptOppositeDirections, problems);
 compareDiagonalDirections(sourceDiagonalDirections, typescriptDiagonalDirections, sourceDirectionIndexes, problems);
+compareElevatorBackTo(sourceElevatorBackTo, typescriptElevatorBackTo, problems);
+compareParTimesSeconds(sourceParTimesSeconds, typescriptParTimesSeconds, problems);
 compareRndTable(sourceRndTable, typescriptRndTable, problems);
 
 if (problems.length > 0) {
@@ -168,7 +180,7 @@ if (problems.length > 0) {
 }
 
 console.log(
-  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceOppositeDirections.length} WL_STATE.C direction entries, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
+  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
 );
 
 function parseSourceStates(text, sprites) {
@@ -416,6 +428,35 @@ function parseSourceRealHitlerHitpoints(text) {
   return parseNumberList(match[1]);
 }
 
+function parseSourceElevatorBackTo(text) {
+  const match = text.match(/int\s+ElevatorBackTo\[\]\s*=\s*\{([^}]+)\}/);
+  if (!match) {
+    throw new Error("Could not find ElevatorBackTo[] in WL_GAME.C");
+  }
+
+  return parseNumberList(match[1]);
+}
+
+function parseSourceParTimesSeconds(text) {
+  const activeText = filterWl6Source(text);
+  const start = activeText.indexOf("times parTimes[]");
+  if (start < 0) {
+    throw new Error("Could not find parTimes[] in WL_INTER.C");
+  }
+
+  const end = activeText.indexOf("};", start);
+  if (end < 0) {
+    throw new Error("Could not find parTimes[] terminator in WL_INTER.C");
+  }
+
+  const entries = [];
+  for (const match of activeText.slice(start, end).matchAll(/\{\s*([0-9]+(?:\.[0-9]+)?)\s*,\s*"[^"]+"\s*\}/g)) {
+    entries.push(Math.round(Number(match[1]) * 60));
+  }
+
+  return entries;
+}
+
 function parseSourceDirectionList(text, name, directions) {
   const match = text.match(new RegExp(`dirtype\\s+${name}\\[9\\]\\s*=\\s*\\{(?<body>[\\s\\S]*?)\\};`));
   if (!match?.groups?.body) {
@@ -506,6 +547,24 @@ function parseTypescriptDiagonalDirections(text, constants) {
   }
 
   return rows;
+}
+
+function parseTypescriptElevatorBackTo(text, constants) {
+  const match = text.match(/const ELEVATOR_BACK_TO\s*=\s*\[(?<body>[^\]]+)\]\s*as const;/);
+  if (!match?.groups?.body) {
+    throw new Error("Could not find ELEVATOR_BACK_TO in source-typescript main.ts");
+  }
+
+  return match.groups.body.split(",").map((part) => resolveTypescriptNumber(part, constants));
+}
+
+function parseTypescriptParTimesSeconds(text, constants) {
+  const match = text.match(/const WL6_PAR_TIMES_SECONDS\s*=\s*\[(?<body>[\s\S]*?)\]\s*as const;/);
+  if (!match?.groups?.body) {
+    throw new Error("Could not find WL6_PAR_TIMES_SECONDS in source-typescript main.ts");
+  }
+
+  return match.groups.body.split(",").filter((part) => part.trim()).map((part) => resolveTypescriptNumber(part, constants));
 }
 
 function parseTypescriptWeaponIndexes(text) {
@@ -794,6 +853,14 @@ function compareDiagonalDirections(sourceRows, typescriptRows, sourceDirections,
       }
     }
   }
+}
+
+function compareElevatorBackTo(sourceValues, typescriptValues, problems) {
+  compareNumberList("ELEVATOR_BACK_TO", sourceValues, typescriptValues, problems);
+}
+
+function compareParTimesSeconds(sourceValues, typescriptValues, problems) {
+  compareNumberList("WL6_PAR_TIMES_SECONDS", sourceValues, typescriptValues, problems);
 }
 
 function compareRndTable(sourceValues, typescriptValues, problems) {

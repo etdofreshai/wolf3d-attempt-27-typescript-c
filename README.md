@@ -149,7 +149,8 @@ projectile state-frame shapenums/tics/actions/thinks against
 `source/WOLFSRC/WL_ACT1.C`, weapon attack-frame parity against
 `source/WOLFSRC/WL_AGENT.C`, enemy hitpoint parity against
 `source/WOLFSRC/WL_ACT2.C`, actor direction-table parity against
-`source/WOLFSRC/WL_STATE.C`, RNG table parity against
+`source/WOLFSRC/WL_STATE.C`, level-flow table parity against
+`source/WOLFSRC/WL_GAME.C` and `source/WOLFSRC/WL_INTER.C`, RNG table parity against
 `source/WOLFSRC/ID_US_A.ASM`, and the sprite/weapon/enemy/direction enums in
 `source/WOLFSRC/WL_DEF.H`.
 
