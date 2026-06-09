@@ -98,6 +98,18 @@ type RayHit = {
   type: "door" | "wall";
 };
 
+type SpriteBillboard = {
+  color: [number, number, number];
+  depth: number;
+  height: number;
+  screenX: number;
+  width: number;
+  x0: number;
+  x1: number;
+  y0: number;
+  y1: number;
+};
+
 type ScanInfoPlaneResult = {
   actors: PortActor[];
   killTotal: number;
@@ -970,6 +982,7 @@ class WLDraw {
     const image = this.id_vl.VL_BeginFrame();
     const fov = Math.PI / 3;
     const horizon = SCREEN_HEIGHT / 2;
+    const wallDepths = new Float64Array(SCREEN_WIDTH);
 
     for (let y = 0; y < SCREEN_HEIGHT; y += 1) {
       const color: [number, number, number] = y < horizon ? [32, 41, 50] : [76, 67, 54];
@@ -982,6 +995,7 @@ class WLDraw {
       const rayAngle = wl_game.gamestate.angle + (x / SCREEN_WIDTH - 0.5) * fov;
       const hit = this.CastRay(wl_game, rayAngle);
       const corrected = hit.distance * Math.cos(rayAngle - wl_game.gamestate.angle);
+      wallDepths[x] = corrected;
       const wallHeight = Math.min(SCREEN_HEIGHT, Math.floor(SCREEN_HEIGHT / Math.max(0.08, corrected)));
       const y0 = Math.max(0, Math.floor(horizon - wallHeight / 2));
       const y1 = Math.min(SCREEN_HEIGHT - 1, Math.floor(horizon + wallHeight / 2));
@@ -996,6 +1010,7 @@ class WLDraw {
       }
     }
 
+    this.DrawScaleds(image, wl_game, wallDepths, fov, horizon);
     this.DrawWeapon(image, wl_game.gamestate.ticcount);
     this.id_vl.VL_Present(image);
   }
@@ -1095,6 +1110,128 @@ class WLDraw {
       tile: door.tile,
       type: "door"
     };
+  }
+
+  private DrawScaleds(
+    image: ImageData,
+    wl_game: WLGame,
+    wallDepths: Float64Array,
+    fov: number,
+    horizon: number
+  ): void {
+    const sprites: SpriteBillboard[] = [];
+    for (const stat of wl_game.map.statics) {
+      if (stat.collected) {
+        continue;
+      }
+
+      const sprite = this.TransformSprite(
+        wl_game,
+        stat.x + 0.5,
+        stat.y + 0.5,
+        fov,
+        horizon,
+        staticRgb(stat)
+      );
+      if (sprite) {
+        sprites.push(sprite);
+      }
+    }
+
+    for (const actor of wl_game.map.actors) {
+      const sprite = this.TransformSprite(
+        wl_game,
+        actor.x + 0.5,
+        actor.y + 0.5,
+        fov,
+        horizon,
+        actorRgb(actor)
+      );
+      if (sprite) {
+        sprites.push(sprite);
+      }
+    }
+
+    sprites.sort((left, right) => right.depth - left.depth);
+    for (const sprite of sprites) {
+      this.DrawSpriteBillboard(image, sprite, wallDepths);
+    }
+  }
+
+  private TransformSprite(
+    wl_game: WLGame,
+    worldX: number,
+    worldY: number,
+    fov: number,
+    horizon: number,
+    color: [number, number, number]
+  ): SpriteBillboard | null {
+    const dx = worldX - wl_game.gamestate.x;
+    const dy = worldY - wl_game.gamestate.y;
+    const forwardX = Math.cos(wl_game.gamestate.angle);
+    const forwardY = Math.sin(wl_game.gamestate.angle);
+    const rightX = -forwardY;
+    const rightY = forwardX;
+    const depth = dx * forwardX + dy * forwardY;
+    if (depth <= 0.18) {
+      return null;
+    }
+
+    const side = dx * rightX + dy * rightY;
+    const projectionScale = SCREEN_WIDTH / (2 * Math.tan(fov / 2));
+    const screenX = SCREEN_WIDTH / 2 + (side / depth) * projectionScale;
+    const height = Math.max(2, Math.min(SCREEN_HEIGHT * 2, Math.floor((SCREEN_HEIGHT * 0.92) / depth)));
+    const width = Math.max(2, Math.floor(height * 0.82));
+    const x0 = Math.max(0, Math.floor(screenX - width / 2));
+    const x1 = Math.min(SCREEN_WIDTH - 1, Math.floor(screenX + width / 2));
+    if (x1 < 0 || x0 >= SCREEN_WIDTH) {
+      return null;
+    }
+
+    const y0 = Math.max(0, Math.floor(horizon - height / 2));
+    const y1 = Math.min(SCREEN_HEIGHT - 1, Math.floor(horizon + height / 2));
+    if (y1 < 0 || y0 >= SCREEN_HEIGHT) {
+      return null;
+    }
+
+    return {
+      color,
+      depth,
+      height,
+      screenX,
+      width,
+      x0,
+      x1,
+      y0,
+      y1
+    };
+  }
+
+  private DrawSpriteBillboard(image: ImageData, sprite: SpriteBillboard, wallDepths: Float64Array): void {
+    const shade = Math.max(0.35, Math.min(1, 1.2 - sprite.depth * 0.09));
+    for (let x = sprite.x0; x <= sprite.x1; x += 1) {
+      const wallDepth = wallDepths[x] ?? 0;
+      if (sprite.depth >= wallDepth) {
+        continue;
+      }
+
+      const u = (x - (sprite.screenX - sprite.width / 2)) / Math.max(1, sprite.width);
+      for (let y = sprite.y0; y <= sprite.y1; y += 1) {
+        const v = (y - (SCREEN_HEIGHT / 2 - sprite.height / 2)) / Math.max(1, sprite.height);
+        if (!spriteMask(u, v)) {
+          continue;
+        }
+
+        this.id_vl.VL_Plot(
+          image,
+          x,
+          y,
+          clampByte(sprite.color[0] * shade),
+          clampByte(sprite.color[1] * shade),
+          clampByte(sprite.color[2] * shade)
+        );
+      }
+    }
   }
 
   private DrawWeapon(image: ImageData, ticcount: number): void {
@@ -1628,6 +1765,75 @@ function treasureScoreForBonus(item: string): number {
     default:
       return 0;
   }
+}
+
+function staticRgb(stat: PortStatic): [number, number, number] {
+  if (stat.bonus) {
+    switch (stat.item) {
+      case "bo_key1":
+        return [238, 190, 70];
+      case "bo_key2":
+        return [190, 204, 220];
+      case "bo_food":
+      case "bo_alpo":
+        return [174, 78, 54];
+      case "bo_firstaid":
+        return [232, 232, 226];
+      case "bo_clip":
+      case "bo_clip2":
+        return [186, 148, 76];
+      case "bo_machinegun":
+      case "bo_chaingun":
+        return [120, 130, 138];
+      case "bo_cross":
+      case "bo_chalice":
+      case "bo_bible":
+      case "bo_crown":
+      case "bo_fullheal":
+        return [218, 176, 70];
+      default:
+        return [170, 120, 84];
+    }
+  }
+
+  if (stat.blocking) {
+    return [92, 116, 96];
+  }
+
+  return [116, 102, 82];
+}
+
+function actorRgb(actor: PortActor): [number, number, number] {
+  if (actor.mode === "dead") {
+    return [96, 60, 54];
+  }
+
+  if (actor.mode === "ghost") {
+    return [150, 126, 182];
+  }
+
+  switch (actor.kind) {
+    case "dog":
+      return [120, 88, 58];
+    case "officer":
+      return [74, 94, 152];
+    case "ss":
+      return [58, 58, 66];
+    case "mutant":
+      return [122, 132, 110];
+    default:
+      return [92, 126, 78];
+  }
+}
+
+function spriteMask(u: number, v: number): boolean {
+  if (u < 0 || u > 1 || v < 0 || v > 1) {
+    return false;
+  }
+
+  const dx = Math.abs(u - 0.5) / 0.46;
+  const dy = Math.abs(v - 0.55) / 0.52;
+  return dx * dx + dy * dy <= 1;
 }
 
 function spawnAngleForInfoTile(tile: number): number {
