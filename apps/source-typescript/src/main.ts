@@ -294,6 +294,7 @@ const AMBUSHTILE = 106;
 const AREATILE = 107;
 const ELEVATORTILE = 21;
 const ELEVATOR_BACK_TO = [1, 1, 7, 3, 5, 3] as const;
+const EXITTILE = 99;
 const ICONARROWS = 90;
 const NODIR = 8;
 const DOOR_POSITION_MAX = 0xffff;
@@ -1553,6 +1554,7 @@ class WLGame {
   private completedLevelTransitionApplied = false;
   private diedTransitionApplied = false;
   private rndIndex = 0;
+  private victorySpinTargetY: number | null = null;
 
   readonly gamestate = {
     angle: 0,
@@ -1629,6 +1631,7 @@ class WLGame {
     this.playstate = "ex_stillplaying";
     this.rndIndex = 0;
     this.thrustSpeed = 0;
+    this.victorySpinTargetY = null;
 
     this.gamestate.ammo = STARTAMMO;
     this.gamestate.attackcount = 0;
@@ -1711,6 +1714,7 @@ class WLGame {
     this.lastAttacker = null;
     this.killer = null;
     this.rndIndex = 0;
+    this.victorySpinTargetY = null;
     this.gamestate.episode = Math.floor(level / 10);
     this.gamestate.faceframe = 0;
     this.gamestate.killx = 0;
@@ -1737,8 +1741,18 @@ class WLGame {
     const attackDown = id_in.IN_AttackDown();
     let moved = false;
 
+    if (this.gamestate.victoryflag) {
+      this.VictorySpin(tics);
+      this.gamestate.ticcount += 1;
+      return false;
+    }
+
     if (this.gamestate.attackcount > 0) {
       moved = this.ControlMovement(id_in, ticMs);
+      if (this.gamestate.victoryflag) {
+        return moved;
+      }
+
       this.T_Attack(tics, attackDown && this.attackButtonHeld);
     } else {
       this.CheckWeaponChange(id_in);
@@ -1840,6 +1854,7 @@ class WLGame {
 
     this.gamestate.angle = normalizeAngle(this.gamestate.angle);
     this.ConnectAreas();
+    this.CheckVictoryTile();
     this.TryPickupBonusAt(Math.floor(this.gamestate.x), Math.floor(this.gamestate.y));
     this.gamestate.ticcount += 1;
     return moved;
@@ -2921,6 +2936,14 @@ class WLGame {
     return this.map.walls[tileY * this.map.width + tileX] ?? 0;
   }
 
+  private ObjectPlaneTile(tileX: number, tileY: number): number {
+    if (tileX < 0 || tileY < 0 || tileX >= this.map.width || tileY >= this.map.height) {
+      return 0;
+    }
+
+    return this.map.objects[tileY * this.map.width + tileX] ?? 0;
+  }
+
   private T_Attack(tics: number, attackDown: boolean): void {
     this.gamestate.attackcount -= tics;
     while (this.gamestate.attackcount <= 0) {
@@ -3467,6 +3490,41 @@ class WLGame {
     if (this.gamestate.health === 0) {
       this.SetPlayState("ex_died");
       this.killer = this.lastAttacker;
+    }
+  }
+
+  private CheckVictoryTile(): void {
+    if (this.gamestate.victoryflag) {
+      return;
+    }
+
+    const tileX = Math.floor(this.gamestate.x);
+    const tileY = Math.floor(this.gamestate.y);
+    if (this.ObjectPlaneTile(tileX, tileY) === EXITTILE) {
+      this.VictoryTile();
+    }
+  }
+
+  private VictoryTile(): void {
+    // WL_AGENT.C starts the end-of-episode sequence here; BJ's actor animation is a later parity slice.
+    this.gamestate.victoryflag = true;
+    this.victorySpinTargetY = Math.floor(this.gamestate.y) - 5 - 0x3000 / TILEGLOBAL;
+  }
+
+  private VictorySpin(tics: number): void {
+    const targetAngle = (Math.PI * 3) / 2;
+    const angleStep = ((Math.PI * 2) / 360) * tics * 3;
+    const angle = normalizeAngle(this.gamestate.angle);
+
+    if (angle > targetAngle) {
+      this.gamestate.angle = Math.max(targetAngle, angle - angleStep);
+    } else if (angle < targetAngle) {
+      this.gamestate.angle = Math.min(targetAngle, angle + angleStep);
+    }
+
+    const destY = this.victorySpinTargetY ?? Math.floor(this.gamestate.y) - 5 - 0x3000 / TILEGLOBAL;
+    if (this.gamestate.y > destY) {
+      this.gamestate.y = Math.max(destY, this.gamestate.y - (tics * 4096) / TILEGLOBAL);
     }
   }
 
