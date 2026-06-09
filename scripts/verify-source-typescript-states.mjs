@@ -139,6 +139,8 @@ const sourceBonusRewards = parseSourceBonusRewards(sourceAgentText);
 const sourceTreasureScores = parseSourceTreasureScores(sourceAgentText);
 const sourceOppositeDirections = parseSourceDirectionList(sourceStateText, "opposite", sourceDirectionIndexes);
 const sourceDiagonalDirections = parseSourceDirectionMatrix(sourceStateText, "diagonal", sourceDirectionIndexes);
+const sourceDamageActorContract = parseSourceDamageActorContract(sourceStateText);
+const sourceDamagePainStates = parseSourceDamagePainStates(sourceStateText);
 const sourceKillActorRewards = parseSourceKillActorRewards(sourceStateText);
 const sourceElevatorBackTo = parseSourceElevatorBackTo(sourceGameText);
 const sourceParTimesSeconds = parseSourceParTimesSeconds(sourceInterText);
@@ -167,6 +169,8 @@ const typescriptKillDrops = parseTypescriptKillDrops(typescriptText);
 const typescriptTreasureScores = parseTypescriptTreasureScores(typescriptText);
 const typescriptBonusRewards = parseTypescriptBonusRewards(typescriptText, typescriptTreasureScores, stringConstants);
 const typescriptDroppedItemTypes = parseTypescriptDroppedItemTypes(typescriptText);
+const typescriptDamageActorContract = parseTypescriptDamageActorContract(typescriptText);
+const typescriptDamagePainStates = parseTypescriptDamagePainStates(typescriptText);
 const typescriptSprites = parseTypescriptSprites(typescriptText);
 const modeledFrames = parseModeledFrames(typescriptText, constants, typescriptSprites);
 const problems = [];
@@ -209,6 +213,8 @@ compareRealHitlerHitpoints(sourceRealHitlerHitpoints, typescriptRealHitlerHitpoi
 compareBonusRewards(sourceBonusRewards, typescriptBonusRewards, problems);
 compareTreasureScores(sourceTreasureScores, typescriptTreasureScores, problems);
 compareKillActorRewards(sourceKillActorRewards, typescriptActorKillScores, typescriptKillDrops, problems);
+compareContractObject("WL_STATE.C DamageActor", sourceDamageActorContract, typescriptDamageActorContract, problems);
+comparePainStates(sourceDamagePainStates, typescriptDamagePainStates, problems);
 compareDirectionDeltas(sourceDirectionIndexes, typescriptDirectionDeltas, problems);
 compareDirectionList("opposite", sourceOppositeDirections, typescriptOppositeDirections, problems);
 compareDiagonalDirections(sourceDiagonalDirections, typescriptDiagonalDirections, sourceDirectionIndexes, problems);
@@ -230,7 +236,7 @@ if (problems.length > 0) {
 }
 
 console.log(
-  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceDoorPushwallContracts.size} WL_ACT1.C door/pushwall contracts, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourceAgentHelperContracts.size} WL_AGENT.C helper contracts, ${countComparedBonusRewards(sourceBonusRewards)} WL_AGENT.C bonus reward rows, ${sourceTreasureScores.size} WL_AGENT.C treasure score rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceKillActorRewards.size} WL_STATE.C kill reward rows, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
+  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceDoorPushwallContracts.size} WL_ACT1.C door/pushwall contracts, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourceAgentHelperContracts.size} WL_AGENT.C helper contracts, ${countComparedBonusRewards(sourceBonusRewards)} WL_AGENT.C bonus reward rows, ${sourceTreasureScores.size} WL_AGENT.C treasure score rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceKillActorRewards.size} WL_STATE.C kill reward rows, ${sourceDamagePainStates.size} WL_STATE.C damage pain rows, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
 );
 
 function parseSourceStates(text, sprites) {
@@ -711,6 +717,39 @@ function parseSourceKillActorRewards(text) {
   }
 
   return rewards;
+}
+
+function parseSourceDamageActorContract(text) {
+  const body = extractCFunctionBody(filterWl6Source(text), "DamageActor");
+  return {
+    callsFirstSightingWhenNotAttackMode: /!\s*\(\s*ob->flags\s*&\s*FL_ATTACKMODE\s*\)[\s\S]*FirstSighting\s*\(\s*ob\s*\)/.test(body),
+    doublesDamageWhenNotAttackMode: /!\s*\(\s*ob->flags\s*&\s*FL_ATTACKMODE\s*\)[\s\S]*damage\s*<<=\s*1/.test(body),
+    killsAtZeroOrBelow: /ob->hitpoints\s*<=\s*0[\s\S]*KillActor\s*\(\s*ob\s*\)/.test(body),
+    marksNoise: /madenoise\s*=\s*true/.test(body),
+    painStateUsesHitpointParity: /ob->hitpoints\s*&\s*1/.test(body),
+    subtractsDamage: /ob->hitpoints\s*-=\s*damage/.test(body)
+  };
+}
+
+function parseSourceDamagePainStates(text) {
+  const body = extractCFunctionBody(filterWl6Source(text), "DamageActor");
+  const switchBody = extractFirstSwitchBody(body, "DamageActor");
+  const states = new Map();
+  for (const block of parseSourceCaseBlocks(switchBody)) {
+    const kind = SOURCE_KILL_CLASS_TO_TYPESCRIPT_KIND.get(block.label);
+    if (!kind) {
+      continue;
+    }
+
+    const matches = [...block.body.matchAll(/NewState\s*\(\s*ob\s*,\s*&\s*(s_[A-Za-z0-9_]+)\s*\)/g)].map(
+      (match) => match[1]
+    );
+    if (matches.length > 0) {
+      states.set(kind, matches);
+    }
+  }
+
+  return states;
 }
 
 function parseSourceWeaponReadySprites(text, sprites) {
@@ -1237,6 +1276,37 @@ function parseTypescriptKillDrops(text) {
   return drops;
 }
 
+function parseTypescriptDamageActorContract(text) {
+  const damageBody = extractTypescriptFunctionBody(text, "DamageActor");
+  const painBody = extractTypescriptFunctionBody(text, "StartPainState");
+  return {
+    callsFirstSightingWhenNotAttackMode: /if\s*\(\s*!wasAttackMode\s*\)[\s\S]*this\.FirstSighting\s*\(\s*actor\s*\)/.test(damageBody),
+    doublesDamageWhenNotAttackMode: /wasAttackMode\s*\?\s*damage\s*:\s*damage\s*\*\s*2/.test(damageBody),
+    killsAtZeroOrBelow: /actor\.hitpoints\s*<=\s*0[\s\S]*this\.KillActor\s*\(\s*actor\s*\)/.test(damageBody),
+    marksNoise: /this\.madeNoise\s*=\s*true/.test(damageBody),
+    painStateUsesHitpointParity: /actor\.hitpoints\s*&\s*1\s*\?\s*0\s*:\s*1/.test(painBody),
+    subtractsDamage: /actor\.hitpoints\s*-=\s*actualDamage/.test(damageBody)
+  };
+}
+
+function parseTypescriptDamagePainStates(text) {
+  const start = text.indexOf("const ACTOR_PAIN_STATES");
+  const end = text.indexOf("const ACTOR_ATTACK_STATES", start);
+  if (start < 0 || end < 0) {
+    throw new Error("Could not find ACTOR_PAIN_STATES in source-typescript main.ts");
+  }
+
+  const states = new Map();
+  const body = text.slice(start, end);
+  const pattern =
+    /\b([a-z_]+):\s*\[\s*\{[^{}]*name:\s*"([^"]+)"[^{}]*\}\s*,\s*\{[^{}]*name:\s*"([^"]+)"[^{}]*\}\s*\]/g;
+  for (const match of body.matchAll(pattern)) {
+    states.set(match[1], [match[2], match[3]]);
+  }
+
+  return states;
+}
+
 function parseTypescriptSprites(text) {
   const objectMatch = text.match(/const ACTOR_SPRITES = \{(?<body>[\s\S]*?)\} as const;/);
   if (!objectMatch?.groups?.body) {
@@ -1375,6 +1445,24 @@ function compareKillActorRewards(sourceEntries, typescriptScores, typescriptDrop
   }
 }
 
+function comparePainStates(sourceEntries, typescriptEntries, problems) {
+  for (const [kind, sourceStates] of sourceEntries.entries()) {
+    const currentStates = typescriptEntries.get(kind);
+    if (!currentStates) {
+      problems.push(`${kind}: missing TypeScript DamageActor pain states`);
+      continue;
+    }
+
+    compareStringList(`${kind}.DamageActor.painStates`, sourceStates, currentStates, problems);
+  }
+
+  for (const kind of typescriptEntries.keys()) {
+    if (!sourceEntries.has(kind)) {
+      problems.push(`${kind}: TypeScript pain states missing from WL_STATE.C DamageActor`);
+    }
+  }
+}
+
 function compareSoundChunks(sourceEntries, typescriptEntries, problems) {
   for (const [sound, sourceIndex] of sourceEntries.entries()) {
     const currentIndex = typescriptEntries.get(sound);
@@ -1456,6 +1544,15 @@ function compareContractMap(name, sourceEntries, typescriptEntries, problems) {
   for (const contractName of typescriptEntries.keys()) {
     if (!sourceEntries.has(contractName)) {
       problems.push(`${name}.${contractName}: TypeScript contract missing from source`);
+    }
+  }
+}
+
+function compareContractObject(name, sourceContract, typescriptContract, problems) {
+  for (const [field, sourceValue] of Object.entries(sourceContract)) {
+    const currentValue = typescriptContract[field];
+    if (currentValue !== sourceValue) {
+      problems.push(`${name}.${field}: ${formatNullable(currentValue)} != source ${formatNullable(sourceValue)}`);
     }
   }
 }
@@ -1857,6 +1954,19 @@ function compareNumberRows(name, sourceRows, typescriptRows, problems) {
 }
 
 function compareNumberList(name, sourceValues, typescriptValues, problems) {
+  if (sourceValues.length !== typescriptValues.length) {
+    problems.push(`${name} length ${typescriptValues.length} != source ${sourceValues.length}`);
+  }
+
+  const count = Math.min(sourceValues.length, typescriptValues.length);
+  for (let index = 0; index < count; index += 1) {
+    if (typescriptValues[index] !== sourceValues[index]) {
+      problems.push(`${name}[${index}] ${typescriptValues[index]} != source ${sourceValues[index]}`);
+    }
+  }
+}
+
+function compareStringList(name, sourceValues, typescriptValues, problems) {
   if (sourceValues.length !== typescriptValues.length) {
     problems.push(`${name} length ${typescriptValues.length} != source ${sourceValues.length}`);
   }
