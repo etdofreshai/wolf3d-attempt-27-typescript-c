@@ -296,6 +296,7 @@ const MINACTORDIST_TILES = 0x10000 / TILEGLOBAL;
 const PROJECTILE_PROBE_TILES = 0x2000 / TILEGLOBAL;
 const PROJECTILESIZE_TILES = 0xc000 / TILEGLOBAL;
 const ATTACK_KEY_CODE = 17;
+const STRAFE_KEY_CODE = 18;
 const USE_KEY_CODE = 32;
 const WP_KNIFE = 0;
 const WP_PISTOL = 1;
@@ -1646,14 +1647,36 @@ class WLGame {
     let moved = false;
     this.thrustSpeed = 0;
 
-    if (id_in.IN_KeyDown(37) || id_in.IN_KeyDown(65)) {
-      this.gamestate.angle -= turnSpeed;
-      moved = true;
-    }
+    const side =
+      (id_in.IN_KeyDown(39) || id_in.IN_KeyDown(68) ? 1 : 0) -
+      (id_in.IN_KeyDown(37) || id_in.IN_KeyDown(65) ? 1 : 0);
+    const strafeDown = id_in.IN_KeyDown(STRAFE_KEY_CODE);
+    if (strafeDown) {
+      if (side !== 0) {
+        this.thrustSpeed += SOURCE_CONTROL_MAX * SOURCE_FORWARD_MOVESCALE;
+        const strafeAngle = this.gamestate.angle + (side > 0 ? Math.PI / 2 : -Math.PI / 2);
+        const nextX = this.gamestate.x + Math.cos(strafeAngle) * moveSpeed;
+        const nextY = this.gamestate.y + Math.sin(strafeAngle) * moveSpeed;
+        if (!this.IsWall(nextX, this.gamestate.y)) {
+          this.gamestate.x = nextX;
+        }
 
-    if (id_in.IN_KeyDown(39) || id_in.IN_KeyDown(68)) {
-      this.gamestate.angle += turnSpeed;
-      moved = true;
+        if (!this.IsWall(this.gamestate.x, nextY)) {
+          this.gamestate.y = nextY;
+        }
+
+        moved = true;
+      }
+    } else {
+      if (side < 0) {
+        this.gamestate.angle -= turnSpeed;
+        moved = true;
+      }
+
+      if (side > 0) {
+        this.gamestate.angle += turnSpeed;
+        moved = true;
+      }
     }
 
     const forward =
