@@ -341,12 +341,18 @@ const ACTOR_SPRITES = {
   BOSS_DIE2: 305,
   BOSS_DIE3: 306,
   BOSS_W1: 296,
+  BOSS_W2: 297,
+  BOSS_W3: 298,
+  BOSS_W4: 299,
   CLYDE_W1: 292,
   DOG_DEAD: 134,
   DOG_DIE_1: 131,
   DOG_DIE_2: 132,
   DOG_DIE_3: 133,
   DOG_W1_1: 99,
+  DOG_W2_1: 107,
+  DOG_W3_1: 115,
+  DOG_W4_1: 123,
   FAKE_DEAD: 333,
   FAKE_DIE1: 328,
   FAKE_DIE2: 329,
@@ -354,16 +360,25 @@ const ACTOR_SPRITES = {
   FAKE_DIE4: 331,
   FAKE_DIE5: 332,
   FAKE_W1: 321,
+  FAKE_W2: 322,
+  FAKE_W3: 323,
+  FAKE_W4: 324,
   FAT_DEAD: 407,
   FAT_DIE1: 404,
   FAT_DIE2: 405,
   FAT_DIE3: 406,
   FAT_W1: 396,
+  FAT_W2: 397,
+  FAT_W3: 398,
+  FAT_W4: 399,
   GIFT_DEAD: 369,
   GIFT_DIE1: 366,
   GIFT_DIE2: 367,
   GIFT_DIE3: 368,
   GIFT_W1: 360,
+  GIFT_W2: 361,
+  GIFT_W3: 362,
+  GIFT_W4: 363,
   GRD_DEAD: 95,
   GRD_DIE_1: 91,
   GRD_DIE_2: 92,
@@ -372,11 +387,17 @@ const ACTOR_SPRITES = {
   GRD_PAIN_2: 94,
   GRD_S_1: 50,
   GRD_W1_1: 58,
+  GRD_W2_1: 66,
+  GRD_W3_1: 74,
+  GRD_W4_1: 82,
   GRETEL_DEAD: 392,
   GRETEL_DIE1: 393,
   GRETEL_DIE2: 394,
   GRETEL_DIE3: 395,
   GRETEL_W1: 385,
+  GRETEL_W2: 386,
+  GRETEL_W3: 387,
+  GRETEL_W4: 388,
   HITLER_DEAD: 352,
   HITLER_DIE1: 353,
   HITLER_DIE2: 354,
@@ -386,12 +407,18 @@ const ACTOR_SPRITES = {
   HITLER_DIE6: 358,
   HITLER_DIE7: 359,
   HITLER_W1: 345,
+  HITLER_W2: 346,
+  HITLER_W3: 347,
+  HITLER_W4: 348,
   INKY_W1: 294,
   MECHA_DEAD: 341,
   MECHA_DIE1: 342,
   MECHA_DIE2: 343,
   MECHA_DIE3: 344,
   MECHA_W1: 334,
+  MECHA_W2: 335,
+  MECHA_W3: 336,
+  MECHA_W4: 337,
   MUT_DEAD: 233,
   MUT_DIE_1: 228,
   MUT_DIE_2: 229,
@@ -401,6 +428,9 @@ const ACTOR_SPRITES = {
   MUT_PAIN_2: 231,
   MUT_S_1: 187,
   MUT_W1_1: 195,
+  MUT_W2_1: 203,
+  MUT_W3_1: 211,
+  MUT_W4_1: 219,
   OFC_DEAD: 284,
   OFC_DIE_1: 279,
   OFC_DIE_2: 280,
@@ -410,12 +440,18 @@ const ACTOR_SPRITES = {
   OFC_PAIN_2: 282,
   OFC_S_1: 238,
   OFC_W1_1: 246,
+  OFC_W2_1: 254,
+  OFC_W3_1: 262,
+  OFC_W4_1: 270,
   PINKY_W1: 290,
   SCHABB_DEAD: 316,
   SCHABB_DIE1: 313,
   SCHABB_DIE2: 314,
   SCHABB_DIE3: 315,
   SCHABB_W1: 307,
+  SCHABB_W2: 308,
+  SCHABB_W3: 309,
+  SCHABB_W4: 310,
   SS_DEAD: 183,
   SS_DIE_1: 179,
   SS_DIE_2: 180,
@@ -423,7 +459,10 @@ const ACTOR_SPRITES = {
   SS_PAIN_1: 178,
   SS_PAIN_2: 182,
   SS_S_1: 138,
-  SS_W1_1: 146
+  SS_W1_1: 146,
+  SS_W2_1: 154,
+  SS_W3_1: 162,
+  SS_W4_1: 170
 } as const;
 const ACTOR_STAND_SPRITES: Record<string, number> = {
   dog: ACTOR_SPRITES.DOG_W1_1,
@@ -473,6 +512,27 @@ const ACTOR_PAIN_STATES: Record<string, [ActorStateFrame, ActorStateFrame]> = {
     { name: "s_sspain", shapenum: ACTOR_SPRITES.SS_PAIN_1, tics: 10 },
     { name: "s_sspain1", shapenum: ACTOR_SPRITES.SS_PAIN_2, tics: 10 }
   ]
+};
+const ACTOR_PATROL_STATES: Record<string, ActorStateFrame[]> = {
+  dog: pathFrames("dog", [ACTOR_SPRITES.DOG_W1_1, ACTOR_SPRITES.DOG_W2_1, ACTOR_SPRITES.DOG_W3_1, ACTOR_SPRITES.DOG_W4_1]),
+  guard: pathFrames("grd", [ACTOR_SPRITES.GRD_W1_1, ACTOR_SPRITES.GRD_W2_1, ACTOR_SPRITES.GRD_W3_1, ACTOR_SPRITES.GRD_W4_1]),
+  mutant: pathFrames("mut", [ACTOR_SPRITES.MUT_W1_1, ACTOR_SPRITES.MUT_W2_1, ACTOR_SPRITES.MUT_W3_1, ACTOR_SPRITES.MUT_W4_1]),
+  officer: pathFrames("ofc", [ACTOR_SPRITES.OFC_W1_1, ACTOR_SPRITES.OFC_W2_1, ACTOR_SPRITES.OFC_W3_1, ACTOR_SPRITES.OFC_W4_1]),
+  ss: pathFrames("ss", [ACTOR_SPRITES.SS_W1_1, ACTOR_SPRITES.SS_W2_1, ACTOR_SPRITES.SS_W3_1, ACTOR_SPRITES.SS_W4_1])
+};
+const ACTOR_CHASE_STATES: Record<string, ActorStateFrame[]> = {
+  boss: chaseFrames("boss", [ACTOR_SPRITES.BOSS_W1, ACTOR_SPRITES.BOSS_W2, ACTOR_SPRITES.BOSS_W3, ACTOR_SPRITES.BOSS_W4]),
+  dog: chaseFrames("dog", [ACTOR_SPRITES.DOG_W1_1, ACTOR_SPRITES.DOG_W2_1, ACTOR_SPRITES.DOG_W3_1, ACTOR_SPRITES.DOG_W4_1]),
+  fake_hitler: chaseFrames("fake", [ACTOR_SPRITES.FAKE_W1, ACTOR_SPRITES.FAKE_W2, ACTOR_SPRITES.FAKE_W3, ACTOR_SPRITES.FAKE_W4]),
+  fat: chaseFrames("fat", [ACTOR_SPRITES.FAT_W1, ACTOR_SPRITES.FAT_W2, ACTOR_SPRITES.FAT_W3, ACTOR_SPRITES.FAT_W4]),
+  gift: chaseFrames("gift", [ACTOR_SPRITES.GIFT_W1, ACTOR_SPRITES.GIFT_W2, ACTOR_SPRITES.GIFT_W3, ACTOR_SPRITES.GIFT_W4]),
+  gretel: chaseFrames("gretel", [ACTOR_SPRITES.GRETEL_W1, ACTOR_SPRITES.GRETEL_W2, ACTOR_SPRITES.GRETEL_W3, ACTOR_SPRITES.GRETEL_W4]),
+  guard: chaseFrames("grd", [ACTOR_SPRITES.GRD_W1_1, ACTOR_SPRITES.GRD_W2_1, ACTOR_SPRITES.GRD_W3_1, ACTOR_SPRITES.GRD_W4_1]),
+  hitler: chaseFrames("mecha", [ACTOR_SPRITES.MECHA_W1, ACTOR_SPRITES.MECHA_W2, ACTOR_SPRITES.MECHA_W3, ACTOR_SPRITES.MECHA_W4], [10, 6, 8, 10, 6, 8]),
+  mutant: chaseFrames("mut", [ACTOR_SPRITES.MUT_W1_1, ACTOR_SPRITES.MUT_W2_1, ACTOR_SPRITES.MUT_W3_1, ACTOR_SPRITES.MUT_W4_1]),
+  officer: chaseFrames("ofc", [ACTOR_SPRITES.OFC_W1_1, ACTOR_SPRITES.OFC_W2_1, ACTOR_SPRITES.OFC_W3_1, ACTOR_SPRITES.OFC_W4_1]),
+  schabbs: chaseFrames("schabb", [ACTOR_SPRITES.SCHABB_W1, ACTOR_SPRITES.SCHABB_W2, ACTOR_SPRITES.SCHABB_W3, ACTOR_SPRITES.SCHABB_W4]),
+  ss: chaseFrames("ss", [ACTOR_SPRITES.SS_W1_1, ACTOR_SPRITES.SS_W2_1, ACTOR_SPRITES.SS_W3_1, ACTOR_SPRITES.SS_W4_1])
 };
 const ACTOR_DEATH_STATES: Record<string, ActorStateFrame[]> = {
   boss: deathFrames([
@@ -1211,6 +1271,8 @@ class WLGame {
       this.MoveDeathState(actor, tics);
     } else if (actor.mode === "pain") {
       this.MovePainState(actor, tics);
+    } else if (actor.mode === "patrol" || actor.mode === "chase") {
+      this.MoveLoopingActorState(actor, tics);
     }
   }
 
@@ -1242,6 +1304,19 @@ class WLGame {
     actor.stateTics -= tics;
     if (actor.stateTics <= 0) {
       this.StartChaseState(actor, actor.stateTics);
+    }
+  }
+
+  private MoveLoopingActorState(actor: PortActor, tics: number): void {
+    const sequence = actor.mode === "patrol" ? ACTOR_PATROL_STATES[actor.kind] : ACTOR_CHASE_STATES[actor.kind];
+    if (!sequence) {
+      return;
+    }
+
+    actor.stateTics -= tics;
+    while (actor.stateTics <= 0) {
+      const nextIndex = (actor.stateIndex + 1) % sequence.length;
+      this.SetActorSequenceState(actor, sequence, nextIndex, actor.mode, actor.stateTics);
     }
   }
 
@@ -1591,17 +1666,12 @@ class WLGame {
   }
 
   private StartChaseState(actor: PortActor, carry = 0): void {
-    const shapenum =
-      ACTOR_PATROL_SPRITES[actor.kind] ?? ACTOR_BOSS_SPRITES[actor.kind] ?? ACTOR_GHOST_SPRITES[actor.kind];
-    if (shapenum === undefined) {
+    const sequence = ACTOR_CHASE_STATES[actor.kind];
+    if (!sequence) {
       return;
     }
 
-    actor.mode = "chase";
-    actor.stateIndex = 0;
-    actor.stateName = `s_${actorStatePrefix(actor.kind)}chase1`;
-    actor.stateShapenum = shapenum;
-    actor.stateTics = Math.max(0, 10 + carry);
+    this.SetActorSequenceState(actor, sequence, 0, "chase", carry);
   }
 
   private StartPainState(actor: PortActor): void {
@@ -1620,16 +1690,26 @@ class WLGame {
   }
 
   private NewActorState(actor: PortActor, sequence: ActorStateFrame[], index: number, carry = 0): void {
+    this.SetActorSequenceState(actor, sequence, index, "dying", carry);
+  }
+
+  private SetActorSequenceState(
+    actor: PortActor,
+    sequence: ActorStateFrame[],
+    index: number,
+    mode: PortActor["mode"],
+    carry = 0
+  ): void {
     const frame = sequence[index] ?? sequence[sequence.length - 1];
     if (!frame) {
       return;
     }
 
-    actor.mode = frame.final ? "dead" : "dying";
+    actor.mode = frame.final ? "dead" : mode;
     actor.stateIndex = index;
     actor.stateName = frame.name;
     actor.stateShapenum = frame.shapenum;
-    actor.stateTics = Math.max(0, frame.tics + carry);
+    actor.stateTics = frame.final || frame.tics === 0 ? Math.max(0, frame.tics + carry) : frame.tics + carry;
   }
 
   private DoorOpen(door: PortDoor, tics: number): void {
@@ -2749,6 +2829,34 @@ function scanInfoPlane(map: WolfMap, difficulty: "easy" | "medium" | "hard"): Sc
   };
 }
 
+function pathFrames(prefix: string, walkSprites: [number, number, number, number]): ActorStateFrame[] {
+  return walkFrames(prefix, "path", walkSprites, [20, 5, 15, 20, 5, 15]);
+}
+
+function chaseFrames(
+  prefix: string,
+  walkSprites: [number, number, number, number],
+  tics: [number, number, number, number, number, number] = [10, 3, 8, 10, 3, 8]
+): ActorStateFrame[] {
+  return walkFrames(prefix, "chase", walkSprites, tics);
+}
+
+function walkFrames(
+  prefix: string,
+  stateKind: "chase" | "path",
+  [w1, w2, w3, w4]: [number, number, number, number],
+  [t1, t1s, t2, t3, t3s, t4]: [number, number, number, number, number, number]
+): ActorStateFrame[] {
+  return [
+    { name: `s_${prefix}${stateKind}1`, shapenum: w1, tics: t1 },
+    { name: `s_${prefix}${stateKind}1s`, shapenum: w1, tics: t1s },
+    { name: `s_${prefix}${stateKind}2`, shapenum: w2, tics: t2 },
+    { name: `s_${prefix}${stateKind}3`, shapenum: w3, tics: t3 },
+    { name: `s_${prefix}${stateKind}3s`, shapenum: w3, tics: t3s },
+    { name: `s_${prefix}${stateKind}4`, shapenum: w4, tics: t4 }
+  ];
+}
+
 function deathFrames(frames: Array<[string, number, number, boolean?]>): ActorStateFrame[] {
   return frames.map(([name, shapenum, tics, final]) => {
     const frame: ActorStateFrame = {
@@ -2769,6 +2877,17 @@ function initialActorState(
   mode: PortActor["mode"],
   shapenum: number | null = null
 ): Pick<PortActor, "stateIndex" | "stateName" | "stateShapenum" | "stateTics"> {
+  const sequence = mode === "patrol" ? ACTOR_PATROL_STATES[kind] : mode === "chase" ? ACTOR_CHASE_STATES[kind] : null;
+  const firstFrame = sequence?.[0];
+  if (firstFrame) {
+    return {
+      stateIndex: 0,
+      stateName: firstFrame.name,
+      stateShapenum: firstFrame.shapenum,
+      stateTics: firstFrame.tics
+    };
+  }
+
   const prefix = actorStatePrefix(kind);
   const stateName =
     mode === "dead"
@@ -3133,7 +3252,9 @@ function actorSpriteDescriptor(actor: PortActor, playerAngle: number): ActorSpri
   }
 
   const base =
-    actor.mode === "patrol" ? ACTOR_PATROL_SPRITES[actor.kind] : ACTOR_STAND_SPRITES[actor.kind];
+    actor.mode === "patrol"
+      ? actor.stateShapenum ?? ACTOR_PATROL_SPRITES[actor.kind]
+      : ACTOR_STAND_SPRITES[actor.kind];
   if (base === undefined) {
     return null;
   }
