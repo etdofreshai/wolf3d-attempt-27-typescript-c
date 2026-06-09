@@ -122,6 +122,13 @@ type PortProjectile = {
   y: number;
 };
 
+type DamageSource = {
+  kind: string;
+  source: "actor" | "projectile";
+  x: number;
+  y: number;
+};
+
 type PortActor = {
   ambush: boolean;
   attackMode: boolean;
@@ -1251,6 +1258,10 @@ class WLMain {
       })),
       madeNoise: this.wl_game.madeNoise,
       thrustSpeed: this.wl_game.thrustSpeed,
+      damage: {
+        killer: this.wl_game.killer,
+        lastAttacker: this.wl_game.lastAttacker
+      },
       objects: {
         actors: this.wl_game.map.actors.length,
         actorsDetail: this.wl_game.map.actors.map((actor) => ({
@@ -1486,6 +1497,8 @@ class WLGame {
   map = createFallbackMap();
   madeNoise = false;
   thrustSpeed = 0;
+  lastAttacker: DamageSource | null = null;
+  killer: DamageSource | null = null;
   private attackButtonHeld = false;
   private rndIndex = 0;
 
@@ -1504,6 +1517,7 @@ class WLGame {
     level: 0,
     lives: 3,
     nextextra: EXTRAPOINTS,
+    playstate: "playing" as "playing" | "died",
     score: 0,
     secretcount: 0,
     secrettotal: 0,
@@ -1577,6 +1591,8 @@ class WLGame {
     this.gamestate.attackframe = 0;
     this.attackButtonHeld = false;
     this.madeNoise = false;
+    this.lastAttacker = null;
+    this.killer = null;
     this.rndIndex = 0;
     this.gamestate.bestweapon = WP_PISTOL;
     this.gamestate.chosenweapon = WP_PISTOL;
@@ -1587,6 +1603,7 @@ class WLGame {
     this.gamestate.level = level;
     this.gamestate.lives = 3;
     this.gamestate.nextextra = EXTRAPOINTS;
+    this.gamestate.playstate = "playing";
     this.gamestate.score = 0;
     this.gamestate.secretcount = 0;
     this.gamestate.secrettotal = this.map.secretTotal;
@@ -2369,7 +2386,7 @@ class WLGame {
 
     if (this.ActorTouchesPlayer(actor) && this.ActorAreaCanReachPlayer(actor)) {
       if (actor.mode === "ghost") {
-        this.TakeDamage(tics * 2);
+        this.TakeDamage(tics * 2, actor);
       }
 
       actor.x = previousX;
@@ -3110,12 +3127,12 @@ class WLGame {
       damage = this.US_RndT() >> 4;
     }
 
-    this.TakeDamage(damage);
+    this.TakeDamage(damage, actor);
   }
 
   private T_Bite(actor: PortActor): void {
     if (this.ActorCanBite(actor) && this.US_RndT() < 180) {
-      this.TakeDamage(this.US_RndT() >> 4);
+      this.TakeDamage(this.US_RndT() >> 4, actor);
     }
   }
 
@@ -3243,21 +3260,44 @@ class WLGame {
   private TakeProjectileDamage(projectile: PortProjectile): void {
     switch (projectile.kind) {
       case "needle":
-        this.TakeDamage((this.US_RndT() >> 3) + 20);
+        this.TakeDamage((this.US_RndT() >> 3) + 20, projectile);
         break;
       case "rocket":
-        this.TakeDamage((this.US_RndT() >> 3) + 30);
+        this.TakeDamage((this.US_RndT() >> 3) + 30, projectile);
         break;
       case "fire":
-        this.TakeDamage(this.US_RndT() >> 3);
+        this.TakeDamage(this.US_RndT() >> 3, projectile);
         break;
       default:
         break;
     }
   }
 
-  private TakeDamage(points: number): void {
+  private TakeDamage(points: number, attacker: PortActor | PortProjectile | null = null): void {
+    this.lastAttacker = attacker ? this.DamageSource(attacker) : null;
     this.gamestate.health = Math.max(0, this.gamestate.health - Math.max(0, points));
+    if (this.gamestate.health === 0) {
+      this.gamestate.playstate = "died";
+      this.killer = this.lastAttacker;
+    }
+  }
+
+  private DamageSource(attacker: PortActor | PortProjectile): DamageSource {
+    if ("shootable" in attacker) {
+      return {
+        kind: attacker.kind,
+        source: "actor",
+        x: attacker.x,
+        y: attacker.y
+      };
+    }
+
+    return {
+      kind: attacker.kind,
+      source: "projectile",
+      x: attacker.x,
+      y: attacker.y
+    };
   }
 
   private DamageActor(actor: PortActor, damage: number): void {
