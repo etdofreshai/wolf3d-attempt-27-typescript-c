@@ -55,6 +55,8 @@ type ArtifactRecord = {
 
 type PortMap = {
   actors: PortActor[];
+  areaConnectCounts: Map<string, number>;
+  areasByPlayer: Set<number>;
   blockingStaticKeys: Set<string>;
   doors: PortDoor[];
   height: number;
@@ -1218,6 +1220,18 @@ class WLMain {
         : null,
       game: this.wl_game.gamestate,
       map: this.wl_game.mapMetadata,
+      areas: {
+        byPlayer: [...this.wl_game.map.areasByPlayer].sort((left, right) => left - right),
+        connections: [...this.wl_game.map.areaConnectCounts.entries()].map(([key, count]) => {
+          const [area1, area2] = parseAreaConnectionKey(key);
+          return {
+            area1,
+            area2,
+            count
+          };
+        }),
+        playerArea: this.wl_game.PlayerAreaNumber()
+      },
       doors: this.wl_game.map.doors.map((door) => ({
         action: door.action,
         index: door.index,
@@ -1500,7 +1514,7 @@ class WLGame {
     const movingDoors = this.map.doors.filter((door) => door.action !== "closed").length;
     const shootableActors = this.map.actors.filter((actor) => actor.shootable).length;
     const pushWall = this.map.pushWall ? ` / pushwall ${this.map.pushWall.state}:${this.map.pushWall.pos}` : "";
-    return `${this.map.doors.length} doors (${movingDoors} active) / ${this.map.statics.length} statics / ${shootableActors}/${this.map.actors.length} live actors / ${this.map.projectiles.length} projectiles${pushWall}`;
+    return `${this.map.doors.length} doors (${movingDoors} active) / ${this.map.areasByPlayer.size} areas / ${this.map.statics.length} statics / ${shootableActors}/${this.map.actors.length} live actors / ${this.map.projectiles.length} projectiles${pushWall}`;
   }
 
   SetupGameLevel(level: number, wolfMap: WolfMap | null = null): void {
@@ -1520,6 +1534,8 @@ class WLGame {
 
       this.map = {
         actors: scan.actors,
+        areaConnectCounts: new Map(),
+        areasByPlayer: new Set(),
         blockingStaticKeys,
         doors,
         height: wolfMap.header.height,
@@ -1566,6 +1582,7 @@ class WLGame {
     this.gamestate.weaponframe = 0;
     this.gamestate.x = spawn.x;
     this.gamestate.y = spawn.y;
+    this.ConnectAreas();
   }
 
   PlayPlayerInput(id_in: IDIN, ticMs: number, tics: number, usePressed: boolean): boolean {
@@ -1629,6 +1646,7 @@ class WLGame {
     }
 
     this.gamestate.angle = normalizeAngle(this.gamestate.angle);
+    this.ConnectAreas();
     this.TryPickupBonusAt(Math.floor(this.gamestate.x), Math.floor(this.gamestate.y));
     this.gamestate.ticcount += 1;
     return moved;
@@ -2859,12 +2877,45 @@ class WLGame {
 
   private ActorAreaCanReachPlayer(actor: PortActor): boolean {
     const actorArea = this.AreaNumberAt(Math.floor(actor.x), Math.floor(actor.y));
-    const playerArea = this.AreaNumberAt(Math.floor(this.gamestate.x), Math.floor(this.gamestate.y));
-    if (actorArea !== null && playerArea !== null && actorArea === playerArea) {
+    if (actorArea !== null && this.map.areasByPlayer.has(actorArea)) {
       return true;
     }
 
     return this.CheckLineToActor(actor);
+  }
+
+  PlayerAreaNumber(): number | null {
+    return this.AreaNumberAt(Math.floor(this.gamestate.x), Math.floor(this.gamestate.y));
+  }
+
+  private ConnectAreas(): void {
+    this.map.areasByPlayer.clear();
+    const playerArea = this.PlayerAreaNumber();
+    if (playerArea === null) {
+      return;
+    }
+
+    this.map.areasByPlayer.add(playerArea);
+    const queue = [playerArea];
+    while (queue.length > 0) {
+      const area = queue.shift();
+      if (area === undefined) {
+        continue;
+      }
+
+      for (const [key, count] of this.map.areaConnectCounts.entries()) {
+        if (count <= 0) {
+          continue;
+        }
+
+        const [area1, area2] = parseAreaConnectionKey(key);
+        const nextArea = area1 === area ? area2 : area2 === area ? area1 : null;
+        if (nextArea !== null && !this.map.areasByPlayer.has(nextArea)) {
+          this.map.areasByPlayer.add(nextArea);
+          queue.push(nextArea);
+        }
+      }
+    }
   }
 
   private AreaNumberAt(tileX: number, tileY: number): number | null {
@@ -3323,6 +3374,10 @@ class WLGame {
   }
 
   private DoorOpening(door: PortDoor, tics: number): void {
+    if (door.position === 0) {
+      this.ChangeDoorAreaConnection(door, 1);
+    }
+
     door.position += tics << DOOR_POSITION_RATE_SHIFT;
     if (door.position >= DOOR_POSITION_MAX) {
       door.position = DOOR_POSITION_MAX;
@@ -3341,11 +3396,47 @@ class WLGame {
     if (door.position <= 0) {
       door.position = 0;
       door.action = "closed";
+      this.ChangeDoorAreaConnection(door, -1);
     }
   }
 
   private DoorAt(x: number, y: number): PortDoor | null {
     return this.map.doors.find((door) => door.x === x && door.y === y) ?? null;
+  }
+
+  private ChangeDoorAreaConnection(door: PortDoor, delta: 1 | -1): void {
+    // WL_ACT1.C increments areaconnect when doors start opening and decrements it when they shut.
+    const pair = this.DoorAreaPair(door);
+    if (!pair) {
+      return;
+    }
+
+    const key = areaConnectionKey(pair.area1, pair.area2);
+    const nextCount = (this.map.areaConnectCounts.get(key) ?? 0) + delta;
+    if (nextCount <= 0) {
+      this.map.areaConnectCounts.delete(key);
+    } else {
+      this.map.areaConnectCounts.set(key, nextCount);
+    }
+
+    this.ConnectAreas();
+  }
+
+  private DoorAreaPair(door: PortDoor): { area1: number; area2: number } | null {
+    const area1 = door.vertical
+      ? this.AreaNumberAt(door.x + 1, door.y)
+      : this.AreaNumberAt(door.x, door.y - 1);
+    const area2 = door.vertical
+      ? this.AreaNumberAt(door.x - 1, door.y)
+      : this.AreaNumberAt(door.x, door.y + 1);
+    if (area1 === null || area2 === null) {
+      return null;
+    }
+
+    return {
+      area1,
+      area2
+    };
   }
 
   private GetBonus(stat: PortStatic): boolean {
@@ -4413,6 +4504,8 @@ function createFallbackMap(): PortMap {
 
   return {
     actors: [],
+    areaConnectCounts: new Map(),
+    areasByPlayer: new Set(),
     blockingStaticKeys: new Set(),
     doors: [],
     height,
@@ -5396,6 +5489,17 @@ function pushWallRenderTile(pushWall: PortPushWall, tileX: number, tileY: number
 
   const delta = pushWallDelta(pushWall.dir);
   return tileX === pushWall.x + delta.dx && tileY === pushWall.y + delta.dy;
+}
+
+function areaConnectionKey(area1: number, area2: number): string {
+  const low = Math.min(area1, area2);
+  const high = Math.max(area1, area2);
+  return `${low},${high}`;
+}
+
+function parseAreaConnectionKey(key: string): [number, number] {
+  const [area1, area2] = key.split(",").map((part) => Number(part));
+  return [area1 ?? 0, area2 ?? 0];
 }
 
 function tileKey(x: number, y: number): string {
