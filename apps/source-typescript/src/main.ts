@@ -3845,8 +3845,9 @@ class WLGame {
     }
 
     const door = this.DoorAt(tileX, tileY);
-    if (door && door.action !== "open") {
-      return door.tile;
+    if (door) {
+      // WL_ACT1.C DoorOpening clears actorat when the door reaches dr_open.
+      return door.action === "open" ? 0 : door.tile;
     }
 
     return this.GetWallTile(tileX, tileY);
