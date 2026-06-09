@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Wolf3D DOS Loop</title>
+  </head>
+  <body>
+    <main id="app" class="shell">
+      <section class="viewport-area" aria-label="DOS viewport">
+        <div class="toolbar" aria-label="Runtime controls">
+          <button id="pause-toggle" class="icon-button" type="button" title="Pause" aria-label="Pause"></button>
+          <button id="step-frame" class="icon-button" type="button" title="Step frame" aria-label="Step frame"></button>
+          <button id="reset-scene" class="icon-button" type="button" title="Reset" aria-label="Reset"></button>
+          <button id="pointer-look" class="icon-button" type="button" title="Pointer look" aria-label="Pointer look"></button>
+        </div>
+        <canvas id="screen" width="320" height="200" tabindex="0" aria-label="Wolfenstein-style DOS loop canvas"></canvas>
+      </section>
+
+      <aside class="runtime-panel" aria-label="Runtime state">
+        <div class="panel-title">WOLF3D DOS LOOP</div>
+        <dl class="meter-grid">
+          <div>
+            <dt>TICS</dt>
+            <dd id="metric-tics">0</dd>
+          </div>
+          <div>
+            <dt>ANGLE</dt>
+            <dd id="metric-angle">0</dd>
+          </div>
+          <div>
+            <dt>TILE</dt>
+            <dd id="metric-tile">0,0</dd>
+          </div>
+          <div>
+            <dt>RAYS</dt>
+            <dd id="metric-rays">0</dd>
+          </div>
+        </dl>
+        <ol id="source-stack" class="source-stack"></ol>
+      </aside>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
