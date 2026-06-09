@@ -288,6 +288,10 @@ type DecodedTexturePage = {
 type PageKind = "sound" | "sprite" | "texture";
 type PaletteSource = "fallback" | "GAMEPAL.OBJ";
 type SourceSoundName =
+  | "ATKGATLINGSND"
+  | "ATKKNIFESND"
+  | "ATKMACHINEGUNSND"
+  | "ATKPISTOLSND"
   | "BONUS1SND"
   | "BONUS2SND"
   | "BONUS3SND"
@@ -429,6 +433,10 @@ const STRAFE_KEY_CODE = 18;
 const USE_KEY_CODE = 32;
 const GETGATLINGSND: SourceSoundName = "GETGATLINGSND";
 const SOURCE_SOUND_CHUNKS: Record<SourceSoundName, number> = {
+  ATKGATLINGSND: 11,
+  ATKKNIFESND: 23,
+  ATKMACHINEGUNSND: 26,
+  ATKPISTOLSND: 24,
   BONUS1SND: 35,
   BONUS2SND: 36,
   BONUS3SND: 37,
@@ -3662,6 +3670,11 @@ class WLGame {
       return;
     }
 
+    const attackSound = weaponAttackSound(this.gamestate.weapon);
+    if (attackSound) {
+      this.id_sd.SD_PlaySound(attackSound);
+    }
+
     this.gamestate.ammo -= 1;
     this.madeNoise = true;
     const target = this.TargetActorInCrosshair();
@@ -3687,6 +3700,7 @@ class WLGame {
   }
 
   private RunKnifeAttackFrame(): void {
+    this.id_sd.SD_PlaySound("ATKKNIFESND");
     const target = this.TargetActorInCrosshair();
     if (!target) {
       return;
@@ -6350,6 +6364,19 @@ function treasureScoreForBonus(item: string): number {
       return 5000;
     default:
       return 0;
+  }
+}
+
+function weaponAttackSound(weapon: number): SourceSoundName | null {
+  switch (weapon) {
+    case WP_PISTOL:
+      return "ATKPISTOLSND";
+    case WP_MACHINEGUN:
+      return "ATKMACHINEGUNSND";
+    case WP_CHAINGUN:
+      return "ATKGATLINGSND";
+    default:
+      return null;
   }
 }
 
