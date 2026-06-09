@@ -62,6 +62,7 @@ type PortDoor = {
   index: number;
   lock: number;
   position: number;
+  ticcount: number;
   tile: number;
   vertical: boolean;
   x: number;
@@ -120,9 +121,13 @@ const KEY_CODES: Record<string, number> = {
 
 const DEMO_DEFAULT_HOLD_MS = 90;
 const AREATILE = 107;
+const DOOR_POSITION_MAX = 0xffff;
+const DOOR_POSITION_RATE_SHIFT = 10;
+const OPENTICS = 300;
 const PUSHABLETILE = 98;
 const SCREEN_WIDTH = 320;
 const SCREEN_HEIGHT = 200;
+const USE_KEY_CODE = 32;
 const STATIC_INFO_TYPES = [
   "dressing",
   "block",
@@ -375,22 +380,34 @@ class WLMain {
     );
   }
 
+  StateSnapshot(): Record<string, unknown> {
+    return {
+      audioSamples: this.id_sd.sampleCount,
+      game: this.wl_game.gamestate,
+      map: this.wl_game.mapMetadata,
+      doors: this.wl_game.map.doors.map((door) => ({
+        action: door.action,
+        index: door.index,
+        lock: door.lock,
+        position: door.position,
+        tile: door.tile,
+        vertical: door.vertical,
+        x: door.x,
+        y: door.y
+      })),
+      objects: {
+        actors: this.wl_game.map.actors.length,
+        blockingStatics: this.wl_game.map.blockingStaticKeys.size,
+        doors: this.wl_game.map.doors.length,
+        statics: this.wl_game.map.statics.length
+      },
+      runner: "source-typescript",
+      ticcount: this.wl_game.gamestate.ticcount
+    };
+  }
+
   async ExportState(label: string, autoDownload = true): Promise<void> {
-    const bytes = encodeText(
-      JSON.stringify({
-        audioSamples: this.id_sd.sampleCount,
-        game: this.wl_game.gamestate,
-        map: this.wl_game.mapMetadata,
-        objects: {
-          actors: this.wl_game.map.actors.length,
-          blockingStatics: this.wl_game.map.blockingStaticKeys.size,
-          doors: this.wl_game.map.doors.length,
-          statics: this.wl_game.map.statics.length
-        },
-        runner: "source-typescript",
-        ticcount: this.wl_game.gamestate.ticcount
-      })
-    );
+    const bytes = encodeText(JSON.stringify(this.StateSnapshot()));
     this.RegisterArtifact(
       new Blob([new Uint8Array(bytes)], {
         type: "application/octet-stream"
@@ -487,7 +504,13 @@ class WLPlay {
   ) {}
 
   PlayLoop(ticMs: number): void {
+    const tics = ticsFromMilliseconds(ticMs);
+    if (this.id_in.ConsumeUse()) {
+      this.wl_game.Cmd_Use();
+    }
+
     const moved = this.wl_game.ControlMovement(this.id_in, ticMs);
+    this.wl_game.MoveDoors(tics);
     this.wl_draw.ThreeDRefresh(this.wl_game);
     this.id_sd.SD_Service(moved, ticMs);
   }
@@ -518,7 +541,8 @@ class WLGame {
   }
 
   get objectMetadata(): string {
-    return `${this.map.doors.length} doors / ${this.map.statics.length} statics / ${this.map.actors.length} actors`;
+    const movingDoors = this.map.doors.filter((door) => door.action !== "closed").length;
+    return `${this.map.doors.length} doors (${movingDoors} active) / ${this.map.statics.length} statics / ${this.map.actors.length} actors`;
   }
 
   SetupGameLevel(level: number, wolfMap: WolfMap | null = null): void {
@@ -610,6 +634,67 @@ class WLGame {
     return moved;
   }
 
+  Cmd_Use(): boolean {
+    const target = this.UseTarget();
+    const door = this.DoorAt(target.x, target.y);
+    if (door) {
+      this.OperateDoor(door.index);
+      return true;
+    }
+
+    if ((this.map.objects[target.y * this.map.width + target.x] ?? 0) === PUSHABLETILE) {
+      this.gamestate.secrettotal = Math.max(this.gamestate.secrettotal, this.map.secretTotal);
+      return false;
+    }
+
+    return false;
+  }
+
+  MoveDoors(tics: number): void {
+    for (const door of this.map.doors) {
+      if (door.action === "open") {
+        this.DoorOpen(door, tics);
+      } else if (door.action === "opening") {
+        this.DoorOpening(door, tics);
+      } else if (door.action === "closing") {
+        this.DoorClosing(door, tics);
+      }
+    }
+  }
+
+  OperateDoor(index: number): void {
+    const door = this.map.doors[index];
+    if (!door) {
+      return;
+    }
+
+    if (door.lock > 0 && door.lock < 5) {
+      return;
+    }
+
+    if (door.action === "closed" || door.action === "closing") {
+      this.OpenDoor(door);
+    } else if (door.action === "open" || door.action === "opening") {
+      this.CloseDoor(door);
+    }
+  }
+
+  OpenDoor(door: PortDoor): void {
+    if (door.action === "open") {
+      door.ticcount = 0;
+    } else {
+      door.action = "opening";
+    }
+  }
+
+  CloseDoor(door: PortDoor): void {
+    if (this.PlayerIntersectsDoor(door)) {
+      return;
+    }
+
+    door.action = "closing";
+  }
+
   IsWall(x: number, y: number): boolean {
     const tileX = Math.floor(x);
     const tileY = Math.floor(y);
@@ -623,7 +708,85 @@ class WLGame {
       return 1;
     }
 
+    const door = this.DoorAt(tileX, tileY);
+    if (door && door.action !== "open") {
+      return door.tile;
+    }
+
     return collisionTile(this.map.walls[tileY * this.map.width + tileX] ?? 1);
+  }
+
+  private DoorOpen(door: PortDoor, tics: number): void {
+    door.ticcount += tics;
+    if (door.ticcount >= OPENTICS) {
+      this.CloseDoor(door);
+    }
+  }
+
+  private DoorOpening(door: PortDoor, tics: number): void {
+    door.position += tics << DOOR_POSITION_RATE_SHIFT;
+    if (door.position >= DOOR_POSITION_MAX) {
+      door.position = DOOR_POSITION_MAX;
+      door.ticcount = 0;
+      door.action = "open";
+    }
+  }
+
+  private DoorClosing(door: PortDoor, tics: number): void {
+    if (this.PlayerIntersectsDoor(door)) {
+      this.OpenDoor(door);
+      return;
+    }
+
+    door.position -= tics << DOOR_POSITION_RATE_SHIFT;
+    if (door.position <= 0) {
+      door.position = 0;
+      door.action = "closed";
+    }
+  }
+
+  private DoorAt(x: number, y: number): PortDoor | null {
+    return this.map.doors.find((door) => door.x === x && door.y === y) ?? null;
+  }
+
+  private PlayerIntersectsDoor(door: PortDoor): boolean {
+    return Math.floor(this.gamestate.x) === door.x && Math.floor(this.gamestate.y) === door.y;
+  }
+
+  private UseTarget(): { dir: "east" | "north" | "south" | "west"; x: number; y: number } {
+    const angle = normalizeAngle(this.gamestate.angle);
+    const tileX = Math.floor(this.gamestate.x);
+    const tileY = Math.floor(this.gamestate.y);
+
+    if (angle < Math.PI / 4 || angle > (Math.PI * 7) / 4) {
+      return {
+        dir: "east",
+        x: tileX + 1,
+        y: tileY
+      };
+    }
+
+    if (angle < (Math.PI * 3) / 4) {
+      return {
+        dir: "north",
+        x: tileX,
+        y: tileY - 1
+      };
+    }
+
+    if (angle < (Math.PI * 5) / 4) {
+      return {
+        dir: "west",
+        x: tileX - 1,
+        y: tileY
+      };
+    }
+
+    return {
+      dir: "south",
+      x: tileX,
+      y: tileY + 1
+    };
   }
 }
 
@@ -808,12 +971,23 @@ class IDCA {
 
 class IDIN {
   private readonly keys = new Set<number>();
+  private pendingUse = false;
 
   IN_KeyDown(keyCode: number): boolean {
     return this.keys.has(keyCode);
   }
 
+  ConsumeUse(): boolean {
+    const use = this.pendingUse;
+    this.pendingUse = false;
+    return use;
+  }
+
   KeyDown(keyCode: number): void {
+    if (keyCode === USE_KEY_CODE && !this.keys.has(keyCode)) {
+      this.pendingUse = true;
+    }
+
     this.keys.add(keyCode);
   }
 
@@ -841,15 +1015,19 @@ function startSourceTypescriptApp(): void {
       exportPng: () => Promise<void>;
       exportState: () => Promise<void>;
       exportWav: () => Promise<void>;
+      operateDoor: (index?: number) => void;
       reset: () => void;
       runDemo: () => Promise<void>;
+      state: () => Record<string, unknown>;
     };
   }).wolf3dTypeScriptHarness = {
     exportPng: () => wlMain.ExportPng("harness", false),
     exportState: () => wlMain.ExportState("harness", false),
     exportWav: () => wlMain.ExportWav("harness", false),
+    operateDoor: (index = 0) => wlMain.wl_game.OperateDoor(index),
     reset: () => wlMain.ResetGame(),
-    runDemo: () => wlMain.RunDemoPlan()
+    runDemo: () => wlMain.RunDemoPlan(),
+    state: () => wlMain.StateSnapshot()
   };
 
   buttonReset.addEventListener("click", () => {
@@ -977,6 +1155,7 @@ function scanWallPlaneForDoors(map: WolfMap): PortDoor[] {
         index: doors.length,
         lock: vertical ? (tile - 90) / 2 : (tile - 91) / 2,
         position: 0,
+        ticcount: 0,
         tile,
         vertical,
         x,
@@ -1354,6 +1533,10 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => {
     window.setTimeout(resolve, milliseconds);
   });
+}
+
+function ticsFromMilliseconds(milliseconds: number): number {
+  return Math.max(1, Math.round((milliseconds * 70) / 1000));
 }
 
 function normalizeAngle(angle: number): number {
