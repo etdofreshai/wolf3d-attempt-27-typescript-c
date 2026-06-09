@@ -297,12 +297,15 @@ type SourceSoundName =
   | "BONUS3SND"
   | "BONUS4SND"
   | "BONUS1UPSND"
+  | "BOSSFIRESND"
   | "CLOSEDOORSND"
   | "DIESND"
   | "DONOTHINGSND"
   | "DOGBARKSND"
+  | "DOGATTACKSND"
   | "EINESND"
   | "ERLAUBENSND"
+  | "FLAMETHROWERSND"
   | "GETAMMOSND"
   | "GETGATLINGSND"
   | "GETKEYSND"
@@ -314,14 +317,19 @@ type SourceSoundName =
   | "HEALTH2SND"
   | "KEINSND"
   | "LEVELDONESND"
+  | "MISSILEFIRESND"
+  | "NAZIFIRESND"
   | "NOWAYSND"
   | "OPENDOORSND"
   | "PUSHWALLSND"
   | "SCHABBSHASND"
+  | "SCHABBSTHROWSND"
   | "SCHUTZADSND"
   | "SLURPIESND"
   | "SPIONSND"
-  | "TOT_HUNDSND";
+  | "SSFIRESND"
+  | "TOT_HUNDSND"
+  | "YEAHSND";
 
 type PageInfo = {
   index: number;
@@ -460,12 +468,15 @@ const SOURCE_SOUND_CHUNKS: Record<SourceSoundName, number> = {
   BONUS3SND: 37,
   BONUS4SND: 45,
   BONUS1UPSND: 44,
+  BOSSFIRESND: 59,
   CLOSEDOORSND: 19,
   DIESND: 53,
   DONOTHINGSND: 20,
   DOGBARKSND: 41,
+  DOGATTACKSND: 68,
   EINESND: 80,
   ERLAUBENSND: 81,
+  FLAMETHROWERSND: 69,
   GETAMMOSND: 31,
   GETGATLINGSND: 38,
   GETKEYSND: 12,
@@ -477,14 +488,19 @@ const SOURCE_SOUND_CHUNKS: Record<SourceSoundName, number> = {
   HEALTH2SND: 34,
   KEINSND: 82,
   LEVELDONESND: 40,
+  MISSILEFIRESND: 85,
+  NAZIFIRESND: 58,
   NOWAYSND: 6,
   OPENDOORSND: 18,
   PUSHWALLSND: 46,
   SCHABBSHASND: 64,
+  SCHABBSTHROWSND: 8,
   SCHUTZADSND: 51,
   SLURPIESND: 61,
   SPIONSND: 66,
-  TOT_HUNDSND: 62
+  SSFIRESND: 60,
+  TOT_HUNDSND: 62,
+  YEAHSND: 72
 };
 const WP_KNIFE = 0;
 const WP_PISTOL = 1;
@@ -3184,7 +3200,7 @@ class WLGame {
   }
 
   private T_BJYell(): void {
-    // Audio parity will route YEAHSND through the source sound tables in a later slice.
+    this.id_sd.SD_PlaySound("YEAHSND");
   }
 
   private T_BJDone(): void {
@@ -4044,23 +4060,24 @@ class WLGame {
       this.thrustSpeed >= RUNSPEED
         ? 160 - dist * (playerCanSeeToDodge ? 16 : 8)
         : 256 - dist * (playerCanSeeToDodge ? 16 : 8);
-    if (this.US_RndT() >= hitChance) {
-      return;
+    if (this.US_RndT() < hitChance) {
+      let damage: number;
+      if (dist < 2) {
+        damage = this.US_RndT() >> 2;
+      } else if (dist < 4) {
+        damage = this.US_RndT() >> 3;
+      } else {
+        damage = this.US_RndT() >> 4;
+      }
+
+      this.TakeDamage(damage, actor);
     }
 
-    let damage: number;
-    if (dist < 2) {
-      damage = this.US_RndT() >> 2;
-    } else if (dist < 4) {
-      damage = this.US_RndT() >> 3;
-    } else {
-      damage = this.US_RndT() >> 4;
-    }
-
-    this.TakeDamage(damage, actor);
+    this.id_sd.SD_PlaySound(actorShootSound(actor.kind));
   }
 
   private T_Bite(actor: PortActor): void {
+    this.id_sd.SD_PlaySound("DOGATTACKSND");
     if (this.ActorCanBite(actor) && this.US_RndT() < 180) {
       this.TakeDamage(this.US_RndT() >> 4, actor);
     }
@@ -4068,14 +4085,17 @@ class WLGame {
 
   private T_SchabbThrow(actor: PortActor): void {
     this.SpawnProjectile("needle", actor, 0x2000);
+    this.id_sd.SD_PlaySound("SCHABBSTHROWSND");
   }
 
   private T_GiftThrow(actor: PortActor): void {
     this.SpawnProjectile("rocket", actor, 0x2000);
+    this.id_sd.SD_PlaySound("MISSILEFIRESND");
   }
 
   private T_FakeFire(actor: PortActor): void {
     this.SpawnProjectile("fire", actor, 0x1200);
+    this.id_sd.SD_PlaySound("FLAMETHROWERSND");
   }
 
   private SpawnProjectile(kind: ProjectileKind, actor: PortActor, speed: number): void {
@@ -6478,6 +6498,24 @@ function actorSightSound(kind: string): SourceSoundName | null {
       return "SCHUTZADSND";
     default:
       return null;
+  }
+}
+
+function actorShootSound(kind: string): SourceSoundName {
+  switch (kind) {
+    case "fat":
+    case "gift":
+      return "MISSILEFIRESND";
+    case "boss":
+    case "hitler":
+    case "real_hitler":
+      return "BOSSFIRESND";
+    case "schabbs":
+      return "SCHABBSTHROWSND";
+    case "ss":
+      return "SSFIRESND";
+    default:
+      return "NAZIFIRESND";
   }
 }
 
