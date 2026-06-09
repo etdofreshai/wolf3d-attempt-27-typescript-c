@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
 const sourceHeaderPath = path.join(repoRoot, "source", "WOLFSRC", "WL_DEF.H");
+const sourceAct1Path = path.join(repoRoot, "source", "WOLFSRC", "WL_ACT1.C");
 const sourcePath = path.join(repoRoot, "source", "WOLFSRC", "WL_ACT2.C");
 const typescriptPath = path.join(repoRoot, "apps", "source-typescript", "src", "main.ts");
 
@@ -49,15 +50,19 @@ const DIGITIZED_BOSS_DEATH_TICS = new Map([
   ["s_schabbdie2", 140]
 ]);
 
-const [sourceHeaderText, sourceText, typescriptText] = await Promise.all([
+const [sourceHeaderText, sourceAct1Text, sourceText, typescriptText] = await Promise.all([
   readFile(sourceHeaderPath, "utf8"),
+  readFile(sourceAct1Path, "utf8"),
   readFile(sourcePath, "utf8"),
   readFile(typescriptPath, "utf8")
 ]);
 
 const sourceSprites = parseSourceSprites(sourceHeaderText);
+const sourceStaticInfo = parseSourceStaticInfo(sourceAct1Text, sourceSprites);
 const sourceStates = parseSourceStates(sourceText, sourceSprites);
 const constants = parseNumericConstants(typescriptText);
+const typescriptStaticInfo = parseTypescriptStaticInfo(typescriptText);
+const typescriptDroppedItemTypes = parseTypescriptDroppedItemTypes(typescriptText);
 const typescriptSprites = parseTypescriptSprites(typescriptText);
 const modeledFrames = parseModeledFrames(typescriptText, constants, typescriptSprites);
 const problems = [];
@@ -86,8 +91,11 @@ for (const frame of modeledFrames.values()) {
   }
 }
 
+compareStaticInfo(sourceStaticInfo, typescriptStaticInfo, problems);
+compareDroppedItemTypes(sourceStaticInfo, typescriptDroppedItemTypes, problems);
+
 if (problems.length > 0) {
-  console.error(`source-typescript state verifier failed with ${problems.length} mismatch(es):`);
+  console.error(`source-typescript source verifier failed with ${problems.length} mismatch(es):`);
   for (const problem of problems.slice(0, 80)) {
     console.error(`- ${problem}`);
   }
@@ -100,7 +108,7 @@ if (problems.length > 0) {
 }
 
 console.log(
-  `source-typescript state verifier: ${modeledFrames.size} modeled WL_ACT2.C frames match source shapenums/tics/actions/thinks.`
+  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames and ${sourceStaticInfo.length} WL_ACT1.C statinfo entries match source.`
 );
 
 function parseSourceStates(text, sprites) {
@@ -211,6 +219,63 @@ function parseSourceSprites(text) {
   return sprites;
 }
 
+function parseSourceStaticInfo(text, sprites) {
+  const activeText = filterWl6Source(text);
+  const start = activeText.indexOf("statinfo[]");
+  if (start < 0) {
+    throw new Error("Could not find statinfo[] in WL_ACT1.C");
+  }
+
+  const end = activeText.indexOf("{-1}", start);
+  if (end < 0) {
+    throw new Error("Could not find statinfo[] terminator in WL_ACT1.C");
+  }
+
+  const entries = [];
+  const entryPattern = /\{\s*(SPR_STAT_[0-9]+)\s*(?:,\s*([A-Za-z0-9_]+))?\s*\}/g;
+  for (const match of activeText.slice(start, end).matchAll(entryPattern)) {
+    entries.push({
+      shapenum: resolveSourceShape(match[1], sprites),
+      type: match[2] ?? "dressing"
+    });
+  }
+
+  return entries;
+}
+
+function parseTypescriptStaticInfo(text) {
+  const staticTypesMatch = text.match(/const STATIC_INFO_TYPES = \[(?<body>[\s\S]*?)\] as const;/);
+  if (!staticTypesMatch?.groups?.body) {
+    throw new Error("Could not find STATIC_INFO_TYPES in source-typescript main.ts");
+  }
+
+  const types = [...staticTypesMatch.groups.body.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+  const clip2Shape = Number(text.match(/if \(item === "bo_clip2"\) \{\s*return ([0-9]+);/m)?.[1]);
+  const defaultOffset = Number(text.match(/return type \+ ([0-9]+);/m)?.[1]);
+  if (!Number.isFinite(clip2Shape) || !Number.isFinite(defaultOffset)) {
+    throw new Error("Could not parse statShapenumForType in source-typescript main.ts");
+  }
+
+  return types.map((type, index) => ({
+    shapenum: type === "bo_clip2" ? clip2Shape : index + defaultOffset,
+    type
+  }));
+}
+
+function parseTypescriptDroppedItemTypes(text) {
+  const objectMatch = text.match(/const DROPPED_ITEM_TYPES = \{(?<body>[\s\S]*?)\} as const;/);
+  if (!objectMatch?.groups?.body) {
+    throw new Error("Could not find DROPPED_ITEM_TYPES in source-typescript main.ts");
+  }
+
+  const entries = new Map();
+  for (const match of objectMatch.groups.body.matchAll(/\b(bo_[A-Za-z0-9_]+):\s*([0-9]+)/g)) {
+    entries.set(match[1], Number(match[2]));
+  }
+
+  return entries;
+}
+
 function parseTypescriptSprites(text) {
   const objectMatch = text.match(/const ACTOR_SPRITES = \{(?<body>[\s\S]*?)\} as const;/);
   if (!objectMatch?.groups?.body) {
@@ -224,6 +289,39 @@ function parseTypescriptSprites(text) {
   }
 
   return sprites;
+}
+
+function compareStaticInfo(sourceEntries, typescriptEntries, problems) {
+  if (sourceEntries.length !== typescriptEntries.length) {
+    problems.push(`statinfo length ${typescriptEntries.length} != source ${sourceEntries.length}`);
+  }
+
+  const count = Math.min(sourceEntries.length, typescriptEntries.length);
+  for (let index = 0; index < count; index += 1) {
+    const source = sourceEntries[index];
+    const current = typescriptEntries[index];
+    if (current.type !== source.type) {
+      problems.push(`statinfo[${index}]: type ${current.type} != source ${source.type}`);
+    }
+
+    if (current.shapenum !== source.shapenum) {
+      problems.push(`statinfo[${index}]: shapenum ${current.shapenum} != source ${source.shapenum}`);
+    }
+  }
+}
+
+function compareDroppedItemTypes(sourceEntries, typescriptEntries, problems) {
+  for (const [item, typeIndex] of typescriptEntries.entries()) {
+    const sourceIndex = sourceEntries.findIndex((entry) => entry.type === item);
+    if (sourceIndex < 0) {
+      problems.push(`DROPPED_ITEM_TYPES.${item}: missing from source statinfo[]`);
+      continue;
+    }
+
+    if (typeIndex !== sourceIndex) {
+      problems.push(`DROPPED_ITEM_TYPES.${item}: type ${typeIndex} != source first type ${sourceIndex}`);
+    }
+  }
 }
 
 function parseNumericConstants(text) {
