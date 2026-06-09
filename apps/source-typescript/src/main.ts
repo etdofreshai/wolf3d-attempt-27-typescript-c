@@ -4182,7 +4182,10 @@ class WLGame {
     const targetY = actor.y + 0.5;
     const dx = targetX - this.gamestate.x;
     const dy = targetY - this.gamestate.y;
-    const steps = Math.max(1, Math.ceil(Math.hypot(dx, dy) * 16));
+    const distance = Math.hypot(dx, dy);
+    const steps = Math.max(1, Math.ceil(distance * 16));
+    const dirX = distance === 0 ? 0 : dx / distance;
+    const dirY = distance === 0 ? 0 : dy / distance;
 
     for (let i = 1; i < steps; i += 1) {
       const t = i / steps;
@@ -4194,12 +4197,67 @@ class WLGame {
         continue;
       }
 
+      const door = this.DoorAt(tileX, tileY);
+      if (door) {
+        if (this.DoorBlocksLine(door, this.gamestate.x, this.gamestate.y, dirX, dirY, distance)) {
+          return false;
+        }
+
+        continue;
+      }
+
       if (this.GetTile(x, y) !== 0) {
         return false;
       }
     }
 
     return true;
+  }
+
+  private DoorBlocksLine(
+    door: PortDoor,
+    originX: number,
+    originY: number,
+    dirX: number,
+    dirY: number,
+    maxDistance: number
+  ): boolean {
+    // WL_STATE.C CheckLine compares a 1/256-tile absolute sight intercept against doorposition.
+    if (door.action === "open") {
+      return false;
+    }
+
+    if (door.vertical) {
+      if (Math.abs(dirX) < 0.0001) {
+        return false;
+      }
+
+      const hitDistance = (door.x + 0.5 - originX) / dirX;
+      const localY = originY + dirY * hitDistance - door.y;
+      const intercept = Math.trunc((originY + dirY * hitDistance) * 256);
+      return (
+        hitDistance >= 0 &&
+        hitDistance <= maxDistance &&
+        localY >= 0 &&
+        localY < 1 &&
+        intercept > door.position
+      );
+    }
+
+    if (Math.abs(dirY) < 0.0001) {
+      return false;
+    }
+
+    const hitDistance = (door.y + 0.5 - originY) / dirY;
+    const localX = originX + dirX * hitDistance - door.x;
+    const intercept = Math.trunc((originX + dirX * hitDistance) * 256);
+    return (
+      hitDistance >= 0 &&
+      hitDistance <= maxDistance &&
+      localX >= 0 &&
+      localX < 1 &&
+      intercept > door.position
+    );
   }
 
   private ActorTileDistance(actor: PortActor): number {
