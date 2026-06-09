@@ -346,6 +346,7 @@ type SourceSoundName =
   | "NEINSOVASSND"
   | "NOWAYSND"
   | "OPENDOORSND"
+  | "PLAYERDEATHSND"
   | "PUSHWALLSND"
   | "ROSESND"
   | "SCHABBSHASND"
@@ -544,6 +545,7 @@ const SOURCE_SOUND_CHUNKS: Record<SourceSoundName, number> = {
   NEINSOVASSND: 67,
   NOWAYSND: 6,
   OPENDOORSND: 18,
+  PLAYERDEATHSND: 9,
   PUSHWALLSND: 46,
   ROSESND: 84,
   SCHABBSHASND: 64,
@@ -2561,6 +2563,7 @@ class WLGame {
 
     // WL_GAME.C Died() removes the weapon during the death view, then spends a life.
     this.gamestate.weapon = -1;
+    this.id_sd.SD_PlaySound("PLAYERDEATHSND");
     this.gamestate.lives -= 1;
 
     if (this.gamestate.lives > -1) {
