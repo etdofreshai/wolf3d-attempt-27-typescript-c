@@ -6836,6 +6836,7 @@ function bossInitialDirection(kind: string): number {
       return 6;
     case "gift":
     case "gretel":
+    case "fake_hitler":
       return 2;
     default:
       return NODIR;
