@@ -4790,8 +4790,8 @@ class WLGame {
   }
 
   private PlaceKillDrop(actor: PortActor): void {
-    const tileX = Math.floor(actor.x);
-    const tileY = Math.floor(actor.y);
+    const tileX = Math.floor(actor.x + 0.5);
+    const tileY = Math.floor(actor.y + 0.5);
     switch (actor.kind) {
       case "guard":
       case "mutant":
