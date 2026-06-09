@@ -1,8 +1,72 @@
-# wolf3d-template
+# wolf3d-attempt-27-typescript-c
 
-A clean repository template for original-source-only Wolfenstein 3D porting work.
+TypeScript-first Wolfenstein 3D porting experiments that keep the original DOS
+source and retail data boundaries explicit.
 
-This repo intentionally contains **no proprietary game assets** and **no copied engine/source-release files**. It only defines the folder layout expected by downstream Wolfenstein 3D porting projects.
+## Current slice
+
+The first app lives in `apps/dos-page`. Its first screen boots the original DOS
+executable and repo-local WL6 data through a browser DOSBox/WASM layer. This
+runs the original DOS program/data path in the browser; it is not yet a
+source-to-WASM build of the released C/ASM source tree.
+
+The same app also keeps a TypeScript source-probe page with a 320x200 raycast
+canvas, fixed-tic movement, procedural wall shading, and a browser-local WL6 map
+loader.
+
+The loader accepts `MAPHEAD.WL6` and `GAMEMAPS.WL6` through file inputs and
+keeps those bytes in memory only. It follows the original `ID_CA` path:
+
+- read the MAPHEAD RLEW tag and map-header offsets
+- read each `maptype` header from GAMEMAPS
+- Carmack-expand the compressed plane chunk
+- skip the RLEW length word produced by the Carmack-expanded chunk
+- RLEW-expand planes 0 and 1 into the 64x64 DOS map buffers
+
+Run it locally:
+
+```powershell
+npm install
+npm run dev
+```
+
+Then open the printed Vite URL and select your local WL6 map files.
+
+During `npm run dev`, the page also exposes a `Local WL6` button when
+`steam/base/MAPHEAD.WL6` and `steam/base/GAMEMAPS.WL6` exist locally. That
+development endpoint is not part of the production bundle.
+
+The original DOS runner expects these local files under `steam/base`:
+
+- `WOLF3D.EXE`
+- `AUDIOHED.WL6`
+- `AUDIOT.WL6`
+- `CONFIG.WL6`
+- `GAMEMAPS.WL6`
+- `MAPHEAD.WL6`
+- `VGADICT.WL6`
+- `VGAGRAPH.WL6`
+- `VGAHEAD.WL6`
+- `VSWAP.WL6`
+
+## Source-to-WASM boundary
+
+Running the released source directly as WebAssembly is a separate porting track.
+The source tree is Borland/Turbo C-era DOS code with segmented pointer
+qualifiers, inline x86 assembly, direct VGA and sound-card port I/O, BIOS/DOS
+interrupts, and standalone `.ASM` modules. Those pieces need browser host
+replacements before the original `WL_MAIN.C`/`GameLoop` path can compile to
+WASM.
+
+Validation:
+
+```powershell
+npm run check
+npm run build
+```
+
+This repo is intended to contain **no proprietary game assets** in new tracked
+work. The local `steam/` folder is runtime input only.
 
 ## Folder layout
 

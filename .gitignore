@@ -13,5 +13,7 @@ secrets/
 /build/
 .cmake/
 .cache/
+node_modules/
+apps/*/dist/
 .DS_Store
 *.log
