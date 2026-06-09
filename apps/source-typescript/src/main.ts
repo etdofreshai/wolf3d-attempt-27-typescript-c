@@ -485,6 +485,7 @@ const SOURCE_DIGITIZED_BOSS_DEATH_TICS = 140;
 const SOURCE_LEVEL_RATIO_COUNT = 8;
 const SOURCE_MAX_CONTROL = 100;
 const SOURCE_MAX_STATS = 400;
+const SOURCE_FREE_STAT_SHAPENUM = -1;
 const SOURCE_MINDIST = 0x5800;
 const SOURCE_PAR_AMOUNT = 500;
 const SOURCE_PERCENT_100_BONUS = 10000;
@@ -4808,7 +4809,7 @@ class WLGame {
   private PlaceItemType(item: keyof typeof DROPPED_ITEM_TYPES, x: number, y: number): void {
     const type = DROPPED_ITEM_TYPES[item];
     const stat = staticFromStaticType(type, x, y);
-    const freeIndex = this.map.statics.findIndex((candidate) => candidate.collected);
+    const freeIndex = this.map.statics.findIndex((candidate) => candidate.shapenum === SOURCE_FREE_STAT_SHAPENUM);
     if (freeIndex >= 0) {
       this.map.statics[freeIndex] = stat;
       return;
@@ -5249,6 +5250,7 @@ class WLGame {
     }
 
     stat.collected = true;
+    stat.shapenum = SOURCE_FREE_STAT_SHAPENUM;
     this.StartBonusFlash();
     return true;
   }
