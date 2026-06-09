@@ -143,6 +143,9 @@ npm run check
 npm run build
 ```
 
+`npm run check` also verifies the modeled `apps/source-typescript` actor and
+projectile state-frame tics/actions/thinks against `source/WOLFSRC/WL_ACT2.C`.
+
 This repo is intended to contain **no proprietary game assets** in new tracked
 work. The local `steam/` folder is runtime input only.
 

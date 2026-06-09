@@ -1071,7 +1071,7 @@ const ACTOR_ATTACK_STATES: Record<string, ActorStateFrame[]> = {
     { action: "shoot", name: "s_mechashoot3", shapenum: ACTOR_SPRITES.MECHA_SHOOT3, tics: 10 },
     { action: "shoot", name: "s_mechashoot4", shapenum: ACTOR_SPRITES.MECHA_SHOOT2, tics: 10 },
     { action: "shoot", name: "s_mechashoot5", shapenum: ACTOR_SPRITES.MECHA_SHOOT3, tics: 10 },
-    { name: "s_mechashoot6", nextMode: "chase", shapenum: ACTOR_SPRITES.MECHA_SHOOT2, tics: 10 }
+    { action: "shoot", name: "s_mechashoot6", nextMode: "chase", shapenum: ACTOR_SPRITES.MECHA_SHOOT2, tics: 10 }
   ],
   mutant: [
     { action: "shoot", name: "s_mutshoot1", shapenum: ACTOR_SPRITES.MUT_SHOOT1, tics: 6 },
@@ -1090,7 +1090,7 @@ const ACTOR_ATTACK_STATES: Record<string, ActorStateFrame[]> = {
     { action: "shoot", name: "s_hitlershoot3", shapenum: ACTOR_SPRITES.HITLER_SHOOT3, tics: 10 },
     { action: "shoot", name: "s_hitlershoot4", shapenum: ACTOR_SPRITES.HITLER_SHOOT2, tics: 10 },
     { action: "shoot", name: "s_hitlershoot5", shapenum: ACTOR_SPRITES.HITLER_SHOOT3, tics: 10 },
-    { name: "s_hitlershoot6", nextMode: "chase", shapenum: ACTOR_SPRITES.HITLER_SHOOT2, tics: 10 }
+    { action: "shoot", name: "s_hitlershoot6", nextMode: "chase", shapenum: ACTOR_SPRITES.HITLER_SHOOT2, tics: 10 }
   ],
   schabbs: [
     { name: "s_schabbshoot1", shapenum: ACTOR_SPRITES.SCHABB_SHOOT1, tics: 30 },

@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -p tsconfig.json --noEmit && vite build",
-    "check": "tsc -p tsconfig.json --noEmit",
+    "check": "tsc -p tsconfig.json --noEmit && node ../../scripts/verify-source-typescript-states.mjs",
     "preview": "vite preview --host 127.0.0.1"
   },
   "devDependencies": {
