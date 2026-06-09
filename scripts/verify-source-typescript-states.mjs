@@ -128,12 +128,15 @@ const sourceWeaponIndexes = parseSourceWeaponIndexes(sourceHeaderText);
 const sourceEnemyIndexes = parseSourceEnemyIndexes(sourceHeaderText);
 const sourceDefines = parseSourceNumericDefines(sourceHeaderText);
 const sourceAct1Defines = parseSourceNumericDefines(sourceAct1Text);
+const sourceAgentDefines = parseSourceNumericDefines(sourceAgentText);
+const sourceMovementDefines = mergeNumberMaps(sourceDefines, sourceAgentDefines);
 const sourceWeaponReadySprites = parseSourceWeaponReadySprites(sourceDrawText, sourceSprites);
 const sourceStaticInfo = parseSourceStaticInfo(sourceAct1Text, sourceSprites);
 const sourceDoorPushwallContracts = parseSourceDoorPushwallContracts(sourceAct1Text, sourceAct1Defines);
 const sourceAttackInfo = parseSourceAttackInfo(sourceAgentText);
 const sourcePlayerAttackContracts = parseSourcePlayerAttackContracts(sourceAgentText);
 const sourcePlayerCommandContracts = parseSourcePlayerCommandContracts(sourceAgentText);
+const sourcePlayerMovementContracts = parseSourcePlayerMovementContracts(sourceAgentText, sourceMovementDefines);
 const sourceAgentHelperContracts = parseSourceAgentHelperContracts(sourceAgentText, sourceDefines);
 const sourceStartHitpoints = parseSourceStartHitpoints(sourceText);
 const sourceRealHitlerHitpoints = parseSourceRealHitlerHitpoints(sourceText);
@@ -164,6 +167,7 @@ const typescriptDoorPushwallContracts = parseTypescriptDoorPushwallContracts(typ
 const typescriptAttackInfo = parseTypescriptAttackInfo(typescriptText);
 const typescriptPlayerAttackContracts = parseTypescriptPlayerAttackContracts(typescriptText, constants, stringConstants);
 const typescriptPlayerCommandContracts = parseTypescriptPlayerCommandContracts(typescriptText, stringConstants);
+const typescriptPlayerMovementContracts = parseTypescriptPlayerMovementContracts(typescriptText, constants, stringConstants);
 const typescriptAgentHelperContracts = parseTypescriptAgentHelperContracts(typescriptText, constants, stringConstants);
 const typescriptStartHitpoints = parseTypescriptStartHitpoints(typescriptText);
 const typescriptRealHitlerHitpoints = parseTypescriptRealHitlerHitpoints(typescriptText);
@@ -212,6 +216,7 @@ compareWeaponIndexes(sourceWeaponIndexes, typescriptWeaponIndexes, problems);
 compareAttackInfo(sourceAttackInfo, typescriptAttackInfo, problems);
 compareContractMap("WL_AGENT.C player attack", sourcePlayerAttackContracts, typescriptPlayerAttackContracts, problems);
 compareContractMap("WL_AGENT.C player command", sourcePlayerCommandContracts, typescriptPlayerCommandContracts, problems);
+compareContractMap("WL_AGENT.C player movement", sourcePlayerMovementContracts, typescriptPlayerMovementContracts, problems);
 compareAgentHelperContracts(sourceAgentHelperContracts, typescriptAgentHelperContracts, problems);
 compareEnemyHitpointIndexes(sourceEnemyIndexes, typescriptEnemyHitpointIndexes, problems);
 compareStartHitpoints(sourceStartHitpoints, typescriptStartHitpoints, problems);
@@ -242,7 +247,7 @@ if (problems.length > 0) {
 }
 
 console.log(
-  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceDoorPushwallContracts.size} WL_ACT1.C door/pushwall contracts, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourcePlayerAttackContracts.size} WL_AGENT.C player attack contracts, ${sourcePlayerCommandContracts.size} WL_AGENT.C player command contracts, ${sourceAgentHelperContracts.size} WL_AGENT.C helper contracts, ${countComparedBonusRewards(sourceBonusRewards)} WL_AGENT.C bonus reward rows, ${sourceTreasureScores.size} WL_AGENT.C treasure score rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceKillActorRewards.size} WL_STATE.C kill reward rows, ${sourceDamagePainStates.size} WL_STATE.C damage pain rows, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
+  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceDoorPushwallContracts.size} WL_ACT1.C door/pushwall contracts, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourcePlayerAttackContracts.size} WL_AGENT.C player attack contracts, ${sourcePlayerCommandContracts.size} WL_AGENT.C player command contracts, ${sourcePlayerMovementContracts.size} WL_AGENT.C player movement contracts, ${sourceAgentHelperContracts.size} WL_AGENT.C helper contracts, ${countComparedBonusRewards(sourceBonusRewards)} WL_AGENT.C bonus reward rows, ${sourceTreasureScores.size} WL_AGENT.C treasure score rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceKillActorRewards.size} WL_STATE.C kill reward rows, ${sourceDamagePainStates.size} WL_STATE.C damage pain rows, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
 );
 
 function parseSourceStates(text, sprites) {
@@ -700,6 +705,85 @@ function parseSourceTPlayerContract(body) {
     useButtonCallsCmdUse: /buttonstate\s*\[\s*bt_use\s*\][\s\S]*?Cmd_Use\s*\(\s*\)/.test(body),
     victoryBeforeFace: /if\s*\(\s*gamestate\.victoryflag\s*\)[\s\S]*?VictorySpin\s*\(\s*\)[\s\S]*?return[\s\S]*?UpdateFace\s*\(\s*\)/.test(body),
     weaponChangeBeforeUse: /CheckWeaponChange\s*\(\s*\)[\s\S]*?buttonstate\s*\[\s*bt_use\s*\]/.test(body)
+  };
+}
+
+function parseSourcePlayerMovementContracts(text, defines) {
+  const activeText = filterWl6Source(text);
+  const checkWeaponBody = extractCFunctionBody(activeText, "CheckWeaponChange");
+  const movementBody = extractCFunctionBody(activeText, "ControlMovement");
+  const thrustBody = extractCFunctionBody(activeText, "Thrust");
+  const clipBody = extractCFunctionBody(activeText, "ClipMove");
+  const tryMoveBody = extractCFunctionBody(activeText, "TryMove");
+  const contracts = new Map();
+  contracts.set("CheckWeaponChange", parseSourceCheckWeaponChangeContract(checkWeaponBody));
+  contracts.set("ControlMovement", parseSourceControlMovementContract(movementBody, defines));
+  contracts.set("Thrust", parseSourceThrustContract(thrustBody, defines));
+  contracts.set("ClipMove", parseSourceClipMoveContract(clipBody));
+  contracts.set("TryMove", parseSourceTryMoveContract(tryMoveBody, defines));
+  return contracts;
+}
+
+function parseSourceCheckWeaponChangeContract(body) {
+  return {
+    iteratesKnifeToBestWeapon: /for\s*\(\s*i\s*=\s*wp_knife\s*;\s*i\s*<=\s*gamestate\.bestweapon/.test(body),
+    returnsWhenNoAmmo: /!\s*gamestate\.ammo[\s\S]*?return/.test(body),
+    selectsByWeaponReadyButton: /buttonstate\s*\[\s*bt_readyknife\s*\+\s*i\s*-\s*wp_knife\s*\]/.test(body),
+    setsWeaponAndChosen: /gamestate\.weapon\s*=\s*gamestate\.chosenweapon\s*=\s*i/.test(body)
+  };
+}
+
+function parseSourceControlMovementContract(body, defines) {
+  return {
+    appliesTurnAngleUnits: /ob->angle\s*-=\s*angleunits/.test(body),
+    backMoveScale: resolveSourceDefine("BACKMOVESCALE", defines),
+    backwardUsesHalfTurn: /controly\s*>\s*0[\s\S]*?angle\s*=\s*ob->angle\s*\+\s*ANGLES\s*\/\s*2[\s\S]*?Thrust\s*\(\s*angle\s*,\s*controly\s*\*\s*BACKMOVESCALE\s*\)/.test(body),
+    forwardMoveScale: resolveSourceDefine("MOVESCALE", defines),
+    forwardUsesCurrentAngle: /controly\s*<\s*0[\s\S]*?Thrust\s*\(\s*ob->angle\s*,\s*-\s*controly\s*\*\s*MOVESCALE\s*\)/.test(body),
+    negativeStrafeQuarterTurn: /controlx\s*<\s*0[\s\S]*?angle\s*=\s*ob->angle\s*\+\s*ANGLES\s*\/\s*4[\s\S]*?Thrust\s*\(\s*angle\s*,\s*-\s*controlx\s*\*\s*MOVESCALE\s*\)/.test(body),
+    normalizesTurnAngle: /ob->angle\s*>=\s*ANGLES[\s\S]*?ob->angle\s*-=\s*ANGLES[\s\S]*?ob->angle\s*<\s*0[\s\S]*?ob->angle\s*\+=\s*ANGLES/.test(body),
+    positiveStrafeQuarterTurn: /controlx\s*>\s*0[\s\S]*?angle\s*=\s*ob->angle\s*-\s*ANGLES\s*\/\s*4[\s\S]*?Thrust\s*\(\s*angle\s*,\s*controlx\s*\*\s*MOVESCALE\s*\)/.test(body),
+    resetsThrustSpeed: /\bthrustspeed\s*=\s*0/.test(body),
+    strafeUsesButton: /buttonstate\s*\[\s*bt_strafe\s*\]/.test(body),
+    turnAngleScale: resolveSourceDefine("ANGLESCALE", defines),
+    usesAnglefracAccumulator: /anglefrac\s*\+=\s*controlx[\s\S]*?angleunits\s*=\s*anglefrac\s*\/\s*ANGLESCALE[\s\S]*?anglefrac\s*-=\s*angleunits\s*\*\s*ANGLESCALE/.test(body)
+  };
+}
+
+function parseSourceThrustContract(body, defines) {
+  const minDist = resolveSourceDefine("MINDIST", defines);
+  return {
+    addsThrustSpeed: /\bthrustspeed\s*\+=\s*speed/.test(body),
+    callsClipMove: /ClipMove\s*\(\s*player\s*,\s*xmove\s*,\s*ymove\s*\)/.test(body),
+    checksVictoryAfterClipMove: /ClipMove\s*\(\s*player\s*,\s*xmove\s*,\s*ymove\s*\)[\s\S]*?EXITTILE[\s\S]*?VictoryTile\s*\(\s*\)/.test(body),
+    speedClipMaxFixed: minDist * 2 - 1,
+    speedClipThresholdFixed: minDist * 2,
+    usesCosForXMove: /xmove\s*=\s*FixedByFrac\s*\(\s*speed\s*,\s*costable\s*\[\s*angle\s*\]\s*\)/.test(body),
+    usesSineForYMove: /ymove\s*=\s*-\s*FixedByFrac\s*\(\s*speed\s*,\s*sintable\s*\[\s*angle\s*\]\s*\)/.test(body)
+  };
+}
+
+function parseSourceClipMoveContract(body) {
+  return {
+    fullMoveFirst: /ob->x\s*=\s*basex\s*\+\s*xmove[\s\S]*?ob->y\s*=\s*basey\s*\+\s*ymove[\s\S]*?TryMove\s*\(\s*ob\s*\)/.test(body),
+    restoresBaseOnFullBlock: /ob->x\s*=\s*basex\s*;\s*ob->y\s*=\s*basey/.test(body),
+    slidesXBeforeY:
+      /ob->x\s*=\s*basex\s*\+\s*xmove\s*;\s*ob->y\s*=\s*basey\s*;[\s\S]*?TryMove\s*\(\s*ob\s*\)[\s\S]*?ob->x\s*=\s*basex\s*;\s*ob->y\s*=\s*basey\s*\+\s*ymove/.test(
+        body
+      ),
+    wallHitSound: body.match(/SD_PlaySound\s*\(\s*(HITWALLSND)\s*\)/)?.[1] ?? null,
+    wallSoundRequiresNoSoundPlaying: /!\s*SD_SoundPlaying\s*\(\s*\)[\s\S]*?SD_PlaySound\s*\(\s*HITWALLSND\s*\)/.test(body)
+  };
+}
+
+function parseSourceTryMoveContract(body, defines) {
+  return {
+    blocksShootableActors: /check\s*>\s*objlist[\s\S]*?check->flags\s*&\s*FL_SHOOTABLE[\s\S]*?return\s+false/.test(body),
+    blocksSolidTiles: /check\s*=\s*actorat\s*\[\s*x\s*\]\s*\[\s*y\s*\][\s\S]*?check\s*&&\s*check\s*<\s*objlist[\s\S]*?return\s+false/.test(body),
+    expandsActorSearch: /if\s*\(\s*yl\s*>\s*0\s*\)\s*yl--[\s\S]*?if\s*\(\s*yh\s*<\s*MAPSIZE\s*-\s*1\s*\)\s*yh\+\+[\s\S]*?if\s*\(\s*xl\s*>\s*0\s*\)\s*xl--[\s\S]*?if\s*\(\s*xh\s*<\s*MAPSIZE\s*-\s*1\s*\)\s*xh\+\+/.test(body),
+    minActorDistanceFixed: resolveSourceDefine("MINACTORDIST", defines),
+    playerSizeFixed: resolveSourceDefine("MINDIST", defines),
+    usesAxisAlignedActorDistance: /deltax\s*=\s*ob->x\s*-\s*check->x[\s\S]*?deltay\s*=\s*ob->y\s*-\s*check->y/.test(body)
   };
 }
 
@@ -1315,6 +1399,83 @@ function extractReadyPlayerInputBranch(body) {
   }
 
   return extractBraceBody(body, openIndex);
+}
+
+function parseTypescriptPlayerMovementContracts(text, constants, stringConstants) {
+  const checkWeaponBody = extractTypescriptFunctionBody(text, "CheckWeaponChange");
+  const movementBody = extractTypescriptFunctionBody(text, "ControlMovement");
+  const thrustBody = extractTypescriptFunctionBody(text, "Thrust");
+  const clipBody = extractTypescriptFunctionBody(text, "ClipMove");
+  const tryMoveBody = extractTypescriptFunctionBody(text, "TryPlayerMove");
+  const contracts = new Map();
+  contracts.set("CheckWeaponChange", parseTypescriptCheckWeaponChangeContract(checkWeaponBody));
+  contracts.set("ControlMovement", parseTypescriptControlMovementContract(movementBody, constants));
+  contracts.set("Thrust", parseTypescriptThrustContract(thrustBody, constants));
+  contracts.set("ClipMove", parseTypescriptClipMoveContract(clipBody, stringConstants));
+  contracts.set("TryMove", parseTypescriptTryMoveContract(text, tryMoveBody, constants));
+  return contracts;
+}
+
+function parseTypescriptCheckWeaponChangeContract(body) {
+  return {
+    iteratesKnifeToBestWeapon: /for\s*\(\s*let\s+weapon\s*=\s*WP_KNIFE\s*;\s*weapon\s*<=\s*this\.gamestate\.bestweapon/.test(body),
+    returnsWhenNoAmmo: /this\.gamestate\.ammo\s*===\s*0[\s\S]*?return/.test(body),
+    selectsByWeaponReadyButton: /id_in\.IN_KeyDown\s*\(\s*49\s*\+\s*weapon\s*\)/.test(body),
+    setsWeaponAndChosen: /this\.gamestate\.weapon\s*=\s*weapon[\s\S]*?this\.gamestate\.chosenweapon\s*=\s*weapon/.test(body)
+  };
+}
+
+function parseTypescriptControlMovementContract(body, constants) {
+  return {
+    appliesTurnAngleUnits: /this\.gamestate\.angle\s*\+=\s*sourceAngleUnitsToRadians\s*\(\s*angleUnits\s*\)/.test(body),
+    backMoveScale: resolveTypescriptNumber("SOURCE_BACK_MOVESCALE", constants),
+    backwardUsesHalfTurn: /controlY\s*>\s*0[\s\S]*?this\.Thrust\s*\(\s*this\.gamestate\.angle\s*\+\s*Math\.PI\s*,\s*controlY\s*\*\s*SOURCE_BACK_MOVESCALE\s*\)/.test(body),
+    forwardMoveScale: resolveTypescriptNumber("SOURCE_FORWARD_MOVESCALE", constants),
+    forwardUsesCurrentAngle: /controlY\s*<\s*0[\s\S]*?this\.Thrust\s*\(\s*this\.gamestate\.angle\s*,\s*-\s*controlY\s*\*\s*SOURCE_FORWARD_MOVESCALE\s*\)/.test(body),
+    negativeStrafeQuarterTurn: /controlX\s*<\s*0[\s\S]*?this\.Thrust\s*\(\s*this\.gamestate\.angle\s*-\s*Math\.PI\s*\/\s*2\s*,\s*-\s*controlX\s*\*\s*SOURCE_FORWARD_MOVESCALE\s*\)/.test(body),
+    normalizesTurnAngle: /this\.gamestate\.angle\s*=\s*normalizeAngle\s*\(\s*this\.gamestate\.angle\s*\)/.test(body),
+    positiveStrafeQuarterTurn: /controlX\s*>\s*0[\s\S]*?this\.Thrust\s*\(\s*this\.gamestate\.angle\s*\+\s*Math\.PI\s*\/\s*2\s*,\s*controlX\s*\*\s*SOURCE_FORWARD_MOVESCALE\s*\)/.test(body),
+    resetsThrustSpeed: /\bthis\.thrustSpeed\s*=\s*0/.test(body),
+    strafeUsesButton: /id_in\.IN_KeyDown\s*\(\s*STRAFE_KEY_CODE\s*\)/.test(body),
+    turnAngleScale: resolveTypescriptNumber("SOURCE_ANGLESCALE", constants),
+    usesAnglefracAccumulator: /this\.anglefrac\s*\+=\s*controlX[\s\S]*?this\.anglefrac\s*\/\s*SOURCE_ANGLESCALE[\s\S]*?this\.anglefrac\s*-=\s*angleUnits\s*\*\s*SOURCE_ANGLESCALE/.test(body)
+  };
+}
+
+function parseTypescriptThrustContract(body, constants) {
+  const minDist = resolveTypescriptNumber("SOURCE_MINDIST", constants);
+  return {
+    addsThrustSpeed: /\bthis\.thrustSpeed\s*\+=\s*speed/.test(body),
+    callsClipMove: /this\.ClipMove\s*\(\s*Math\.cos\s*\(\s*angle\s*\)\s*\*\s*moveScale\s*,\s*Math\.sin\s*\(\s*angle\s*\)\s*\*\s*moveScale\s*\)/.test(body),
+    checksVictoryAfterClipMove: /this\.ClipMove\s*\([\s\S]*?\)[\s\S]*?this\.CheckVictoryTile\s*\(\s*\)/.test(body),
+    speedClipMaxFixed: minDist * 2 - 1,
+    speedClipThresholdFixed: minDist * 2,
+    usesCosForXMove: /Math\.cos\s*\(\s*angle\s*\)\s*\*\s*moveScale/.test(body),
+    usesSineForYMove: /Math\.sin\s*\(\s*angle\s*\)\s*\*\s*moveScale/.test(body)
+  };
+}
+
+function parseTypescriptClipMoveContract(body, stringConstants) {
+  const wallSoundMatch = body.match(/SD_PlaySound\s*\(\s*([^)]*HITWALLSND[^)]*)\)/);
+  return {
+    fullMoveFirst: /this\.TryPlayerMove\s*\(\s*targetX\s*,\s*targetY\s*\)[\s\S]*?this\.gamestate\.x\s*=\s*targetX[\s\S]*?this\.gamestate\.y\s*=\s*targetY/.test(body),
+    restoresBaseOnFullBlock: /this\.gamestate\.x\s*=\s*baseX\s*;\s*this\.gamestate\.y\s*=\s*baseY/.test(body),
+    slidesXBeforeY: body.indexOf("this.TryPlayerMove(targetX, baseY)") >= 0 &&
+      body.indexOf("this.TryPlayerMove(baseX, targetY)") > body.indexOf("this.TryPlayerMove(targetX, baseY)"),
+    wallHitSound: wallSoundMatch ? resolveTypescriptString(wallSoundMatch[1], stringConstants) : null,
+    wallSoundRequiresNoSoundPlaying: /!\s*this\.id_sd\.SD_SoundPlaying\s*\(\s*\)[\s\S]*?this\.id_sd\.SD_PlaySound\s*\(\s*"HITWALLSND"\s*\)/.test(body)
+  };
+}
+
+function parseTypescriptTryMoveContract(text, body, constants) {
+  return {
+    blocksShootableActors: /!\s*actor\.shootable[\s\S]*?continue[\s\S]*?return\s+false/.test(body),
+    blocksSolidTiles: /this\.GetTile\s*\(\s*tileX\s*,\s*tileY\s*\)\s*!==\s*0[\s\S]*?this\.map\.blockingStaticKeys\.has/.test(body),
+    expandsActorSearch: /actorTileX\s*<\s*xl\s*-\s*1[\s\S]*?actorTileX\s*>\s*xh\s*\+\s*1[\s\S]*?actorTileY\s*<\s*yl\s*-\s*1[\s\S]*?actorTileY\s*>\s*yh\s*\+\s*1/.test(body),
+    minActorDistanceFixed: parseTypescriptFixedRangeConstant(text, "MINACTORDIST_TILES", constants),
+    playerSizeFixed: parseTypescriptFixedRangeConstant(text, "SOURCE_PLAYERSIZE_TILES", constants),
+    usesAxisAlignedActorDistance: /x\s*-\s*actorCenterX[\s\S]*?y\s*-\s*actorCenterY/.test(body)
+  };
 }
 
 function parseTypescriptAgentHelperContracts(text, constants, stringConstants) {
@@ -2001,12 +2162,23 @@ function parseNumericConstants(text) {
 
 function parseSourceNumericDefines(text) {
   const constants = new Map();
-  const definePattern = /^\s*#define\s+([A-Z0-9_]+)\s+(0x[0-9a-fA-F]+|[0-9]+)\b/gm;
+  const definePattern = /^\s*#define\s+([A-Z0-9_]+)\s+\(?\s*(0x[0-9a-fA-F]+|[0-9]+)\s*[lLuU]*\s*\)?(?:\s|$)/gm;
   for (const match of text.matchAll(definePattern)) {
     constants.set(match[1], parseNumberLiteral(match[2]));
   }
 
   return constants;
+}
+
+function mergeNumberMaps(...maps) {
+  const merged = new Map();
+  for (const map of maps) {
+    for (const [key, value] of map.entries()) {
+      merged.set(key, value);
+    }
+  }
+
+  return merged;
 }
 
 function parseStringConstants(text) {
@@ -2089,17 +2261,29 @@ function parseTypescriptFixedRangeConstant(text, name, constants) {
   }
 
   const expression = match[1].trim();
-  const division = expression.match(/^(0x[0-9a-fA-F]+|[0-9]+)\s*\/\s*(0x[0-9a-fA-F]+|[0-9]+)$/);
+  const division = expression.match(/^([A-Z0-9_]+|0x[0-9a-fA-F]+|[0-9]+)\s*\/\s*([A-Z0-9_]+|0x[0-9a-fA-F]+|[0-9]+)$/);
   if (division) {
     const tileglobal = constants.get("TILEGLOBAL");
     if (!Number.isFinite(tileglobal)) {
       throw new Error(`Could not resolve TILEGLOBAL for ${name}`);
     }
 
-    return Math.trunc((parseNumberLiteral(division[1]) / parseNumberLiteral(division[2])) * tileglobal);
+    return Math.trunc(
+      (resolveTypescriptNumberOperand(division[1], constants) / resolveTypescriptNumberOperand(division[2], constants)) *
+        tileglobal
+    );
   }
 
   return resolveTypescriptNumber(expression, constants);
+}
+
+function resolveTypescriptNumberOperand(expression, constants) {
+  const normalized = expression.trim();
+  if (/^(?:0x[0-9a-fA-F]+|[0-9]+)$/.test(normalized)) {
+    return parseNumberLiteral(normalized);
+  }
+
+  return resolveTypescriptNumber(normalized, constants);
 }
 
 function resolveSourceDefine(symbol, defines) {

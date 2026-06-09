@@ -147,8 +147,8 @@ npm run build
 projectile state-frame shapenums/tics/actions/thinks against
 `source/WOLFSRC/WL_ACT2.C`, plus WL6 static-object table parity against
 `source/WOLFSRC/WL_ACT1.C`, door/pushwall contract parity against
-`source/WOLFSRC/WL_ACT1.C`, weapon attack-frame, player attack, and player
-command contract parity against
+`source/WOLFSRC/WL_ACT1.C`, weapon attack-frame, player attack, player command,
+and player movement contract parity against
 `source/WOLFSRC/WL_AGENT.C`, audio chunk parity against
 `source/WOLFSRC/AUDIOWL6.H`, weapon sprite parity against
 `source/WOLFSRC/WL_DRAW.C`, enemy hitpoint parity against

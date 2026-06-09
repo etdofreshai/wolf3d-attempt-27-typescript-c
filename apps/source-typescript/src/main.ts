@@ -2412,7 +2412,6 @@ class WLGame {
 
     this.gamestate.angle = normalizeAngle(this.gamestate.angle);
     this.ConnectAreas();
-    this.CheckVictoryTile();
     this.gamestate.ticcount += 1;
     return moved;
   }
@@ -2421,7 +2420,9 @@ class WLGame {
     this.thrustSpeed += speed;
     const clippedSpeed = speed >= SOURCE_MINDIST * 2 ? SOURCE_MINDIST * 2 - 1 : speed;
     const moveScale = clippedSpeed / TILEGLOBAL;
-    return this.ClipMove(Math.cos(angle) * moveScale, Math.sin(angle) * moveScale);
+    const moved = this.ClipMove(Math.cos(angle) * moveScale, Math.sin(angle) * moveScale);
+    this.CheckVictoryTile();
+    return moved;
   }
 
   private ClipMove(xmove: number, ymove: number): boolean {
