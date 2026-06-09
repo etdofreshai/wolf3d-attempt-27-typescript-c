@@ -132,6 +132,7 @@ const sourceWeaponReadySprites = parseSourceWeaponReadySprites(sourceDrawText, s
 const sourceStaticInfo = parseSourceStaticInfo(sourceAct1Text, sourceSprites);
 const sourceDoorPushwallContracts = parseSourceDoorPushwallContracts(sourceAct1Text, sourceAct1Defines);
 const sourceAttackInfo = parseSourceAttackInfo(sourceAgentText);
+const sourcePlayerAttackContracts = parseSourcePlayerAttackContracts(sourceAgentText);
 const sourceAgentHelperContracts = parseSourceAgentHelperContracts(sourceAgentText, sourceDefines);
 const sourceStartHitpoints = parseSourceStartHitpoints(sourceText);
 const sourceRealHitlerHitpoints = parseSourceRealHitlerHitpoints(sourceText);
@@ -160,6 +161,7 @@ const typescriptEnemyHitpointIndexes = parseTypescriptEnemyHitpointIndexes(types
 const typescriptStaticInfo = parseTypescriptStaticInfo(typescriptText);
 const typescriptDoorPushwallContracts = parseTypescriptDoorPushwallContracts(typescriptText, constants, stringConstants);
 const typescriptAttackInfo = parseTypescriptAttackInfo(typescriptText);
+const typescriptPlayerAttackContracts = parseTypescriptPlayerAttackContracts(typescriptText, constants, stringConstants);
 const typescriptAgentHelperContracts = parseTypescriptAgentHelperContracts(typescriptText, constants, stringConstants);
 const typescriptStartHitpoints = parseTypescriptStartHitpoints(typescriptText);
 const typescriptRealHitlerHitpoints = parseTypescriptRealHitlerHitpoints(typescriptText);
@@ -206,6 +208,7 @@ compareSoundChunks(sourceSoundIndexes, typescriptSoundChunks, problems);
 compareWeaponReadySprites(sourceWeaponReadySprites, typescriptWeaponReadySprites, problems);
 compareWeaponIndexes(sourceWeaponIndexes, typescriptWeaponIndexes, problems);
 compareAttackInfo(sourceAttackInfo, typescriptAttackInfo, problems);
+compareContractMap("WL_AGENT.C player attack", sourcePlayerAttackContracts, typescriptPlayerAttackContracts, problems);
 compareAgentHelperContracts(sourceAgentHelperContracts, typescriptAgentHelperContracts, problems);
 compareEnemyHitpointIndexes(sourceEnemyIndexes, typescriptEnemyHitpointIndexes, problems);
 compareStartHitpoints(sourceStartHitpoints, typescriptStartHitpoints, problems);
@@ -236,7 +239,7 @@ if (problems.length > 0) {
 }
 
 console.log(
-  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceDoorPushwallContracts.size} WL_ACT1.C door/pushwall contracts, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourceAgentHelperContracts.size} WL_AGENT.C helper contracts, ${countComparedBonusRewards(sourceBonusRewards)} WL_AGENT.C bonus reward rows, ${sourceTreasureScores.size} WL_AGENT.C treasure score rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceKillActorRewards.size} WL_STATE.C kill reward rows, ${sourceDamagePainStates.size} WL_STATE.C damage pain rows, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
+  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceDoorPushwallContracts.size} WL_ACT1.C door/pushwall contracts, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourcePlayerAttackContracts.size} WL_AGENT.C player attack contracts, ${sourceAgentHelperContracts.size} WL_AGENT.C helper contracts, ${countComparedBonusRewards(sourceBonusRewards)} WL_AGENT.C bonus reward rows, ${sourceTreasureScores.size} WL_AGENT.C treasure score rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceKillActorRewards.size} WL_STATE.C kill reward rows, ${sourceDamagePainStates.size} WL_STATE.C damage pain rows, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
 );
 
 function parseSourceStates(text, sprites) {
@@ -551,6 +554,102 @@ function parseSourceAttackInfo(text) {
   }
 
   return rows;
+}
+
+function parseSourcePlayerAttackContracts(text) {
+  const activeText = filterWl6Source(text);
+  const cmdFireBody = extractCFunctionBody(activeText, "Cmd_Fire");
+  const knifeBody = extractCFunctionBody(activeText, "KnifeAttack");
+  const gunBody = extractCFunctionBody(activeText, "GunAttack");
+  const attackBody = extractCFunctionBody(activeText, "T_Attack");
+  const contracts = new Map();
+  contracts.set("Cmd_Fire", parseSourceCmdFireContract(cmdFireBody));
+  contracts.set("KnifeAttack", parseSourceKnifeAttackContract(knifeBody));
+  contracts.set("GunAttackFrame", parseSourceGunAttackFrameContract(gunBody, attackBody));
+  contracts.set("AttackLoop", parseSourceAttackLoopContract(attackBody));
+  return contracts;
+}
+
+function parseSourceCmdFireContract(body) {
+  return {
+    attackCountFromAttackInfo:
+      /gamestate\.attackcount\s*=[\s\S]*?attackinfo\s*\[\s*gamestate\.weapon\s*\]\s*\[\s*gamestate\.attackframe\s*\]\.tics/.test(body),
+    holdsAttackButton: /buttonheld\s*\[\s*bt_attack\s*\]\s*=\s*true/.test(body),
+    resetsAttackFrame: /gamestate\.attackframe\s*=\s*0/.test(body),
+    resetsWeaponFrame: /gamestate\.weaponframe\s*=\s*0/.test(body),
+    weaponFrameFromAttackInfo:
+      /gamestate\.weaponframe\s*=[\s\S]*?attackinfo\s*\[\s*gamestate\.weapon\s*\]\s*\[\s*gamestate\.attackframe\s*\]\.frame/.test(body)
+  };
+}
+
+function parseSourceKnifeAttackContract(body) {
+  return {
+    damageShift: parseRequiredNumber(body, /US_RndT\s*\(\s*\)\s*>>\s*([0-9]+)/, "KnifeAttack damage shift"),
+    filtersCentered: /abs\s*\(\s*check->viewx\s*-\s*centerx\s*\)\s*<\s*shootdelta/.test(body),
+    filtersShootable: /check->flags\s*&\s*FL_SHOOTABLE/.test(body),
+    filtersVisible: /check->flags\s*&\s*FL_VISABLE/.test(body),
+    lineCheck: /\bCheckLine\s*\(/.test(body),
+    maxRangeFixed: parseRequiredNumberLiteral(body, /dist\s*>\s*(0x[0-9a-fA-F]+)\s*l?/i, "KnifeAttack max range"),
+    selectsNearest: /check->transx\s*<\s*dist[\s\S]*?dist\s*=\s*check->transx[\s\S]*?closest\s*=\s*check/.test(body),
+    sound: body.match(/SD_PlaySound\s*\(\s*([A-Z0-9_]+)\s*\)/)?.[1] ?? null
+  };
+}
+
+function parseSourceGunAttackFrameContract(gunBody, attackBody) {
+  return {
+    callsDamageActor: /DamageActor\s*\(\s*closest\s*,\s*damage\s*\)/.test(gunBody),
+    chaingunSound: parseSourceSwitchSound(gunBody, "wp_chaingun"),
+    checksLine: /\bCheckLine\s*\(\s*closest\s*\)/.test(gunBody),
+    closeDamageDivisor: parseRequiredNumber(
+      gunBody,
+      /if\s*\(\s*dist\s*<\s*[0-9]+\s*\)\s*damage\s*=\s*US_RndT\s*\(\s*\)\s*\/\s*([0-9]+)/,
+      "GunAttack close damage divisor"
+    ),
+    closeDistance: parseRequiredNumber(gunBody, /if\s*\(\s*dist\s*<\s*([0-9]+)\s*\)/, "GunAttack close distance"),
+    distanceUsesMaxTileDelta: /dist\s*=\s*dx\s*>\s*dy\s*\?\s*dx\s*:\s*dy/.test(gunBody),
+    farDamageDivisor: parseRequiredNumber(
+      gunBody,
+      /else\s*\{[\s\S]*?damage\s*=\s*US_RndT\s*\(\s*\)\s*\/\s*([0-9]+)/,
+      "GunAttack far damage divisor"
+    ),
+    farMissDivisor: parseRequiredNumber(gunBody, /US_RndT\s*\(\s*\)\s*\/\s*([0-9]+)\s*\)\s*<\s*dist/, "GunAttack far miss divisor"),
+    filtersCentered: /abs\s*\(\s*check->viewx\s*-\s*centerx\s*\)\s*<\s*shootdelta/.test(gunBody),
+    filtersShootable: /check->flags\s*&\s*FL_SHOOTABLE/.test(gunBody),
+    filtersVisible: /check->flags\s*&\s*FL_VISABLE/.test(gunBody),
+    machinegunSound: parseSourceSwitchSound(gunBody, "wp_machinegun"),
+    marksNoise: /\bmadenoise\s*=\s*true/.test(gunBody),
+    mediumDamageDivisor: parseRequiredNumber(
+      gunBody,
+      /else\s+if\s*\(\s*dist\s*<\s*[0-9]+\s*\)\s*damage\s*=\s*US_RndT\s*\(\s*\)\s*\/\s*([0-9]+)/,
+      "GunAttack medium damage divisor"
+    ),
+    mediumDistance: parseRequiredNumber(gunBody, /else\s+if\s*\(\s*dist\s*<\s*([0-9]+)\s*\)/, "GunAttack medium distance"),
+    noAmmoAdvancesAttackFrame: /case\s+1\s*:[\s\S]*!gamestate\.ammo[\s\S]*gamestate\.attackframe\+\+/.test(attackBody),
+    pistolSound: parseSourceSwitchSound(gunBody, "wp_pistol"),
+    selectsNearest: /check->transx\s*<\s*viewdist[\s\S]*?viewdist\s*=\s*check->transx[\s\S]*?closest\s*=\s*check/.test(gunBody),
+    spendsAmmoOnGunFrame: /GunAttack\s*\(\s*ob\s*\)[\s\S]*?gamestate\.ammo--/.test(attackBody)
+  };
+}
+
+function parseSourceAttackLoopContract(body) {
+  return {
+    advancesAttackCountByFrameTics: /gamestate\.attackcount\s*\+=\s*cur->tics/.test(body),
+    advancesAttackFrame: /gamestate\.attackframe\+\+/.test(body),
+    attack4RequiresAmmo: /case\s+4\s*:[\s\S]*?if\s*\(\s*!gamestate\.ammo\s*\)[\s\S]*?break/.test(body),
+    chainRefireAttack4: /case\s+4\s*:[\s\S]*?buttonstate\s*\[\s*bt_attack\s*\][\s\S]*?gamestate\.attackframe\s*-=\s*2/.test(body),
+    finishNoAmmoWeaponKnife: /case\s+-1\s*:[\s\S]*?!gamestate\.ammo[\s\S]*?gamestate\.weapon\s*=\s*wp_knife/.test(body),
+    finishRestoresChosenWeapon: /case\s+-1\s*:[\s\S]*?gamestate\.weapon\s*!=\s*gamestate\.chosenweapon[\s\S]*?gamestate\.weapon\s*=\s*gamestate\.chosenweapon/.test(body),
+    finishSentinel: /case\s+-1\s*:/.test(body),
+    gunFrameOnAttack1: /case\s+1\s*:[\s\S]*?GunAttack\s*\(\s*ob\s*\)/.test(body),
+    knifeFrameOnAttack2: /case\s+2\s*:[\s\S]*?KnifeAttack\s*\(\s*ob\s*\)/.test(body),
+    refireAttack3: /case\s+3\s*:[\s\S]*?gamestate\.ammo\s*&&\s*buttonstate\s*\[\s*bt_attack\s*\][\s\S]*?gamestate\.attackframe\s*-=\s*2/.test(body),
+    weaponFrameFromAttackInfo:
+      /gamestate\.weaponframe\s*=[\s\S]*?attackinfo\s*\[\s*gamestate\.weapon\s*\]\s*\[\s*gamestate\.attackframe\s*\]\.frame/.test(body)
+  };
+}
+
+function parseSourceSwitchSound(body, label) {
+  return body.match(new RegExp(`case\\s+${label}\\s*:[\\s\\S]*?SD_PlaySound\\s*\\(\\s*([A-Z0-9_]+)\\s*\\)`))?.[1] ?? null;
 }
 
 function parseSourceAgentHelperContracts(text, defines) {
@@ -983,6 +1082,119 @@ function parseTypescriptAttackInfo(text) {
   }
 
   return rows;
+}
+
+function parseTypescriptPlayerAttackContracts(text, constants, stringConstants) {
+  const cmdFireBody = extractTypescriptFunctionBody(text, "Cmd_Fire");
+  const knifeBody = extractTypescriptFunctionBody(text, "RunKnifeAttackFrame");
+  const gunBody = extractTypescriptFunctionBody(text, "RunGunAttackFrame");
+  const targetBody = extractTypescriptFunctionBody(text, "TargetActorInCrosshair");
+  const distanceBody = extractTypescriptFunctionBody(text, "ActorTileDistance");
+  const attackBody = extractTypescriptFunctionBody(text, "T_Attack");
+  const finishBody = extractTypescriptFunctionBody(text, "FinishAttack");
+  const weaponSoundBody = extractTypescriptFunctionBody(text, "weaponAttackSound");
+  const contracts = new Map();
+  contracts.set("Cmd_Fire", parseTypescriptCmdFireContract(cmdFireBody));
+  contracts.set("KnifeAttack", parseTypescriptKnifeAttackContract(text, knifeBody, targetBody, constants));
+  contracts.set(
+    "GunAttackFrame",
+    parseTypescriptGunAttackFrameContract(gunBody, targetBody, distanceBody, weaponSoundBody, stringConstants)
+  );
+  contracts.set("AttackLoop", parseTypescriptAttackLoopContract(attackBody, finishBody));
+  return contracts;
+}
+
+function parseTypescriptCmdFireContract(body) {
+  return {
+    attackCountFromAttackInfo: /this\.gamestate\.attackcount\s*=\s*firstFrame\.tics/.test(body),
+    holdsAttackButton: /this\.attackButtonHeld\s*=\s*true/.test(body),
+    resetsAttackFrame: /this\.gamestate\.attackframe\s*=\s*0/.test(body),
+    resetsWeaponFrame: /this\.gamestate\.weaponframe\s*=\s*0/.test(body),
+    weaponFrameFromAttackInfo: /this\.gamestate\.weaponframe\s*=\s*firstFrame\.frame/.test(body)
+  };
+}
+
+function parseTypescriptKnifeAttackContract(text, knifeBody, targetBody, constants) {
+  return {
+    damageShift: parseRequiredNumber(knifeBody, /this\.US_RndT\s*\(\s*\)\s*>>\s*([0-9]+)/, "RunKnifeAttackFrame damage shift"),
+    filtersCentered: /Math\.abs\s*\(\s*screenX\s*-\s*SCREEN_WIDTH\s*\/\s*2\s*\)\s*>\s*SHOOT_CENTER_DELTA_PIXELS/.test(targetBody),
+    filtersShootable: /!\s*actor\.shootable/.test(targetBody),
+    filtersVisible: /!\s*actor\.visible/.test(targetBody),
+    lineCheck: /\bCheckLineToActor\s*\(/.test(knifeBody),
+    maxRangeFixed: parseTypescriptFixedRangeConstant(text, "KNIFE_RANGE_TILES", constants),
+    selectsNearest: /depth\s*<\s*bestDepth[\s\S]*?bestTarget\s*=\s*\{\s*actor,\s*depth\s*\}/.test(targetBody),
+    sound: knifeBody.match(/SD_PlaySound\s*\(\s*"([^"]+)"\s*\)/)?.[1] ?? null
+  };
+}
+
+function parseTypescriptGunAttackFrameContract(gunBody, targetBody, distanceBody, weaponSoundBody, stringConstants) {
+  return {
+    callsDamageActor: /this\.DamageActor\s*\(\s*target\.actor\s*,\s*damage\s*\)/.test(gunBody),
+    chaingunSound: parseTypescriptSwitchReturnString(weaponSoundBody, "WP_CHAINGUN", stringConstants),
+    checksLine: /\bthis\.CheckLineToActor\s*\(\s*target\.actor\s*\)/.test(gunBody),
+    closeDamageDivisor: parseRequiredNumber(
+      gunBody,
+      /if\s*\(\s*dist\s*<\s*[0-9]+\s*\)\s*\{[\s\S]*?Math\.floor\s*\(\s*this\.US_RndT\s*\(\s*\)\s*\/\s*([0-9]+)\s*\)/,
+      "RunGunAttackFrame close damage divisor"
+    ),
+    closeDistance: parseRequiredNumber(gunBody, /if\s*\(\s*dist\s*<\s*([0-9]+)\s*\)/, "RunGunAttackFrame close distance"),
+    distanceUsesMaxTileDelta:
+      /Math\.max\s*\([\s\S]*?Math\.abs\s*\(\s*this\.ActorSourceTileX\s*\(\s*actor\s*\)\s*-\s*playerTileX\s*\)[\s\S]*?Math\.abs\s*\(\s*this\.ActorSourceTileY\s*\(\s*actor\s*\)\s*-\s*playerTileY\s*\)/.test(distanceBody),
+    farDamageDivisor: parseRequiredNumber(
+      gunBody,
+      /Math\.floor\s*\(\s*this\.US_RndT\s*\(\s*\)\s*\/\s*[0-9]+\s*\)\s*<\s*dist[\s\S]*?return\s*;[\s\S]*?damage\s*=\s*Math\.floor\s*\(\s*this\.US_RndT\s*\(\s*\)\s*\/\s*([0-9]+)\s*\)/,
+      "RunGunAttackFrame far damage divisor"
+    ),
+    farMissDivisor: parseRequiredNumber(
+      gunBody,
+      /Math\.floor\s*\(\s*this\.US_RndT\s*\(\s*\)\s*\/\s*([0-9]+)\s*\)\s*<\s*dist/,
+      "RunGunAttackFrame far miss divisor"
+    ),
+    filtersCentered: /Math\.abs\s*\(\s*screenX\s*-\s*SCREEN_WIDTH\s*\/\s*2\s*\)\s*>\s*SHOOT_CENTER_DELTA_PIXELS/.test(targetBody),
+    filtersShootable: /!\s*actor\.shootable/.test(targetBody),
+    filtersVisible: /!\s*actor\.visible/.test(targetBody),
+    machinegunSound: parseTypescriptSwitchReturnString(weaponSoundBody, "WP_MACHINEGUN", stringConstants),
+    marksNoise: /this\.madeNoise\s*=\s*true/.test(gunBody),
+    mediumDamageDivisor: parseRequiredNumber(
+      gunBody,
+      /else\s+if\s*\(\s*dist\s*<\s*[0-9]+\s*\)\s*\{[\s\S]*?Math\.floor\s*\(\s*this\.US_RndT\s*\(\s*\)\s*\/\s*([0-9]+)\s*\)/,
+      "RunGunAttackFrame medium damage divisor"
+    ),
+    mediumDistance: parseRequiredNumber(gunBody, /else\s+if\s*\(\s*dist\s*<\s*([0-9]+)\s*\)/, "RunGunAttackFrame medium distance"),
+    noAmmoAdvancesAttackFrame: /this\.gamestate\.ammo\s*===\s*0[\s\S]*?this\.gamestate\.attackframe\s*\+=\s*1/.test(gunBody),
+    pistolSound: parseTypescriptSwitchReturnString(weaponSoundBody, "WP_PISTOL", stringConstants),
+    selectsNearest: /depth\s*<\s*bestDepth[\s\S]*?bestTarget\s*=\s*\{\s*actor,\s*depth\s*\}/.test(targetBody),
+    spendsAmmoOnGunFrame: /this\.gamestate\.ammo\s*-=\s*1/.test(gunBody)
+  };
+}
+
+function parseTypescriptAttackLoopContract(attackBody, finishBody) {
+  return {
+    advancesAttackCountByFrameTics: /this\.gamestate\.attackcount\s*\+=\s*current\.tics/.test(attackBody),
+    advancesAttackFrame: /this\.gamestate\.attackframe\s*\+=\s*1/.test(attackBody),
+    attack4RequiresAmmo: /current\.attack\s*===\s*4[\s\S]*?this\.gamestate\.ammo\s*>\s*0/.test(attackBody),
+    chainRefireAttack4: /current\.attack\s*===\s*4[\s\S]*?attackDown[\s\S]*?this\.gamestate\.attackframe\s*-=\s*2/.test(attackBody),
+    finishNoAmmoWeaponKnife: /this\.gamestate\.ammo\s*===\s*0[\s\S]*?this\.gamestate\.weapon\s*=\s*WP_KNIFE/.test(finishBody),
+    finishRestoresChosenWeapon:
+      /this\.gamestate\.weapon\s*!==\s*this\.gamestate\.chosenweapon[\s\S]*?this\.gamestate\.weapon\s*=\s*this\.gamestate\.chosenweapon/.test(
+        finishBody
+      ),
+    finishSentinel: /current\.attack\s*===\s*-1[\s\S]*?this\.FinishAttack\s*\(\s*\)/.test(attackBody),
+    gunFrameOnAttack1: /current\.attack\s*===\s*1[\s\S]*?this\.RunGunAttackFrame\s*\(\s*\)/.test(attackBody),
+    knifeFrameOnAttack2: /current\.attack\s*===\s*2[\s\S]*?this\.RunKnifeAttackFrame\s*\(\s*\)/.test(attackBody),
+    refireAttack3: /current\.attack\s*===\s*3[\s\S]*?this\.gamestate\.ammo\s*>\s*0\s*&&\s*attackDown[\s\S]*?this\.gamestate\.attackframe\s*-=\s*2/.test(
+      attackBody
+    ),
+    weaponFrameFromAttackInfo:
+      /this\.gamestate\.weaponframe\s*=[\s\S]*?attackInfo\?\.\[\s*this\.gamestate\.attackframe\s*\][\s\S]*?\.frame/.test(
+        attackBody
+      )
+  };
+}
+
+function parseTypescriptSwitchReturnString(body, label, stringConstants) {
+  const match = body.match(new RegExp(`case\\s+${label}\\s*:[\\s\\S]*?return\\s+([^;]+);`));
+  return match ? resolveTypescriptString(match[1], stringConstants) : null;
 }
 
 function parseTypescriptAgentHelperContracts(text, constants, stringConstants) {
@@ -1709,7 +1921,8 @@ function parseNumberList(text) {
 }
 
 function parseNumberLiteral(value) {
-  return value.toLowerCase().startsWith("0x") ? Number.parseInt(value, 16) : Number(value);
+  const normalized = value.trim().replace(/[lLuU]+$/g, "");
+  return normalized.toLowerCase().startsWith("0x") ? Number.parseInt(normalized, 16) : Number(normalized);
 }
 
 function parseOptionalNumber(text, pattern) {
@@ -1747,6 +1960,26 @@ function parseRequiredTypescriptNumber(text, pattern, constants, label) {
   }
 
   return resolveTypescriptNumber(match[1], constants);
+}
+
+function parseTypescriptFixedRangeConstant(text, name, constants) {
+  const match = text.match(new RegExp(`const\\s+${name}\\s*=\\s*([^;]+);`));
+  if (!match) {
+    throw new Error(`Could not find TypeScript fixed range constant: ${name}`);
+  }
+
+  const expression = match[1].trim();
+  const division = expression.match(/^(0x[0-9a-fA-F]+|[0-9]+)\s*\/\s*(0x[0-9a-fA-F]+|[0-9]+)$/);
+  if (division) {
+    const tileglobal = constants.get("TILEGLOBAL");
+    if (!Number.isFinite(tileglobal)) {
+      throw new Error(`Could not resolve TILEGLOBAL for ${name}`);
+    }
+
+    return Math.trunc((parseNumberLiteral(division[1]) / parseNumberLiteral(division[2])) * tileglobal);
+  }
+
+  return resolveTypescriptNumber(expression, constants);
 }
 
 function resolveSourceDefine(symbol, defines) {
@@ -1886,8 +2119,51 @@ function extractCFunctionBody(text, name) {
 }
 
 function extractTypescriptFunctionBody(text, name) {
-  const pattern = new RegExp(`\\b(?:function\\s+|private\\s+)?${name}\\s*\\([^)]*\\)\\s*(?::[^\\{]+)?\\{`);
-  return extractBodyAfterPattern(text, pattern, name);
+  const pattern = new RegExp(`(?:^|\\n)\\s*(?:function\\s+|private\\s+)?${name}\\s*\\([^)]*\\)`);
+  const match = pattern.exec(text);
+  if (!match) {
+    throw new Error(`Could not find ${name} body`);
+  }
+
+  const openIndex = findTypescriptFunctionOpeningBrace(text, match.index + match[0].length, name);
+  return extractBraceBody(text, openIndex);
+}
+
+function findTypescriptFunctionOpeningBrace(text, startIndex, label) {
+  let typeBraceDepth = 0;
+  for (let index = startIndex; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === "{") {
+      if (typeBraceDepth > 0) {
+        typeBraceDepth += 1;
+        continue;
+      }
+
+      const previous = previousNonWhitespace(text, index);
+      if (previous === ":") {
+        typeBraceDepth = 1;
+        continue;
+      }
+
+      return index;
+    }
+
+    if (char === "}" && typeBraceDepth > 0) {
+      typeBraceDepth -= 1;
+    }
+  }
+
+  throw new Error(`Could not find ${label} opening brace`);
+}
+
+function previousNonWhitespace(text, index) {
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    if (!/\s/.test(text[cursor])) {
+      return text[cursor];
+    }
+  }
+
+  return null;
 }
 
 function extractBodyAfterPattern(text, pattern, label) {
