@@ -1770,6 +1770,7 @@ class WLGame {
   private completedLevelTransitionApplied = false;
   private diedTransitionApplied = false;
   private rndIndex = 0;
+  private useButtonHeld = false;
   private victoriousTransitionApplied = false;
   private victorySpinTargetY: number | null = null;
 
@@ -1853,6 +1854,7 @@ class WLGame {
     this.playstate = "ex_stillplaying";
     this.rndIndex = 0;
     this.thrustSpeed = 0;
+    this.useButtonHeld = false;
     this.victoriousTransitionApplied = false;
     this.victorySummary = null;
     this.victorySpinTargetY = null;
@@ -1933,6 +1935,7 @@ class WLGame {
     this.gamestate.attackcount = 0;
     this.gamestate.attackframe = 0;
     this.attackButtonHeld = false;
+    this.useButtonHeld = false;
     this.completedLevelTransitionApplied = false;
     this.diedTransitionApplied = false;
     this.madeNoise = false;
@@ -1964,9 +1967,11 @@ class WLGame {
 
   PlayPlayerInput(id_in: IDIN, ticMs: number, tics: number): boolean {
     const attackDown = id_in.IN_AttackDown();
+    const useDown = id_in.IN_KeyDown(USE_KEY_CODE);
+    const wasAttacking = this.gamestate.attackcount > 0;
     let moved = false;
 
-    if (this.gamestate.attackcount > 0) {
+    if (wasAttacking) {
       this.UpdateFace(tics);
       if (this.gamestate.victoryflag) {
         this.VictorySpin(tics);
@@ -1990,7 +1995,7 @@ class WLGame {
       this.UpdateFace(tics);
       this.CheckWeaponChange(id_in);
 
-      if (id_in.ConsumeUse()) {
+      if (useDown) {
         this.Cmd_Use();
       }
 
@@ -2003,6 +2008,12 @@ class WLGame {
 
     if (!attackDown) {
       this.attackButtonHeld = false;
+    }
+
+    if (!useDown) {
+      this.useButtonHeld = false;
+    } else if (!wasAttacking) {
+      this.useButtonHeld = true;
     }
 
     return moved;
@@ -2183,14 +2194,16 @@ class WLGame {
     }
 
     const wallTile = this.GetWallTile(target.x, target.y);
-    if (wallTile === ELEVATORTILE && target.elevatorOk) {
+    if (!this.useButtonHeld && wallTile === ELEVATORTILE && target.elevatorOk) {
+      this.useButtonHeld = true;
       this.SetWallTile(target.x, target.y, ELEVATORTILE + 1);
       this.SetPlayState(this.PlayerFloorTile() === ALTELEVATORTILE ? "ex_secretlevel" : "ex_completed");
       return true;
     }
 
     const door = this.DoorAt(target.x, target.y);
-    if (door) {
+    if (!this.useButtonHeld && door) {
+      this.useButtonHeld = true;
       this.OperateDoor(door.index);
       return true;
     }
@@ -5358,7 +5371,6 @@ class IDCA {
 
 class IDIN {
   private readonly keys = new Set<number>();
-  private pendingUse = false;
 
   IN_KeyDown(keyCode: number): boolean {
     return this.keys.has(keyCode);
@@ -5368,25 +5380,11 @@ class IDIN {
     return this.IN_KeyDown(ATTACK_KEY_CODE);
   }
 
-  ConsumeUse(): boolean {
-    const use = this.pendingUse;
-    this.pendingUse = false;
-    return use;
-  }
-
   KeyDown(keyCode: number): void {
-    if (keyCode === USE_KEY_CODE && !this.keys.has(keyCode)) {
-      this.pendingUse = true;
-    }
-
     this.keys.add(keyCode);
   }
 
   KeyUp(keyCode: number): void {
-    if (keyCode === USE_KEY_CODE) {
-      this.pendingUse = false;
-    }
-
     this.keys.delete(keyCode);
   }
 }
