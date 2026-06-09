@@ -83,15 +83,19 @@ type PortStatic = {
 
 type PortActor = {
   attackMode: boolean;
+  distance: number;
   dir: number;
   hitpoints: number;
   kind: string;
   mode: "boss" | "chase" | "dead" | "dying" | "ghost" | "pain" | "patrol" | "stand";
   shootable: boolean;
+  speed: number;
   stateIndex: number;
   stateName: string;
   stateShapenum: number | null;
   stateTics: number;
+  targetX: number;
+  targetY: number;
   tile: number;
   x: number;
   y: number;
@@ -211,6 +215,8 @@ const KEY_CODES: Record<string, number> = {
 
 const DEMO_DEFAULT_HOLD_MS = 90;
 const AREATILE = 107;
+const ICONARROWS = 90;
+const NODIR = 8;
 const DOOR_POSITION_MAX = 0xffff;
 const DOOR_POSITION_RATE_SHIFT = 10;
 const EXTRAPOINTS = 40000;
@@ -221,7 +227,11 @@ const OPENTICS = 300;
 const PUSHABLETILE = 98;
 const SCREEN_WIDTH = 320;
 const SCREEN_HEIGHT = 200;
+const SPDDOG = 1500;
+const SPDPATROL = 512;
 const STARTAMMO = 8;
+const TILEGLOBAL = 65536;
+const TILE_DISTANCE = 1;
 const ATTACK_KEY_CODE = 17;
 const USE_KEY_CODE = 32;
 const WP_KNIFE = 0;
@@ -676,6 +686,16 @@ const US_RND_TABLE = [
 const COMBAT_FOV = Math.PI / 3;
 const SHOOT_CENTER_DELTA_PIXELS = 20;
 const KNIFE_RANGE_TILES = 0x18000 / 0x10000;
+const DIRECTION_DELTAS: Record<number, { dx: number; dy: number }> = {
+  0: { dx: 1, dy: 0 },
+  1: { dx: 1, dy: -1 },
+  2: { dx: 0, dy: -1 },
+  3: { dx: -1, dy: -1 },
+  4: { dx: -1, dy: 0 },
+  5: { dx: -1, dy: 1 },
+  6: { dx: 0, dy: 1 },
+  7: { dx: 1, dy: 1 }
+};
 
 const root = document.querySelector<HTMLElement>("#app");
 if (!root) {
@@ -886,14 +906,19 @@ class WLMain {
         actors: this.wl_game.map.actors.length,
         actorsDetail: this.wl_game.map.actors.map((actor) => ({
           attackMode: actor.attackMode,
+          distance: actor.distance,
+          dir: actor.dir,
           hitpoints: actor.hitpoints,
           kind: actor.kind,
           mode: actor.mode,
           shootable: actor.shootable,
+          speed: actor.speed,
           stateIndex: actor.stateIndex,
           stateName: actor.stateName,
           stateShapenum: actor.stateShapenum,
           stateTics: actor.stateTics,
+          targetX: actor.targetX,
+          targetY: actor.targetY,
           tile: actor.tile,
           x: actor.x,
           y: actor.y
@@ -1273,6 +1298,9 @@ class WLGame {
       this.MovePainState(actor, tics);
     } else if (actor.mode === "patrol" || actor.mode === "chase") {
       this.MoveLoopingActorState(actor, tics);
+      if (actor.mode === "patrol") {
+        this.T_Path(actor, tics);
+      }
     }
   }
 
@@ -1318,6 +1346,95 @@ class WLGame {
       const nextIndex = (actor.stateIndex + 1) % sequence.length;
       this.SetActorSequenceState(actor, sequence, nextIndex, actor.mode, actor.stateTics);
     }
+  }
+
+  private T_Path(actor: PortActor, tics: number): void {
+    if (actor.dir === NODIR) {
+      this.SelectPathDir(actor);
+      if (actor.dir === NODIR) {
+        return;
+      }
+    }
+
+    let move = (actor.speed * tics) / TILEGLOBAL;
+    while (move > 0) {
+      if (actor.distance <= 0) {
+        this.SelectPathDir(actor);
+        if (actor.dir === NODIR || actor.distance <= 0) {
+          return;
+        }
+      }
+
+      if (move < actor.distance) {
+        this.MoveObj(actor, move);
+        break;
+      }
+
+      actor.x = actor.targetX;
+      actor.y = actor.targetY;
+      move -= actor.distance;
+      this.SelectPathDir(actor);
+      if (actor.dir === NODIR) {
+        return;
+      }
+    }
+  }
+
+  private MoveObj(actor: PortActor, move: number): void {
+    const delta = DIRECTION_DELTAS[actor.dir];
+    if (!delta) {
+      return;
+    }
+
+    actor.x += delta.dx * move;
+    actor.y += delta.dy * move;
+    actor.distance -= move;
+  }
+
+  private SelectPathDir(actor: PortActor): void {
+    const targetX = Math.floor(actor.targetX);
+    const targetY = Math.floor(actor.targetY);
+    const spot = (this.map.objects[targetY * this.map.width + targetX] ?? 0) - ICONARROWS;
+    if (spot >= 0 && spot < 8) {
+      actor.dir = spot;
+    }
+
+    actor.distance = TILE_DISTANCE;
+    if (!this.TryWalk(actor)) {
+      actor.dir = NODIR;
+    }
+  }
+
+  private TryWalk(actor: PortActor): boolean {
+    const delta = DIRECTION_DELTAS[actor.dir];
+    if (!delta) {
+      return false;
+    }
+
+    const nextX = actor.targetX + delta.dx;
+    const nextY = actor.targetY + delta.dy;
+    if (!this.CanActorEnterTile(actor, nextX, nextY)) {
+      return false;
+    }
+
+    actor.targetX = nextX;
+    actor.targetY = nextY;
+    actor.distance = TILE_DISTANCE;
+    return true;
+  }
+
+  private CanActorEnterTile(actor: PortActor, tileX: number, tileY: number): boolean {
+    if (this.GetTile(tileX, tileY) !== 0 || this.map.blockingStaticKeys.has(tileKey(tileX, tileY))) {
+      return false;
+    }
+
+    return !this.map.actors.some((other) => {
+      if (other === actor || !other.shootable) {
+        return false;
+      }
+
+      return other.targetX === tileX && other.targetY === tileY;
+    });
   }
 
   OperateDoor(index: number): void {
@@ -1557,6 +1674,8 @@ class WLGame {
   }
 
   private CheckLineToActor(actor: PortActor): boolean {
+    const actorTileX = Math.floor(actor.x);
+    const actorTileY = Math.floor(actor.y);
     const targetX = actor.x + 0.5;
     const targetY = actor.y + 0.5;
     const dx = targetX - this.gamestate.x;
@@ -1569,7 +1688,7 @@ class WLGame {
       const y = this.gamestate.y + dy * t;
       const tileX = Math.floor(x);
       const tileY = Math.floor(y);
-      if (tileX === actor.x && tileY === actor.y) {
+      if (tileX === actorTileX && tileY === actorTileY) {
         continue;
       }
 
@@ -1584,7 +1703,7 @@ class WLGame {
   private ActorTileDistance(actor: PortActor): number {
     const playerTileX = Math.floor(this.gamestate.x);
     const playerTileY = Math.floor(this.gamestate.y);
-    return Math.max(Math.abs(actor.x - playerTileX), Math.abs(actor.y - playerTileY));
+    return Math.max(Math.abs(Math.floor(actor.x) - playerTileX), Math.abs(Math.floor(actor.y) - playerTileY));
   }
 
   private DamageActor(actor: PortActor, damage: number): void {
@@ -1623,18 +1742,20 @@ class WLGame {
   }
 
   private PlaceKillDrop(actor: PortActor): void {
+    const tileX = Math.floor(actor.x);
+    const tileY = Math.floor(actor.y);
     switch (actor.kind) {
       case "guard":
       case "mutant":
       case "officer":
-        this.PlaceItemType("bo_clip2", actor.x, actor.y);
+        this.PlaceItemType("bo_clip2", tileX, tileY);
         break;
       case "ss":
-        this.PlaceItemType(this.gamestate.bestweapon < WP_MACHINEGUN ? "bo_machinegun" : "bo_clip2", actor.x, actor.y);
+        this.PlaceItemType(this.gamestate.bestweapon < WP_MACHINEGUN ? "bo_machinegun" : "bo_clip2", tileX, tileY);
         break;
       case "boss":
       case "gretel":
-        this.PlaceItemType("bo_key1", actor.x, actor.y);
+        this.PlaceItemType("bo_key1", tileX, tileY);
         break;
       default:
         break;
@@ -2906,6 +3027,52 @@ function initialActorState(
   };
 }
 
+function initialActorMovement(
+  kind: string,
+  mode: PortActor["mode"],
+  dir: number,
+  x: number,
+  y: number
+): Pick<PortActor, "distance" | "speed" | "targetX" | "targetY"> {
+  const speed = actorBaseSpeed(kind);
+  if (mode === "patrol") {
+    const delta = DIRECTION_DELTAS[dir];
+    return {
+      distance: TILE_DISTANCE,
+      speed,
+      targetX: x + (delta?.dx ?? 0),
+      targetY: y + (delta?.dy ?? 0)
+    };
+  }
+
+  return {
+    distance: 0,
+    speed,
+    targetX: x,
+    targetY: y
+  };
+}
+
+function actorBaseSpeed(kind: string): number {
+  return kind === "dog" ? SPDDOG : SPDPATROL;
+}
+
+function mapDirectionToSourceDir(direction: number): number {
+  return direction * 2;
+}
+
+function bossInitialDirection(kind: string): number {
+  switch (kind) {
+    case "boss":
+      return 6;
+    case "gretel":
+    case "hitler":
+      return 2;
+    default:
+      return NODIR;
+  }
+}
+
 function actorStatePrefix(kind: string): string {
   switch (kind) {
     case "fake_hitler":
@@ -2952,12 +3119,13 @@ function actorFromInfoTile(
   if (tile === 124) {
     return {
       attackMode: false,
-      dir: 0,
+      dir: NODIR,
       hitpoints: 0,
       kind: "dead_guard",
       mode: "dead",
       shootable: false,
       ...initialActorState("dead_guard", "dead", ACTOR_SPRITES.GRD_DEAD),
+      ...initialActorMovement("dead_guard", "dead", NODIR, x, y),
       tile,
       x,
       y
@@ -2981,6 +3149,7 @@ function actorFromInfoTile(
       hitpoints: actorHitpoints(guard.kind, difficulty),
       shootable: true,
       ...initialActorState(guard.kind, guard.mode),
+      ...initialActorMovement(guard.kind, guard.mode, guard.dir, x, y),
       x,
       y
     };
@@ -2988,14 +3157,16 @@ function actorFromInfoTile(
 
   const bossKind = BOSS_INFO_TILES[tile];
   if (bossKind) {
+    const dir = bossInitialDirection(bossKind);
     return {
       attackMode: false,
-      dir: 0,
+      dir,
       hitpoints: actorHitpoints(bossKind, difficulty),
       kind: bossKind,
       mode: "boss",
       shootable: true,
       ...initialActorState(bossKind, "boss"),
+      ...initialActorMovement(bossKind, "boss", dir, x, y),
       tile,
       x,
       y
@@ -3006,12 +3177,13 @@ function actorFromInfoTile(
   if (ghostKind) {
     return {
       attackMode: false,
-      dir: 0,
+      dir: NODIR,
       hitpoints: actorHitpoints(ghostKind, difficulty),
       kind: ghostKind,
       mode: "ghost",
       shootable: false,
       ...initialActorState(ghostKind, "ghost"),
+      ...initialActorMovement(ghostKind, "ghost", NODIR, x, y),
       tile,
       x,
       y
@@ -3036,7 +3208,7 @@ function directionalEnemy(
     }
 
     return {
-      dir: tile - hardBase,
+      dir: mapDirectionToSourceDir(tile - hardBase),
       kind,
       mode,
       tile
@@ -3049,7 +3221,7 @@ function directionalEnemy(
     }
 
     return {
-      dir: tile - mediumBase,
+      dir: mapDirectionToSourceDir(tile - mediumBase),
       kind,
       mode,
       tile
@@ -3058,7 +3230,7 @@ function directionalEnemy(
 
   if (tile >= easyBase && tile <= easyBase + 3) {
     return {
-      dir: tile - easyBase,
+      dir: mapDirectionToSourceDir(tile - easyBase),
       kind,
       mode,
       tile
@@ -3268,7 +3440,7 @@ function actorSpriteDescriptor(actor: PortActor, playerAngle: number): ActorSpri
 
 function calcActorRotate(actor: PortActor, playerAngle: number): number {
   const playerAngleDegrees = normalizeDegrees((-playerAngle * 180) / Math.PI);
-  const dirType = Math.max(0, Math.min(8, actor.dir * 2));
+  const dirType = Math.max(0, Math.min(8, actor.dir));
   const actorDirection = DIR_ANGLE_DEGREES[dirType] ?? 0;
   const rotateAngle = normalizeDegrees(playerAngleDegrees - 180 - actorDirection + 360 / 16);
   return Math.floor(rotateAngle / (360 / 8)) % 8;
