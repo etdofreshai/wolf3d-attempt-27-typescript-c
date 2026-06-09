@@ -4227,23 +4227,6 @@ class WLGame {
     return dx <= MINACTORDIST_TILES && dy <= MINACTORDIST_TILES;
   }
 
-  private ActorVisibleToPlayer(actor: PortActor): boolean {
-    const actorCenterX = actor.x + 0.5;
-    const actorCenterY = actor.y + 0.5;
-    const dx = actorCenterX - this.gamestate.x;
-    const dy = actorCenterY - this.gamestate.y;
-    const facingX = Math.cos(this.gamestate.angle);
-    const facingY = Math.sin(this.gamestate.angle);
-    const depth = dx * facingX + dy * facingY;
-    if (depth <= 0) {
-      return false;
-    }
-
-    const angleToActor = Math.atan2(dy, dx);
-    const delta = Math.abs(normalizeAngle(angleToActor - this.gamestate.angle + Math.PI) - Math.PI);
-    return delta <= COMBAT_FOV / 2 && this.CheckLineToActor(actor);
-  }
-
   private T_Shoot(actor: PortActor): void {
     if (!this.ActorAreaCanReachPlayer(actor) || !this.CheckLineToActor(actor)) {
       return;
@@ -4254,7 +4237,8 @@ class WLGame {
       dist = Math.floor((dist * 2) / 3);
     }
 
-    const playerCanSeeToDodge = this.ActorVisibleToPlayer(actor);
+    // WL_ACT2.C T_Shoot uses FL_VISABLE, which DrawScaleds refreshes once per rendered frame.
+    const playerCanSeeToDodge = actor.visible;
     const hitChance =
       this.thrustSpeed >= RUNSPEED
         ? 160 - dist * (playerCanSeeToDodge ? 16 : 8)
