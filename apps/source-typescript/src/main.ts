@@ -50,6 +50,7 @@ type PortMap = {
   name: string;
   objects: Uint16Array;
   projectiles: PortProjectile[];
+  pushWall: PortPushWall | null;
   secretTotal: number;
   source: "fallback" | "wl6";
   statics: PortStatic[];
@@ -78,6 +79,17 @@ type PortStatic = {
   shapenum: number;
   treasure: boolean;
   type: number;
+  x: number;
+  y: number;
+};
+
+type PushWallDirection = "east" | "north" | "south" | "west";
+
+type PortPushWall = {
+  dir: PushWallDirection;
+  oldTile: number;
+  pos: number;
+  state: number;
   x: number;
   y: number;
 };
@@ -1218,6 +1230,16 @@ class WLMain {
           x: projectile.x,
           y: projectile.y
         })),
+        pushWall: this.wl_game.map.pushWall
+          ? {
+              dir: this.wl_game.map.pushWall.dir,
+              oldTile: this.wl_game.map.pushWall.oldTile,
+              pos: this.wl_game.map.pushWall.pos,
+              state: this.wl_game.map.pushWall.state,
+              x: this.wl_game.map.pushWall.x,
+              y: this.wl_game.map.pushWall.y
+            }
+          : null,
         killedActors: this.wl_game.gamestate.killcount,
         shootableActors: this.wl_game.map.actors.filter((actor) => actor.shootable).length,
         blockingStatics: this.wl_game.map.blockingStaticKeys.size,
@@ -1361,9 +1383,10 @@ class WLPlay {
   PlayLoop(ticMs: number): void {
     const tics = ticsFromMilliseconds(ticMs);
     const moved = this.wl_game.PlayPlayerInput(this.id_in, ticMs, tics, this.id_in.ConsumeUse());
+    this.wl_game.MoveDoors(tics);
+    this.wl_game.MovePushWall(tics);
     this.wl_game.MoveActors(tics);
     this.wl_game.MoveProjectiles(tics);
-    this.wl_game.MoveDoors(tics);
     this.wl_draw.ThreeDRefresh(this.wl_game);
     this.id_sd.SD_Service(moved, ticMs);
   }
@@ -1409,7 +1432,8 @@ class WLGame {
   get objectMetadata(): string {
     const movingDoors = this.map.doors.filter((door) => door.action !== "closed").length;
     const shootableActors = this.map.actors.filter((actor) => actor.shootable).length;
-    return `${this.map.doors.length} doors (${movingDoors} active) / ${this.map.statics.length} statics / ${shootableActors}/${this.map.actors.length} live actors / ${this.map.projectiles.length} projectiles`;
+    const pushWall = this.map.pushWall ? ` / pushwall ${this.map.pushWall.state}:${this.map.pushWall.pos}` : "";
+    return `${this.map.doors.length} doors (${movingDoors} active) / ${this.map.statics.length} statics / ${shootableActors}/${this.map.actors.length} live actors / ${this.map.projectiles.length} projectiles${pushWall}`;
   }
 
   SetupGameLevel(level: number, wolfMap: WolfMap | null = null): void {
@@ -1434,13 +1458,14 @@ class WLGame {
         height: wolfMap.header.height,
         killTotal: scan.killTotal,
         name: `WL6 ${wolfMap.index} ${wolfMap.header.name || "unnamed"}`,
-        objects: wolfMap.planes[1],
+        objects: new Uint16Array(wolfMap.planes[1]),
         projectiles: [],
+        pushWall: null,
         secretTotal: scan.secretTotal,
         source: "wl6",
         statics: scan.statics,
         treasureTotal: scan.treasureTotal,
-        walls: wolfMap.planes[0],
+        walls: new Uint16Array(wolfMap.planes[0]),
         width: wolfMap.header.width
       };
       spawn = scan.spawn ?? findPlayerSpawn(wolfMap);
@@ -1565,11 +1590,48 @@ class WLGame {
     }
 
     if ((this.map.objects[target.y * this.map.width + target.x] ?? 0) === PUSHABLETILE) {
-      this.gamestate.secrettotal = Math.max(this.gamestate.secrettotal, this.map.secretTotal);
-      return false;
+      return this.PushWall(target.x, target.y, target.dir);
     }
 
     return false;
+  }
+
+  PushWall(checkX: number, checkY: number, dir: PushWallDirection): boolean {
+    if (
+      this.map.pushWall ||
+      checkX < 0 ||
+      checkY < 0 ||
+      checkX >= this.map.width ||
+      checkY >= this.map.height
+    ) {
+      return false;
+    }
+
+    const oldTile = this.GetWallTile(checkX, checkY);
+    if (oldTile === 0) {
+      return false;
+    }
+
+    const delta = pushWallDelta(dir);
+    const nextX = checkX + delta.dx;
+    const nextY = checkY + delta.dy;
+    if (!this.CanPushWallEnterTile(nextX, nextY)) {
+      return false;
+    }
+
+    this.SetWallTile(nextX, nextY, oldTile);
+    this.map.objects[checkY * this.map.width + checkX] = 0;
+    this.gamestate.secretcount += 1;
+    this.map.pushWall = {
+      dir,
+      oldTile,
+      pos: 0,
+      state: 1,
+      x: checkX,
+      y: checkY
+    };
+
+    return true;
   }
 
   MoveDoors(tics: number): void {
@@ -1582,6 +1644,80 @@ class WLGame {
         this.DoorClosing(door, tics);
       }
     }
+  }
+
+  MovePushWall(tics: number): void {
+    const pushWall = this.map.pushWall;
+    if (!pushWall) {
+      return;
+    }
+
+    const oldBlock = Math.floor(pushWall.state / 128);
+    pushWall.state += tics;
+    if (Math.floor(pushWall.state / 128) !== oldBlock) {
+      const oldTile = pushWall.oldTile;
+      this.SetWallTile(pushWall.x, pushWall.y, this.OpenedAreaTile());
+      if (pushWall.state > 256) {
+        this.map.pushWall = null;
+        return;
+      }
+
+      const delta = pushWallDelta(pushWall.dir);
+      pushWall.x += delta.dx;
+      pushWall.y += delta.dy;
+      if (!this.CanPushWallEnterTile(pushWall.x + delta.dx, pushWall.y + delta.dy)) {
+        this.SetWallTile(pushWall.x, pushWall.y, oldTile);
+        this.map.pushWall = null;
+        return;
+      }
+
+      this.SetWallTile(pushWall.x, pushWall.y, oldTile);
+      this.SetWallTile(pushWall.x + delta.dx, pushWall.y + delta.dy, oldTile);
+    }
+
+    pushWall.pos = Math.floor(pushWall.state / 2) & 63;
+  }
+
+  private CanPushWallEnterTile(tileX: number, tileY: number): boolean {
+    if (
+      tileX < 0 ||
+      tileY < 0 ||
+      tileX >= this.map.width ||
+      tileY >= this.map.height ||
+      this.DoorAt(tileX, tileY) ||
+      this.GetWallTile(tileX, tileY) !== 0 ||
+      this.map.blockingStaticKeys.has(tileKey(tileX, tileY))
+    ) {
+      return false;
+    }
+
+    if (Math.floor(this.gamestate.x) === tileX && Math.floor(this.gamestate.y) === tileY) {
+      return false;
+    }
+
+    return !this.map.actors.some((actor) => {
+      if (!actor.shootable) {
+        return false;
+      }
+
+      return (
+        (Math.floor(actor.x) === tileX && Math.floor(actor.y) === tileY) ||
+        (actor.targetX === tileX && actor.targetY === tileY)
+      );
+    });
+  }
+
+  private OpenedAreaTile(): number {
+    const playerArea = this.AreaNumberAt(Math.floor(this.gamestate.x), Math.floor(this.gamestate.y));
+    return playerArea === null ? 0 : playerArea + AREATILE;
+  }
+
+  private SetWallTile(tileX: number, tileY: number, tile: number): void {
+    if (tileX < 0 || tileY < 0 || tileX >= this.map.width || tileY >= this.map.height) {
+      return;
+    }
+
+    this.map.walls[tileY * this.map.width + tileX] = tile;
   }
 
   MoveActors(tics: number): void {
@@ -4154,6 +4290,7 @@ function createFallbackMap(): PortMap {
     name: "fallback scaffold",
     objects,
     projectiles: [],
+    pushWall: null,
     secretTotal: 0,
     source: "fallback",
     statics: [],
@@ -5103,6 +5240,19 @@ function collisionTile(tile: number): number {
   }
 
   return tile;
+}
+
+function pushWallDelta(dir: PushWallDirection): { dx: number; dy: number } {
+  switch (dir) {
+    case "east":
+      return { dx: 1, dy: 0 };
+    case "north":
+      return { dx: 0, dy: -1 };
+    case "south":
+      return { dx: 0, dy: 1 };
+    case "west":
+      return { dx: -1, dy: 0 };
+  }
 }
 
 function tileKey(x: number, y: number): string {
