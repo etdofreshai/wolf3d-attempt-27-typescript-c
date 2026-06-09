@@ -297,12 +297,19 @@ type SourceSoundName =
   | "BONUS3SND"
   | "BONUS4SND"
   | "BONUS1UPSND"
+  | "CLOSEDOORSND"
+  | "DONOTHINGSND"
   | "GETAMMOSND"
   | "GETGATLINGSND"
   | "GETKEYSND"
   | "GETMACHINESND"
+  | "HITWALLSND"
   | "HEALTH1SND"
   | "HEALTH2SND"
+  | "LEVELDONESND"
+  | "NOWAYSND"
+  | "OPENDOORSND"
+  | "PUSHWALLSND"
   | "SLURPIESND";
 
 type PageInfo = {
@@ -442,12 +449,19 @@ const SOURCE_SOUND_CHUNKS: Record<SourceSoundName, number> = {
   BONUS3SND: 37,
   BONUS4SND: 45,
   BONUS1UPSND: 44,
+  CLOSEDOORSND: 19,
+  DONOTHINGSND: 20,
   GETAMMOSND: 31,
   GETGATLINGSND: 38,
   GETKEYSND: 12,
   GETMACHINESND: 30,
+  HITWALLSND: 0,
   HEALTH1SND: 33,
   HEALTH2SND: 34,
+  LEVELDONESND: 40,
+  NOWAYSND: 6,
+  OPENDOORSND: 18,
+  PUSHWALLSND: 46,
   SLURPIESND: 61
 };
 const WP_KNIFE = 0;
@@ -2186,6 +2200,10 @@ class WLGame {
       return true;
     }
 
+    if (!this.id_sd.SD_SoundPlaying()) {
+      this.id_sd.SD_PlaySound("HITWALLSND");
+    }
+
     if (this.TryPlayerMove(targetX, baseY)) {
       this.gamestate.x = targetX;
       this.gamestate.y = baseY;
@@ -2268,6 +2286,7 @@ class WLGame {
       this.useButtonHeld = true;
       this.SetWallTile(target.x, target.y, ELEVATORTILE + 1);
       this.SetPlayState(this.PlayerFloorTile() === ALTELEVATORTILE ? "ex_secretlevel" : "ex_completed");
+      this.id_sd.SD_PlaySound("LEVELDONESND");
       return true;
     }
 
@@ -2278,6 +2297,7 @@ class WLGame {
       return true;
     }
 
+    this.id_sd.SD_PlaySound("DONOTHINGSND");
     return false;
   }
 
@@ -2477,6 +2497,7 @@ class WLGame {
     const nextX = checkX + delta.dx;
     const nextY = checkY + delta.dy;
     if (!this.CanPushWallEnterTile(nextX, nextY)) {
+      this.id_sd.SD_PlaySound("NOWAYSND");
       return false;
     }
 
@@ -2492,6 +2513,7 @@ class WLGame {
       y: checkY
     };
 
+    this.id_sd.SD_PlaySound("PUSHWALLSND");
     return true;
   }
 
@@ -3432,6 +3454,7 @@ class WLGame {
     }
 
     if (door.lock > 0 && door.lock < 5 && (this.gamestate.keys & (1 << (door.lock - 1))) === 0) {
+      this.id_sd.SD_PlaySound("NOWAYSND");
       return;
     }
 
@@ -3453,6 +3476,10 @@ class WLGame {
   CloseDoor(door: PortDoor): void {
     if (this.DoorBlockedForClose(door)) {
       return;
+    }
+
+    if (this.DoorClosingSoundAudible(door)) {
+      this.id_sd.SD_PlaySound("CLOSEDOORSND");
     }
 
     door.action = "closing";
@@ -4497,6 +4524,9 @@ class WLGame {
   private DoorOpening(door: PortDoor, tics: number): void {
     if (door.position === 0) {
       this.ChangeDoorAreaConnection(door, 1);
+      if (this.DoorOpeningSoundAudible(door)) {
+        this.id_sd.SD_PlaySound("OPENDOORSND");
+      }
     }
 
     door.position += tics << DOOR_POSITION_RATE_SHIFT;
@@ -4558,6 +4588,20 @@ class WLGame {
       area1,
       area2
     };
+  }
+
+  private DoorOpeningSoundAudible(door: PortDoor): boolean {
+    const pair = this.DoorAreaPair(door);
+    return pair !== null && this.map.areasByPlayer.has(pair.area1);
+  }
+
+  private DoorClosingSoundAudible(door: PortDoor): boolean {
+    const pair = this.DoorAreaPair(door);
+    if (!pair) {
+      return false;
+    }
+
+    return this.map.areasByPlayer.has(door.vertical ? pair.area2 : pair.area1);
   }
 
   private GetBonus(stat: PortStatic): boolean {
