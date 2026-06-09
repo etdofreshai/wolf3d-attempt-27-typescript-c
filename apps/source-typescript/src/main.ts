@@ -4143,7 +4143,7 @@ class WLGame {
   }
 
   ActorAreaNumber(actor: PortActor): number | null {
-    return this.AreaNumberAt(Math.floor(actor.x), Math.floor(actor.y));
+    return this.AreaNumberAt(this.ActorSourceTileX(actor), this.ActorSourceTileY(actor));
   }
 
   PlayerAreaNumber(): number | null {
@@ -4297,7 +4297,18 @@ class WLGame {
   private ActorTileDistance(actor: PortActor): number {
     const playerTileX = Math.floor(this.gamestate.x);
     const playerTileY = Math.floor(this.gamestate.y);
-    return Math.max(Math.abs(Math.floor(actor.x) - playerTileX), Math.abs(Math.floor(actor.y) - playerTileY));
+    return Math.max(
+      Math.abs(this.ActorSourceTileX(actor) - playerTileX),
+      Math.abs(this.ActorSourceTileY(actor) - playerTileY)
+    );
+  }
+
+  private ActorSourceTileX(actor: PortActor): number {
+    return Math.floor(actor.targetX);
+  }
+
+  private ActorSourceTileY(actor: PortActor): number {
+    return Math.floor(actor.targetY);
   }
 
   private ActorTouchesPlayer(actor: PortActor): boolean {
