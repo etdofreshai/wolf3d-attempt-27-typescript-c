@@ -2894,8 +2894,13 @@ class WLGame {
     actor.stateTics -= tics;
     while (actor.mode === "dying" && actor.stateTics <= 0) {
       const currentFrame = sequence[actor.stateIndex];
+      const stateBeforeAction = actor.stateName;
       this.RunActorFrameAction(actor, currentFrame);
       if (actor.mode !== "dying") {
+        return;
+      }
+
+      if (actor.stateName !== stateBeforeAction) {
         return;
       }
 
@@ -4419,6 +4424,20 @@ class WLGame {
     this.gamestate.victoryflag = true;
     this.bossDeathCamCountdown = SOURCE_DEATH_CAM_DONE_TICS;
     this.PlaceBossDeathCamera(actor);
+    this.StartBossDeathCamState(actor);
+  }
+
+  private StartBossDeathCamState(actor: PortActor): void {
+    const frame = bossDeathCamFrame(actor.kind);
+    if (!frame) {
+      return;
+    }
+
+    actor.mode = "dying";
+    actor.stateIndex = -1;
+    actor.stateName = frame.name;
+    actor.stateShapenum = frame.shapenum;
+    actor.stateTics = frame.tics;
   }
 
   private PlaceBossDeathCamera(actor: PortActor): void {
@@ -6552,6 +6571,21 @@ function deathFrames(frames: Array<[string, number, number, boolean?, ActorFrame
 
     return frame;
   });
+}
+
+function bossDeathCamFrame(kind: string): ActorStateFrame | null {
+  switch (kind) {
+    case "fat":
+      return { name: "s_fatdeathcam", shapenum: ACTOR_SPRITES.FAT_W1, tics: 1 };
+    case "gift":
+      return { name: "s_giftdeathcam", shapenum: ACTOR_SPRITES.GIFT_W1, tics: 1 };
+    case "real_hitler":
+      return { name: "s_hitlerdeathcam", shapenum: ACTOR_SPRITES.HITLER_W1, tics: 10 };
+    case "schabbs":
+      return { name: "s_schabbdeathcam", shapenum: ACTOR_SPRITES.SCHABB_W1, tics: 1 };
+    default:
+      return null;
+  }
 }
 
 function initialActorState(
