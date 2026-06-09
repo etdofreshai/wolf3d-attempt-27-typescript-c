@@ -118,6 +118,12 @@ type ActorSpriteDescriptor = {
   shapenum: number;
 };
 
+type AttackInfo = {
+  attack: -1 | 0 | 1 | 2 | 3 | 4;
+  frame: number;
+  tics: number;
+};
+
 type SpriteBitmap = {
   mask: Uint8Array;
   pixels: Uint8Array;
@@ -202,6 +208,7 @@ const PUSHABLETILE = 98;
 const SCREEN_WIDTH = 320;
 const SCREEN_HEIGHT = 200;
 const STARTAMMO = 8;
+const ATTACK_KEY_CODE = 17;
 const USE_KEY_CODE = 32;
 const WP_KNIFE = 0;
 const WP_PISTOL = 1;
@@ -209,6 +216,33 @@ const WP_MACHINEGUN = 2;
 const WP_CHAINGUN = 3;
 // WL_DRAW.C weaponscale[] for WL6: SPR_KNIFEREADY, SPR_PISTOLREADY, etc.
 const WEAPON_READY_SPRITES = [416, 421, 426, 431] as const;
+// WL_AGENT.C attackinfo[4][14], trimmed to the populated frames in the WL6 source.
+const ATTACK_INFO: AttackInfo[][] = [
+  [
+    { attack: 0, frame: 1, tics: 6 },
+    { attack: 2, frame: 2, tics: 6 },
+    { attack: 0, frame: 3, tics: 6 },
+    { attack: -1, frame: 4, tics: 6 }
+  ],
+  [
+    { attack: 0, frame: 1, tics: 6 },
+    { attack: 1, frame: 2, tics: 6 },
+    { attack: 0, frame: 3, tics: 6 },
+    { attack: -1, frame: 4, tics: 6 }
+  ],
+  [
+    { attack: 0, frame: 1, tics: 6 },
+    { attack: 1, frame: 2, tics: 6 },
+    { attack: 3, frame: 3, tics: 6 },
+    { attack: -1, frame: 4, tics: 6 }
+  ],
+  [
+    { attack: 0, frame: 1, tics: 6 },
+    { attack: 1, frame: 2, tics: 6 },
+    { attack: 4, frame: 3, tics: 6 },
+    { attack: -1, frame: 4, tics: 6 }
+  ]
+];
 const STATIC_INFO_TYPES = [
   "dressing",
   "block",
@@ -582,13 +616,15 @@ class WLMain {
   private GameLoop(time: number): void {
     const elapsed = Math.min(100, time - this.lastTime);
     this.lastTime = time;
-    this.Tick(elapsed);
+    if (!this.demoRunning) {
+      this.Tick(elapsed);
+    }
     requestAnimationFrame((nextTime) => this.GameLoop(nextTime));
   }
 
   private async RunDemoStep(step: DemoPlanStep, index: number): Promise<void> {
     if (step.action === "wait") {
-      await delay(Math.max(0, step.ms));
+      await this.AdvanceDemoWait(Math.max(0, step.ms));
       return;
     }
 
@@ -622,9 +658,26 @@ class WLMain {
 
     if (step.action === "key") {
       this.id_in.KeyDown(keyCode);
-      await delay(Math.max(1, step.holdMs ?? DEMO_DEFAULT_HOLD_MS));
+      await this.AdvanceDemoWait(Math.max(1, step.holdMs ?? DEMO_DEFAULT_HOLD_MS));
       this.id_in.KeyUp(keyCode);
     }
+  }
+
+  private async AdvanceDemoWait(milliseconds: number): Promise<void> {
+    const ticMs = 1000 / 70;
+    let remaining = milliseconds;
+    let steps = 0;
+    while (remaining > 0) {
+      const step = Math.min(ticMs, remaining);
+      this.Tick(step);
+      remaining -= step;
+      steps += 1;
+      if (steps % 64 === 0) {
+        await delay(0);
+      }
+    }
+
+    await delay(0);
   }
 
   private RegisterArtifact(blob: Blob, fileName: string, autoDownload: boolean): void {
@@ -645,7 +698,7 @@ class WLMain {
   private RenderUi(): void {
     mapState.textContent = this.wl_game.mapMetadata;
     objectState.textContent = this.wl_game.objectMetadata;
-    runtimeState.textContent = `tic ${this.wl_game.gamestate.ticcount} / ${this.wl_game.gamestate.x.toFixed(2)}, ${this.wl_game.gamestate.y.toFixed(2)} / hp ${this.wl_game.gamestate.health} ammo ${this.wl_game.gamestate.ammo} wp ${this.wl_game.gamestate.weapon}:${this.wl_game.gamestate.weaponframe} keys ${this.wl_game.gamestate.keys}`;
+    runtimeState.textContent = `tic ${this.wl_game.gamestate.ticcount} / ${this.wl_game.gamestate.x.toFixed(2)}, ${this.wl_game.gamestate.y.toFixed(2)} / hp ${this.wl_game.gamestate.health} ammo ${this.wl_game.gamestate.ammo} wp ${this.wl_game.gamestate.weapon}:${this.wl_game.gamestate.weaponframe} atk ${this.wl_game.gamestate.attackframe}:${this.wl_game.gamestate.attackcount} keys ${this.wl_game.gamestate.keys}`;
     demoState.textContent = this.demoPlan
       ? this.demoRunning
         ? `Running ${this.demoPlan.name}`
@@ -667,11 +720,7 @@ class WLPlay {
 
   PlayLoop(ticMs: number): void {
     const tics = ticsFromMilliseconds(ticMs);
-    if (this.id_in.ConsumeUse()) {
-      this.wl_game.Cmd_Use();
-    }
-
-    const moved = this.wl_game.ControlMovement(this.id_in, ticMs);
+    const moved = this.wl_game.PlayPlayerInput(this.id_in, ticMs, tics, this.id_in.ConsumeUse());
     this.wl_game.MoveDoors(tics);
     this.wl_draw.ThreeDRefresh(this.wl_game);
     this.id_sd.SD_Service(moved, ticMs);
@@ -680,10 +729,12 @@ class WLPlay {
 
 class WLGame {
   map = createFallbackMap();
+  private attackButtonHeld = false;
 
   readonly gamestate = {
     angle: 0,
     ammo: STARTAMMO,
+    attackcount: 0,
     attackframe: 0,
     bestweapon: WP_PISTOL,
     chosenweapon: WP_PISTOL,
@@ -753,7 +804,9 @@ class WLGame {
 
     this.gamestate.angle = normalizeAngle(spawn.angle);
     this.gamestate.ammo = STARTAMMO;
+    this.gamestate.attackcount = 0;
     this.gamestate.attackframe = 0;
+    this.attackButtonHeld = false;
     this.gamestate.bestweapon = WP_PISTOL;
     this.gamestate.chosenweapon = WP_PISTOL;
     this.gamestate.health = MAX_HEALTH;
@@ -773,6 +826,32 @@ class WLGame {
     this.gamestate.weaponframe = 0;
     this.gamestate.x = spawn.x;
     this.gamestate.y = spawn.y;
+  }
+
+  PlayPlayerInput(id_in: IDIN, ticMs: number, tics: number, usePressed: boolean): boolean {
+    const attackDown = id_in.IN_AttackDown();
+    let moved = false;
+
+    if (this.gamestate.attackcount > 0) {
+      moved = this.ControlMovement(id_in, ticMs);
+      this.T_Attack(tics, attackDown);
+    } else {
+      if (usePressed) {
+        this.Cmd_Use();
+      }
+
+      if (attackDown && !this.attackButtonHeld) {
+        this.Cmd_Fire();
+      }
+
+      moved = this.ControlMovement(id_in, ticMs);
+    }
+
+    if (!attackDown) {
+      this.attackButtonHeld = false;
+    }
+
+    return moved;
   }
 
   ControlMovement(id_in: IDIN, ticMs: number): boolean {
@@ -813,6 +892,20 @@ class WLGame {
     this.TryPickupBonusAt(Math.floor(this.gamestate.x), Math.floor(this.gamestate.y));
     this.gamestate.ticcount += 1;
     return moved;
+  }
+
+  Cmd_Fire(): void {
+    const attackInfo = ATTACK_INFO[this.gamestate.weapon] ?? ATTACK_INFO[WP_KNIFE];
+    const firstFrame = attackInfo?.[0];
+    if (!firstFrame) {
+      return;
+    }
+
+    this.attackButtonHeld = true;
+    this.gamestate.weaponframe = 0;
+    this.gamestate.attackframe = 0;
+    this.gamestate.attackcount = firstFrame.tics;
+    this.gamestate.weaponframe = firstFrame.frame;
   }
 
   Cmd_Use(): boolean {
@@ -946,6 +1039,70 @@ class WLGame {
     }
 
     return collisionTile(this.map.walls[tileY * this.map.width + tileX] ?? 1);
+  }
+
+  private T_Attack(tics: number, attackDown: boolean): void {
+    this.gamestate.attackcount -= tics;
+    while (this.gamestate.attackcount <= 0) {
+      const attackInfo = ATTACK_INFO[this.gamestate.weapon] ?? ATTACK_INFO[WP_KNIFE];
+      const current = attackInfo?.[this.gamestate.attackframe];
+      if (!current) {
+        this.FinishAttack();
+        return;
+      }
+
+      if (current.attack === -1) {
+        this.FinishAttack();
+        return;
+      }
+
+      if (current.attack === 1) {
+        this.RunGunAttackFrame();
+      } else if (current.attack === 2) {
+        this.RunKnifeAttackFrame();
+      } else if (current.attack === 3) {
+        if (this.gamestate.ammo > 0 && attackDown) {
+          this.gamestate.attackframe -= 2;
+        }
+      } else if (current.attack === 4) {
+        if (this.gamestate.ammo > 0) {
+          if (attackDown) {
+            this.gamestate.attackframe -= 2;
+          }
+
+          this.RunGunAttackFrame();
+        }
+      }
+
+      this.gamestate.attackcount += current.tics;
+      this.gamestate.attackframe += 1;
+      this.gamestate.weaponframe = (attackInfo?.[this.gamestate.attackframe] ?? current).frame;
+    }
+  }
+
+  private FinishAttack(): void {
+    if (this.gamestate.ammo === 0) {
+      this.gamestate.weapon = WP_KNIFE;
+    } else if (this.gamestate.weapon !== this.gamestate.chosenweapon) {
+      this.gamestate.weapon = this.gamestate.chosenweapon;
+    }
+
+    this.gamestate.attackcount = 0;
+    this.gamestate.attackframe = 0;
+    this.gamestate.weaponframe = 0;
+  }
+
+  private RunGunAttackFrame(): void {
+    if (this.gamestate.ammo === 0) {
+      this.gamestate.attackframe += 1;
+      return;
+    }
+
+    this.gamestate.ammo -= 1;
+  }
+
+  private RunKnifeAttackFrame(): void {
+    // DamageActor parity lands in the actor/combat slice; this frame is still timed from WL_AGENT.C.
   }
 
   private DoorOpen(door: PortDoor, tics: number): void {
@@ -1795,6 +1952,10 @@ class IDIN {
 
   IN_KeyDown(keyCode: number): boolean {
     return this.keys.has(keyCode);
+  }
+
+  IN_AttackDown(): boolean {
+    return this.IN_KeyDown(ATTACK_KEY_CODE);
   }
 
   ConsumeUse(): boolean {
