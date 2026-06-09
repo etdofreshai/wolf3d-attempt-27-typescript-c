@@ -3,14 +3,48 @@
 TypeScript-first Wolfenstein 3D porting experiments that keep the original DOS
 source and retail data boundaries explicit.
 
-## Current slice
+## App tracks
 
-The first app lives in `apps/dos-page`. Its first screen boots the original DOS
-executable and repo-local WL6 data through a browser DOSBox/WASM layer. This
-runs the original DOS program/data path in the browser; it is not yet a
-source-to-WASM build of the released C/ASM source tree.
+This repo is being split into three intentionally separate browser-facing apps:
 
-The same app also keeps a TypeScript source-probe page with a 320x200 raycast
+- `apps/launcher`: front door for the current game lanes and local tools. It
+  shows the Steam/source server status, WL6 data inventory, source inventory,
+  and toolchain readiness.
+- `apps/dos-page`: Steam DOS executable + repo-local WL6 data through a browser
+  DOSBox/WASM layer.
+- `apps/source-dos`: original source-release DOS lane. It mounts
+  `source/WOLFSRC`, uses the same WL6 runtime data from `steam/base`, and
+  launches the source tree's `WOLF3D.EXE`. It also checks whether a local
+  Borland C++ 3.0/3.1 + TASM/TLINK toolchain is available before enabling a
+  rebuild path.
+- Port app: future portable source port lane. This is where browser-native or
+  source-to-WASM work should move after the original DOS/source behavior is
+  proven.
+
+`apps/source-dos` is the current second slice. On this machine,
+`C:\Users\etgarcia\Downloads\BCPP31.ZIP` has been extracted into the ignored
+`deps/borland` folder, so the source app can mount `BCC.EXE`, `TASM.EXE`,
+`TLINK.EXE`, `INCLUDE`, and `LIB` into the browser DOSBox worker.
+
+The Source app's Build button now rebuilds a fresh 16-bit `WOLF3D.EXE` from the
+original C/ASM tree in `source/WOLFSRC`, using a browser-mounted Borland
+makefile/config derived from the original `WOLF3D.PRJ`. The generated EXE is
+kept in memory, exposed as a local download, and used by Start for the next
+DOSBox launch.
+
+Local DOS build dependencies are intentionally private. To let `apps/source-dos`
+load a period compiler into DOSBox, place a licensed Borland C++ 3.0/3.1-style
+install under `deps/borland` or set `BORLANDC_ROOT` / `BC_ROOT` to that install
+root. The source app looks for `BCC.EXE`, `TASM.EXE`, `TLINK.EXE`, `INCLUDE`,
+and `LIB`; when they are found, it mounts the toolchain privately inside the
+browser DOSBox build runtime.
+
+The official Embarcadero museum downloads for Turbo C 2.01 and Turbo C++ 1.01
+are useful for comparison and partial DOS-era files, but they do not provide the
+full Wolf3D build toolchain. In particular, the available museum packages do not
+include `BCC.EXE` or `TASM.EXE`.
+
+`apps/dos-page` also keeps a TypeScript source-probe page with a 320x200 raycast
 canvas, fixed-tic movement, procedural wall shading, and a browser-local WL6 map
 loader.
 
@@ -27,12 +61,28 @@ Run it locally:
 
 ```powershell
 npm install
-npm run dev
+npm run dev:all
 ```
 
-Then open the printed Vite URL and select your local WL6 map files.
+Then open the launcher URL. `dev:all` uses these local ports:
 
-During `npm run dev`, the page also exposes a `Local WL6` button when
+```text
+launcher: http://127.0.0.1:5173/
+steam:    http://127.0.0.1:5174/
+source:   http://127.0.0.1:5175/
+```
+
+You can also run a single app:
+
+```powershell
+npm run dev:launcher
+npm run dev:steam
+npm run dev:source
+```
+
+Then open the printed Vite URL for the app you are working on.
+
+During `npm run dev:steam`, the page also exposes a `Local WL6` button when
 `steam/base/MAPHEAD.WL6` and `steam/base/GAMEMAPS.WL6` exist locally. That
 development endpoint is not part of the production bundle.
 
@@ -57,6 +107,10 @@ qualifiers, inline x86 assembly, direct VGA and sound-card port I/O, BIOS/DOS
 interrupts, and standalone `.ASM` modules. Those pieces need browser host
 replacements before the original `WL_MAIN.C`/`GameLoop` path can compile to
 WASM.
+
+The original-source DOS lane is different: it aims to rebuild a 16-bit DOS EXE
+from `source/WOLFSRC` with period-correct DOS tools, then run that EXE in
+DOSBox/js-dos against the local WL6 data.
 
 Validation:
 
@@ -116,6 +170,7 @@ Tracked files should remain limited to documentation, placeholder files, build/p
 Do **not** commit:
 
 - Steam game data or `*.WL6` runtime assets.
+- Local DOS compiler/toolchain installs under `deps/borland`.
 - Credentials, auth files, tokens, `.env` files, or secrets.
 - Decoded asset dumps, screenshots, hashes, map tile dumps, or extracted proprietary content.
 - Code copied from Wolf4SDL, ECWolf, Chocolate Wolfenstein, or other source ports.
