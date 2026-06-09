@@ -2933,7 +2933,7 @@ class WLGame {
 
     actor.stateTics -= tics;
     if (actor.stateTics <= 0) {
-      this.StartChaseState(actor, actor.stateTics);
+      this.StartChaseStateAndThink(actor, actor.stateTics, tics);
     }
   }
 
@@ -2996,14 +2996,14 @@ class WLGame {
       }
 
       if (!currentFrame || currentFrame.nextMode === "chase" || actor.stateIndex >= sequence.length - 1) {
-        this.StartChaseState(actor, actor.stateTics);
+        this.StartChaseStateAndThink(actor, actor.stateTics, tics);
         return;
       }
 
       const nextIndex = actor.stateIndex + 1;
       const nextFrame = sequence[nextIndex];
       if (!nextFrame) {
-        this.StartChaseState(actor, actor.stateTics);
+        this.StartChaseStateAndThink(actor, actor.stateTics, tics);
         return;
       }
 
@@ -4910,6 +4910,13 @@ class WLGame {
     }
 
     this.SetActorSequenceState(actor, sequence, 0, "chase", carry);
+  }
+
+  private StartChaseStateAndThink(actor: PortActor, carry: number, tics: number): void {
+    this.StartChaseState(actor, carry);
+    if (actor.mode === "chase") {
+      this.RunActorFrameThink(actor, this.CurrentActorFrame(actor), tics);
+    }
   }
 
   private StartAttackState(actor: PortActor): boolean {
