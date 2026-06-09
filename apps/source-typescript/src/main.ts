@@ -207,6 +207,8 @@ const WP_KNIFE = 0;
 const WP_PISTOL = 1;
 const WP_MACHINEGUN = 2;
 const WP_CHAINGUN = 3;
+// WL_DRAW.C weaponscale[] for WL6: SPR_KNIFEREADY, SPR_PISTOLREADY, etc.
+const WEAPON_READY_SPRITES = [416, 421, 426, 431] as const;
 const STATIC_INFO_TYPES = [
   "dressing",
   "block",
@@ -643,7 +645,7 @@ class WLMain {
   private RenderUi(): void {
     mapState.textContent = this.wl_game.mapMetadata;
     objectState.textContent = this.wl_game.objectMetadata;
-    runtimeState.textContent = `tic ${this.wl_game.gamestate.ticcount} / ${this.wl_game.gamestate.x.toFixed(2)}, ${this.wl_game.gamestate.y.toFixed(2)} / hp ${this.wl_game.gamestate.health} ammo ${this.wl_game.gamestate.ammo} wp ${this.wl_game.gamestate.weapon} keys ${this.wl_game.gamestate.keys}`;
+    runtimeState.textContent = `tic ${this.wl_game.gamestate.ticcount} / ${this.wl_game.gamestate.x.toFixed(2)}, ${this.wl_game.gamestate.y.toFixed(2)} / hp ${this.wl_game.gamestate.health} ammo ${this.wl_game.gamestate.ammo} wp ${this.wl_game.gamestate.weapon}:${this.wl_game.gamestate.weaponframe} keys ${this.wl_game.gamestate.keys}`;
     demoState.textContent = this.demoPlan
       ? this.demoRunning
         ? `Running ${this.demoPlan.name}`
@@ -700,6 +702,7 @@ class WLGame {
     treasuretotal: 0,
     ticcount: 0,
     weapon: WP_PISTOL,
+    weaponframe: 0,
     x: 3.5,
     y: 3.5
   };
@@ -767,6 +770,7 @@ class WLGame {
     this.gamestate.treasuretotal = this.map.treasureTotal;
     this.gamestate.ticcount = 0;
     this.gamestate.weapon = WP_PISTOL;
+    this.gamestate.weaponframe = 0;
     this.gamestate.x = spawn.x;
     this.gamestate.y = spawn.y;
   }
@@ -1148,7 +1152,7 @@ class WLDraw {
     }
 
     this.DrawScaleds(image, wl_game, wallDepths, fov, horizon);
-    this.DrawWeapon(image, wl_game.gamestate.ticcount);
+    this.DrawWeapon(image, wl_game.gamestate.weapon, wl_game.gamestate.weaponframe);
     this.id_vl.VL_Present(image);
   }
 
@@ -1385,9 +1389,48 @@ class WLDraw {
     }
   }
 
-  private DrawWeapon(image: ImageData, ticcount: number): void {
-    const bob = Math.floor(Math.sin(ticcount / 8) * 3);
-    for (let y = 156 + bob; y < SCREEN_HEIGHT; y += 1) {
+  private DrawWeapon(image: ImageData, weapon: number, weaponframe: number): void {
+    const readySprite = WEAPON_READY_SPRITES[weapon];
+    if (readySprite === undefined) {
+      return;
+    }
+
+    const shapenum = readySprite + weaponframe;
+    const bitmap = this.id_pm.PM_GetSpriteBitmap(shapenum);
+    if (!bitmap) {
+      this.DrawProceduralWeapon(image);
+      return;
+    }
+
+    this.DrawSimpleScaledShape(image, bitmap, SCREEN_WIDTH / 2, SCREEN_HEIGHT + 1);
+  }
+
+  private DrawSimpleScaledShape(image: ImageData, bitmap: SpriteBitmap, xcenter: number, height: number): void {
+    const width = height;
+    const left = Math.floor(xcenter - width / 2);
+    const top = Math.floor(SCREEN_HEIGHT / 2 - height / 2);
+    const right = Math.min(SCREEN_WIDTH - 1, Math.ceil(left + width));
+    const bottom = Math.min(SCREEN_HEIGHT - 1, Math.ceil(top + height));
+
+    for (let x = Math.max(0, left); x <= right; x += 1) {
+      const u = (x - left) / Math.max(1, width);
+      for (let y = Math.max(0, top); y <= bottom; y += 1) {
+        const v = (y - top) / Math.max(1, height);
+        const sourceX = Math.max(0, Math.min(63, Math.floor(u * 64)));
+        const sourceY = Math.max(0, Math.min(63, Math.floor(v * 64)));
+        const sourceIndex = sourceY * 64 + sourceX;
+        if (!bitmap.mask[sourceIndex]) {
+          continue;
+        }
+
+        const color = this.id_pm.PM_PaletteIndexRgb(bitmap.pixels[sourceIndex] ?? 0);
+        this.id_vl.VL_Plot(image, x, y, color[0], color[1], color[2]);
+      }
+    }
+  }
+
+  private DrawProceduralWeapon(image: ImageData): void {
+    for (let y = 156; y < SCREEN_HEIGHT; y += 1) {
       for (let x = 132; x < 188; x += 1) {
         const grip = x > 148 && x < 172 && y > 170;
         this.id_vl.VL_Plot(image, x, y, grip ? 42 : 118, grip ? 38 : 112, grip ? 34 : 96);
