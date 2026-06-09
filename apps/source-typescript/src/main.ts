@@ -1690,8 +1690,10 @@ class WLGame {
     if (forward !== 0) {
       this.thrustSpeed +=
         sourceMove * (forward > 0 ? SOURCE_FORWARD_MOVESCALE : SOURCE_BACK_MOVESCALE);
-      const nextX = this.gamestate.x + Math.cos(this.gamestate.angle) * moveSpeed * forward;
-      const nextY = this.gamestate.y + Math.sin(this.gamestate.angle) * moveSpeed * forward;
+      const playerMoveSpeed =
+        moveSpeed * (forward > 0 ? 1 : SOURCE_BACK_MOVESCALE / SOURCE_FORWARD_MOVESCALE);
+      const nextX = this.gamestate.x + Math.cos(this.gamestate.angle) * playerMoveSpeed * forward;
+      const nextY = this.gamestate.y + Math.sin(this.gamestate.angle) * playerMoveSpeed * forward;
       if (!this.IsWall(nextX, this.gamestate.y)) {
         this.gamestate.x = nextX;
       }
