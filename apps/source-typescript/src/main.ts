@@ -298,6 +298,11 @@ const STATIC_INFO_TYPES = [
   "bo_clip2"
 ] as const;
 const TREASURE_STAT_TYPES = new Set(["bo_cross", "bo_chalice", "bo_bible", "bo_crown", "bo_fullheal"]);
+const DROPPED_ITEM_TYPES = {
+  bo_clip2: 48,
+  bo_key1: 20,
+  bo_machinegun: 27
+} as const;
 const FALLBACK_PALETTE_16: Array<[number, number, number]> = [
   [0, 0, 0],
   [0, 0, 170],
@@ -652,7 +657,18 @@ class WLMain {
         blockingStatics: this.wl_game.map.blockingStaticKeys.size,
         collectedBonuses: this.wl_game.map.statics.filter((stat) => stat.collected).length,
         doors: this.wl_game.map.doors.length,
-        statics: this.wl_game.map.statics.length
+        statics: this.wl_game.map.statics.length,
+        staticsDetail: this.wl_game.map.statics.map((stat) => ({
+          blocking: stat.blocking,
+          bonus: stat.bonus,
+          collected: stat.collected,
+          item: stat.item,
+          shapenum: stat.shapenum,
+          treasure: stat.treasure,
+          type: stat.type,
+          x: stat.x,
+          y: stat.y
+        }))
       },
       pageManager: this.id_pm.StateSnapshot(),
       runner: "source-typescript",
@@ -1286,11 +1302,36 @@ class WLGame {
     actor.attackMode = false;
     this.gamestate.killcount += 1;
     this.GivePoints(actorKillScore(actor.kind));
+    this.PlaceKillDrop(actor);
   }
 
   private US_RndT(): number {
     this.rndIndex = (this.rndIndex + 1) & 0xff;
     return US_RND_TABLE[this.rndIndex] ?? 0;
+  }
+
+  private PlaceKillDrop(actor: PortActor): void {
+    switch (actor.kind) {
+      case "guard":
+      case "mutant":
+      case "officer":
+        this.PlaceItemType("bo_clip2", actor.x, actor.y);
+        break;
+      case "ss":
+        this.PlaceItemType(this.gamestate.bestweapon < WP_MACHINEGUN ? "bo_machinegun" : "bo_clip2", actor.x, actor.y);
+        break;
+      case "boss":
+      case "gretel":
+        this.PlaceItemType("bo_key1", actor.x, actor.y);
+        break;
+      default:
+        break;
+    }
+  }
+
+  private PlaceItemType(item: keyof typeof DROPPED_ITEM_TYPES, x: number, y: number): void {
+    const type = DROPPED_ITEM_TYPES[item];
+    this.map.statics.push(staticFromStaticType(type, x, y));
   }
 
   private DoorOpen(door: PortDoor, tics: number): void {
@@ -2411,7 +2452,10 @@ function scanInfoPlane(map: WolfMap, difficulty: "easy" | "medium" | "hard"): Sc
 }
 
 function staticFromInfoTile(tile: number, x: number, y: number): PortStatic {
-  const type = tile - 23;
+  return staticFromStaticType(tile - 23, x, y);
+}
+
+function staticFromStaticType(type: number, x: number, y: number): PortStatic {
   const statType = STATIC_INFO_TYPES[type] ?? "dressing";
 
   return {
