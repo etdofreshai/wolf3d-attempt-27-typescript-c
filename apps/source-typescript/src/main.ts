@@ -87,6 +87,15 @@ type PortActor = {
   y: number;
 };
 
+type RayHit = {
+  distance: number;
+  door?: PortDoor;
+  side: number;
+  texture: number;
+  tile: number;
+  type: "door" | "wall";
+};
+
 type ScanInfoPlaneResult = {
   actors: PortActor[];
   killTotal: number;
@@ -713,6 +722,18 @@ class WLGame {
       return door.tile;
     }
 
+    return this.GetWallTile(tileX, tileY);
+  }
+
+  DoorAtTile(x: number, y: number): PortDoor | null {
+    return this.DoorAt(x, y);
+  }
+
+  GetWallTile(tileX: number, tileY: number): number {
+    if (tileX < 0 || tileY < 0 || tileX >= this.map.width || tileY >= this.map.height) {
+      return 1;
+    }
+
     return collisionTile(this.map.walls[tileY * this.map.width + tileX] ?? 1);
   }
 
@@ -813,8 +834,10 @@ class WLDraw {
       const y0 = Math.max(0, Math.floor(horizon - wallHeight / 2));
       const y1 = Math.min(SCREEN_HEIGHT - 1, Math.floor(horizon + wallHeight / 2));
       const shade = Math.max(48, Math.floor(196 - corrected * 24));
-      const channelOffset = hit.side === 0 ? 0 : -24;
-      const wall = wallRgb(hit.tile, shade / 255, channelOffset);
+      const wall =
+        hit.type === "door" && hit.door
+          ? doorRgb(hit.door, shade / 255, hit.texture)
+          : wallRgb(hit.tile, shade / 255, hit.side === 0 ? 0 : -24);
 
       for (let y = y0; y <= y1; y += 1) {
         this.id_vl.VL_Plot(image, x, y, wall[0], wall[1], wall[2]);
@@ -825,28 +848,100 @@ class WLDraw {
     this.id_vl.VL_Present(image);
   }
 
-  private CastRay(wl_game: WLGame, angle: number): { distance: number; side: number; tile: number } {
+  private CastRay(wl_game: WLGame, angle: number): RayHit {
     const step = 0.025;
-    let distance = 0;
-    while (distance < 16) {
-      const x = wl_game.gamestate.x + Math.cos(angle) * distance;
-      const y = wl_game.gamestate.y + Math.sin(angle) * distance;
-      const tile = wl_game.GetTile(x, y);
-      if (tile !== 0) {
-        return {
-          distance,
-          side: Math.abs(Math.cos(angle)) > Math.abs(Math.sin(angle)) ? 0 : 1,
-          tile
-        };
+    const dirX = Math.cos(angle);
+    const dirY = Math.sin(angle);
+    const originX = wl_game.gamestate.x;
+    const originY = wl_game.gamestate.y;
+
+    for (let distance = 0; distance < 16; distance += step) {
+      const x = originX + dirX * distance;
+      const y = originY + dirY * distance;
+      const tileX = Math.floor(x);
+      const tileY = Math.floor(y);
+      const door = wl_game.DoorAtTile(tileX, tileY);
+      if (door) {
+        const doorHit = this.CastDoorRay(door, originX, originY, dirX, dirY);
+        if (doorHit) {
+          return doorHit;
+        }
+
+        continue;
       }
 
-      distance += step;
+      const tile = wl_game.GetWallTile(tileX, tileY);
+      if (tile !== 0) {
+        const side = Math.abs(dirX) > Math.abs(dirY) ? 0 : 1;
+        return {
+          distance,
+          side,
+          texture: side === 0 ? fractional(y) : fractional(x),
+          tile,
+          type: "wall"
+        };
+      }
     }
 
     return {
       distance: 16,
       side: 0,
-      tile: 1
+      texture: 0,
+      tile: 1,
+      type: "wall"
+    };
+  }
+
+  private CastDoorRay(
+    door: PortDoor,
+    originX: number,
+    originY: number,
+    dirX: number,
+    dirY: number
+  ): RayHit | null {
+    if (door.action === "open") {
+      return null;
+    }
+
+    const openFraction = door.position / (DOOR_POSITION_MAX + 1);
+    if (door.vertical) {
+      if (Math.abs(dirX) < 0.0001) {
+        return null;
+      }
+
+      const hitDistance = (door.x + 0.5 - originX) / dirX;
+      const localY = originY + dirY * hitDistance - door.y;
+      if (hitDistance < 0 || localY < 0 || localY >= 1 || localY < openFraction) {
+        return null;
+      }
+
+      return {
+        distance: hitDistance,
+        door,
+        side: 2,
+        texture: localY - openFraction,
+        tile: door.tile,
+        type: "door"
+      };
+    }
+
+    if (Math.abs(dirY) < 0.0001) {
+      return null;
+    }
+
+    const hitDistance = (door.y + 0.5 - originY) / dirY;
+    const localX = originX + dirX * hitDistance - door.x;
+    if (hitDistance < 0 || localX < 0 || localX >= 1 || localX < openFraction) {
+      return null;
+    }
+
+    return {
+      distance: hitDistance,
+      door,
+      side: 2,
+      texture: localX - openFraction,
+      tile: door.tile,
+      type: "door"
     };
   }
 
@@ -1395,8 +1490,37 @@ function wallRgb(tile: number, shade: number, channelOffset: number): [number, n
   ];
 }
 
+function doorRgb(door: PortDoor, shade: number, texture: number): [number, number, number] {
+  const stripe = Math.floor(texture * 12) % 2 === 0 ? 18 : -10;
+  if (door.lock > 0 && door.lock < 5) {
+    return [
+      clampByte(84 * shade + stripe),
+      clampByte(112 * shade + stripe),
+      clampByte(156 * shade + 18)
+    ];
+  }
+
+  if (door.lock === 5) {
+    return [
+      clampByte(152 * shade + stripe),
+      clampByte(152 * shade + stripe),
+      clampByte(132 * shade)
+    ];
+  }
+
+  return [
+    clampByte(108 * shade + stripe),
+    clampByte(86 * shade + stripe),
+    clampByte(64 * shade)
+  ];
+}
+
 function clampByte(value: number): number {
   return Math.max(0, Math.min(255, Math.floor(value)));
+}
+
+function fractional(value: number): number {
+  return value - Math.floor(value);
 }
 
 function collisionTile(tile: number): number {
