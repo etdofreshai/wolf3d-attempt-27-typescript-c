@@ -696,6 +696,8 @@ const DIRECTION_DELTAS: Record<number, { dx: number; dy: number }> = {
   6: { dx: 0, dy: 1 },
   7: { dx: 1, dy: 1 }
 };
+const CARDINAL_DIRECTIONS = new Set([0, 2, 4, 6]);
+const ACTOR_SIDE_DOOR_KINDS = new Set(["boss", "guard", "gretel", "hitler", "mutant", "officer", "ss"]);
 
 const root = document.querySelector<HTMLElement>("#app");
 if (!root) {
@@ -1358,6 +1360,21 @@ class WLGame {
 
     let move = (actor.speed * tics) / TILEGLOBAL;
     while (move > 0) {
+      if (actor.distance < 0) {
+        const door = this.map.doors[-actor.distance - 1];
+        if (!door) {
+          actor.dir = NODIR;
+          return;
+        }
+
+        this.OpenDoor(door);
+        if (door.action !== "open") {
+          return;
+        }
+
+        actor.distance = TILE_DISTANCE;
+      }
+
       if (actor.distance <= 0) {
         this.SelectPathDir(actor);
         if (actor.dir === NODIR || actor.distance <= 0) {
@@ -1413,6 +1430,19 @@ class WLGame {
 
     const nextX = actor.targetX + delta.dx;
     const nextY = actor.targetY + delta.dy;
+    const door = this.DoorAt(nextX, nextY);
+    if (door && door.action !== "open") {
+      if (!this.CanActorWaitForDoor(actor, nextX, nextY)) {
+        return false;
+      }
+
+      this.OpenDoor(door);
+      actor.targetX = nextX;
+      actor.targetY = nextY;
+      actor.distance = -door.index - 1;
+      return true;
+    }
+
     if (!this.CanActorEnterTile(actor, nextX, nextY)) {
       return false;
     }
@@ -1424,7 +1454,30 @@ class WLGame {
   }
 
   private CanActorEnterTile(actor: PortActor, tileX: number, tileY: number): boolean {
-    if (this.GetTile(tileX, tileY) !== 0 || this.map.blockingStaticKeys.has(tileKey(tileX, tileY))) {
+    const door = this.DoorAt(tileX, tileY);
+    const wallTile = door?.action === "open" ? 0 : this.GetWallTile(tileX, tileY);
+    if (
+      tileX < 0 ||
+      tileY < 0 ||
+      tileX >= this.map.width ||
+      tileY >= this.map.height ||
+      wallTile !== 0 ||
+      this.map.blockingStaticKeys.has(tileKey(tileX, tileY))
+    ) {
+      return false;
+    }
+
+    return !this.map.actors.some((other) => {
+      if (other === actor || !other.shootable) {
+        return false;
+      }
+
+      return other.targetX === tileX && other.targetY === tileY;
+    });
+  }
+
+  private CanActorWaitForDoor(actor: PortActor, tileX: number, tileY: number): boolean {
+    if (!ACTOR_SIDE_DOOR_KINDS.has(actor.kind) || !CARDINAL_DIRECTIONS.has(actor.dir)) {
       return false;
     }
 
@@ -2728,6 +2781,7 @@ function startSourceTypescriptApp(): void {
       reset: () => void;
       runDemo: () => Promise<void>;
       state: () => Record<string, unknown>;
+      tick: (ticMs?: number) => void;
     };
   }).wolf3dTypeScriptHarness = {
     exportPng: () => wlMain.ExportPng("harness", false),
@@ -2736,7 +2790,8 @@ function startSourceTypescriptApp(): void {
     operateDoor: (index = 0) => wlMain.wl_game.OperateDoor(index),
     reset: () => wlMain.ResetGame(),
     runDemo: () => wlMain.RunDemoPlan(),
-    state: () => wlMain.StateSnapshot()
+    state: () => wlMain.StateSnapshot(),
+    tick: (ticMs = 1000 / 60) => wlMain.Tick(ticMs)
   };
 
   buttonReset.addEventListener("click", () => {
