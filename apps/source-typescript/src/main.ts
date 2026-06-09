@@ -4552,11 +4552,11 @@ class WLGame {
     x: number;
     y: number;
   } {
-    const angle = normalizeAngle(this.gamestate.angle);
+    const angle = gameAngleToSourceDegrees(this.gamestate.angle);
     const tileX = Math.floor(this.gamestate.x);
     const tileY = Math.floor(this.gamestate.y);
 
-    if (angle < Math.PI / 4 || angle > (Math.PI * 7) / 4) {
+    if (angle < SOURCE_ANGLES / 8 || angle > (SOURCE_ANGLES * 7) / 8) {
       return {
         dir: "east",
         elevatorOk: true,
@@ -4565,7 +4565,7 @@ class WLGame {
       };
     }
 
-    if (angle < (Math.PI * 3) / 4) {
+    if (angle < (SOURCE_ANGLES * 3) / 8) {
       return {
         dir: "north",
         elevatorOk: false,
@@ -4574,7 +4574,7 @@ class WLGame {
       };
     }
 
-    if (angle < (Math.PI * 5) / 4) {
+    if (angle < (SOURCE_ANGLES * 5) / 8) {
       return {
         dir: "west",
         elevatorOk: true,
@@ -6312,7 +6312,7 @@ function actorSpriteDescriptor(actor: PortActor, playerAngle: number): ActorSpri
 }
 
 function calcActorRotate(actor: PortActor, playerAngle: number): number {
-  const playerAngleDegrees = normalizeDegrees((-playerAngle * 180) / Math.PI);
+  const playerAngleDegrees = gameAngleToSourceDegrees(playerAngle);
   const dirType = Math.max(0, Math.min(8, actor.dir));
   const actorDirection = DIR_ANGLE_DEGREES[dirType] ?? 0;
   const rotateAngle = normalizeDegrees(playerAngleDegrees - 180 - actorDirection + 360 / 16);
@@ -6320,8 +6320,8 @@ function calcActorRotate(actor: PortActor, playerAngle: number): number {
 }
 
 function calcProjectileRotate(projectile: PortProjectile, playerAngle: number): number {
-  const playerAngleDegrees = normalizeDegrees((-playerAngle * 180) / Math.PI);
-  const projectileDirection = normalizeDegrees((-projectile.angle * 180) / Math.PI);
+  const playerAngleDegrees = gameAngleToSourceDegrees(playerAngle);
+  const projectileDirection = gameAngleToSourceDegrees(projectile.angle);
   const rotateAngle = normalizeDegrees(playerAngleDegrees - 180 - projectileDirection + 360 / 16);
   return Math.floor(rotateAngle / (360 / 8)) % 8;
 }
@@ -6756,6 +6756,10 @@ function clampSourceControl(value: number, tics: number): number {
 
 function sourceAngleUnitsToRadians(angleUnits: number): number {
   return (angleUnits / SOURCE_ANGLES) * Math.PI * 2;
+}
+
+function gameAngleToSourceDegrees(angle: number): number {
+  return normalizeDegrees((-angle * SOURCE_ANGLES) / (Math.PI * 2));
 }
 
 function normalizeAngle(angle: number): number {
