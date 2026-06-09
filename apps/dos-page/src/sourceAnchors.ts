@@ -1,39 +1,45 @@
 export type SourceAnchor = {
-  name: string;
+  label: string;
   file: string;
-  line: number;
-  note: string;
+  lines: string;
+  detail: string;
 };
 
-export const sourceAnchors: SourceAnchor[] = [
+export const SOURCE_ANCHORS: SourceAnchor[] = [
   {
-    name: "CalcTics",
-    file: "source/WOLFSRC/WL_DRAW.C",
-    line: 1236,
-    note: "adaptive tic timing with MAXTICS clamp"
+    label: "maptype",
+    file: "source/WOLFSRC/ID_CA.H",
+    lines: "9-17",
+    detail: "Plane offsets, packed lengths, dimensions, and DOS map name."
   },
   {
-    name: "PollControls",
-    file: "source/WOLFSRC/WL_PLAY.C",
-    line: 455,
-    note: "controlx/controly are rebuilt once per frame"
+    label: "mapfiletype",
+    file: "source/WOLFSRC/ID_CA.C",
+    lines: "33-38",
+    detail: "RLEW tag and MAPHEAD offset table."
   },
   {
-    name: "ControlMovement",
-    file: "source/WOLFSRC/WL_AGENT.C",
-    line: 149,
-    note: "turning, strafing, and forward thrust"
+    label: "CAL_CarmackExpand",
+    file: "source/WOLFSRC/ID_CA.C",
+    lines: "609-659",
+    detail: "Near and far tagged word-stream expansion."
   },
   {
-    name: "Thrust",
-    file: "source/WOLFSRC/WL_AGENT.C",
-    line: 928,
-    note: "fixed-point movement through sin/cos tables"
+    label: "CA_RLEWexpand",
+    file: "source/WOLFSRC/ID_CA.C",
+    lines: "734-769",
+    detail: "RLEW word expansion after Carmack decode."
   },
   {
-    name: "ThreeDRefresh",
-    file: "source/WOLFSRC/WL_DRAW.C",
-    line: 1336,
-    note: "clear, wall refresh, scaled sprite pass"
+    label: "CA_CacheMap",
+    file: "source/WOLFSRC/ID_CA.C",
+    lines: "1428-1485",
+    detail: "Read, Carmack-expand, skip RLEW length word, then expand map planes."
+  },
+  {
+    label: "ScanInfoPlane",
+    file: "source/WOLFSRC/WL_GAME.C",
+    lines: "221-241",
+    detail: "Player start tiles 19 through 22 on plane 1."
   }
 ];
