@@ -167,6 +167,18 @@ type SourceVictorySummary = {
   totalTime: number;
 };
 
+type SourceHighScore = {
+  completed: number;
+  episode: number;
+  name: string;
+  score: number;
+};
+
+type SourceHighScoreCheck = SourceHighScore & {
+  inserted: boolean;
+  rank: number | null;
+};
+
 type PortActor = {
   ambush: boolean;
   attackMode: boolean;
@@ -341,7 +353,9 @@ const DOOR_POSITION_RATE_SHIFT = 10;
 const EXTRAPOINTS = 40000;
 const MAX_AMMO = 99;
 const MAX_HEALTH = 100;
+const MAX_HIGH_NAME = 57;
 const MAX_LIVES = 9;
+const MAX_SCORES = 7;
 const OPENTICS = 300;
 const RUNSPEED = 6000;
 const SOURCE_BASEMOVE = 35;
@@ -371,6 +385,15 @@ const WL6_PAR_TIMES_SECONDS = [
   120, 120, 90, 60, 270, 210, 120, 270, 0, 0,
   150, 90, 150, 150, 240, 180, 270, 210, 0, 0,
   390, 240, 270, 360, 300, 330, 330, 510, 0, 0
+] as const;
+const DEFAULT_HIGH_SCORES: SourceHighScore[] = [
+  { completed: 1, episode: 0, name: "id software-'92", score: 10000 },
+  { completed: 1, episode: 0, name: "Adrian Carmack", score: 10000 },
+  { completed: 1, episode: 0, name: "John Carmack", score: 10000 },
+  { completed: 1, episode: 0, name: "Kevin Cloud", score: 10000 },
+  { completed: 1, episode: 0, name: "Tom Hall", score: 10000 },
+  { completed: 1, episode: 0, name: "John Romero", score: 10000 },
+  { completed: 1, episode: 0, name: "Jay Wilbur", score: 10000 }
 ] as const;
 const ATTACK_KEY_CODE = 17;
 const RUN_KEY_CODE = 16;
@@ -1392,6 +1415,8 @@ class WLMain {
         lastAttacker: this.wl_game.lastAttacker
       },
       intermission: {
+        highScores: this.wl_game.highScores.map((score) => ({ ...score })),
+        lastHighScoreCheck: this.wl_game.lastHighScoreCheck ? { ...this.wl_game.lastHighScoreCheck } : null,
         lastLevelCompletion: this.wl_game.lastLevelCompletion ? { ...this.wl_game.lastLevelCompletion } : null,
         levelRatios: this.wl_game.levelRatios.map((ratio) => ({ ...ratio })),
         victorySummary: this.wl_game.victorySummary ? { ...this.wl_game.victorySummary } : null
@@ -1641,6 +1666,8 @@ class WLGame {
   map = createFallbackMap();
   madeNoise = false;
   thrustSpeed = 0;
+  highScores: SourceHighScore[] = createDefaultHighScores();
+  lastHighScoreCheck: SourceHighScoreCheck | null = null;
   lastLevelCompletion: SourceLevelCompletionSummary | null = null;
   levelRatios: SourceLevelRatio[] = createLevelRatios();
   lastAttacker: DamageSource | null = null;
@@ -1723,6 +1750,7 @@ class WLGame {
     this.attackButtonHeld = false;
     this.completedLevelTransitionApplied = false;
     this.diedTransitionApplied = false;
+    this.lastHighScoreCheck = null;
     this.lastLevelCompletion = null;
     this.levelRatios = createLevelRatios();
     this.lastAttacker = null;
@@ -2029,6 +2057,7 @@ class WLGame {
     }
 
     this.victorySummary = this.CalculateVictorySummary();
+    this.CheckHighScore(this.gamestate.score, this.gamestate.mapon + 1);
     this.victoriousTransitionApplied = true;
     return true;
   }
@@ -2113,6 +2142,37 @@ class WLGame {
     };
   }
 
+  private CheckHighScore(score: number, completed: number): SourceHighScoreCheck {
+    const myScore: SourceHighScore = {
+      completed,
+      episode: this.gamestate.episode,
+      name: "",
+      score
+    };
+    let rank: number | null = null;
+
+    for (let index = 0; index < MAX_SCORES; index += 1) {
+      const existing = this.highScores[index];
+      if (!existing) {
+        continue;
+      }
+
+      if (myScore.score > existing.score || (myScore.score === existing.score && myScore.completed > existing.completed)) {
+        this.highScores.splice(index, 0, myScore);
+        this.highScores = this.highScores.slice(0, MAX_SCORES);
+        rank = index;
+        break;
+      }
+    }
+
+    this.lastHighScoreCheck = {
+      ...myScore,
+      inserted: rank !== null,
+      rank
+    };
+    return this.lastHighScoreCheck;
+  }
+
   ApplyDiedTransition(): boolean {
     if (this.diedTransitionApplied || this.playstate !== "ex_died") {
       return false;
@@ -2134,6 +2194,8 @@ class WLGame {
       this.gamestate.attackframe = 0;
       this.gamestate.attackcount = 0;
       this.gamestate.weaponframe = 0;
+    } else {
+      this.CheckHighScore(this.gamestate.score, this.gamestate.mapon + 1);
     }
 
     this.diedTransitionApplied = true;
@@ -5803,6 +5865,14 @@ function createLevelRatios(): SourceLevelRatio[] {
     time: 0,
     treasure: 0
   }));
+}
+
+function createDefaultHighScores(): SourceHighScore[] {
+  return DEFAULT_HIGH_SCORES.map((score) => ({ ...score, name: clampHighScoreName(score.name) }));
+}
+
+function clampHighScoreName(name: string): string {
+  return name.slice(0, MAX_HIGH_NAME);
 }
 
 function formatClockSeconds(totalSeconds: number): string {
