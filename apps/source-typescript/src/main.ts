@@ -82,9 +82,12 @@ type PortStatic = {
 };
 
 type PortActor = {
+  attackMode: boolean;
   dir: number;
+  hitpoints: number;
   kind: string;
   mode: "boss" | "dead" | "ghost" | "patrol" | "stand";
+  shootable: boolean;
   tile: number;
   x: number;
   y: number;
@@ -383,6 +386,49 @@ const GHOST_INFO_TILES: Record<number, string> = {
   226: "pinky",
   227: "inky"
 };
+// WL_ACT2.C starthitpoints[4][NUMENEMIES], with the UI difficulties mapped to rows 1-3.
+const START_HITPOINTS = [
+  [25, 50, 100, 1, 850, 850, 200, 800, 45, 25, 25, 25, 25, 850, 850, 850, 5, 1450, 850, 1050, 950, 1250],
+  [25, 50, 100, 1, 950, 950, 300, 950, 55, 25, 25, 25, 25, 950, 950, 950, 10, 1550, 950, 1150, 1050, 1350],
+  [25, 50, 100, 1, 1050, 1550, 400, 1050, 55, 25, 25, 25, 25, 1050, 1050, 1050, 15, 1650, 1050, 1250, 1150, 1450],
+  [25, 50, 100, 1, 1200, 2400, 500, 1200, 65, 25, 25, 25, 25, 1200, 1200, 1200, 25, 2000, 1200, 1400, 1300, 1600]
+] as const;
+const ENEMY_HITPOINT_INDEX: Record<string, number> = {
+  blinky: 9,
+  boss: 4,
+  clyde: 10,
+  dog: 3,
+  fake_hitler: 6,
+  fat: 15,
+  gift: 14,
+  gretel: 13,
+  guard: 0,
+  hitler: 7,
+  inky: 12,
+  mutant: 8,
+  officer: 1,
+  pinky: 11,
+  schabbs: 5,
+  ss: 2
+};
+// ID_US_A.ASM rndtable. US_RndT increments rndindex before reading this table.
+const US_RND_TABLE = [
+  0, 8, 109, 220, 222, 241, 149, 107, 75, 248, 254, 140, 16, 66, 74, 21, 211, 47, 80, 242, 154, 27,
+  205, 128, 161, 89, 77, 36, 95, 110, 85, 48, 212, 140, 211, 249, 22, 79, 200, 50, 28, 188, 52, 140,
+  202, 120, 68, 145, 62, 70, 184, 190, 91, 197, 152, 224, 149, 104, 25, 178, 252, 182, 202, 182, 141,
+  197, 4, 81, 181, 242, 145, 42, 39, 227, 156, 198, 225, 193, 219, 93, 122, 175, 249, 0, 175, 143, 70,
+  239, 46, 246, 163, 53, 163, 109, 168, 135, 2, 235, 25, 92, 20, 145, 138, 77, 69, 166, 78, 176, 173,
+  212, 166, 113, 94, 161, 41, 50, 239, 49, 111, 164, 70, 60, 2, 37, 171, 75, 136, 156, 11, 56, 42,
+  146, 138, 229, 73, 146, 77, 61, 98, 196, 135, 106, 63, 197, 195, 86, 96, 203, 113, 101, 170, 247,
+  181, 113, 80, 250, 108, 7, 255, 237, 129, 226, 79, 107, 112, 166, 103, 241, 24, 223, 239, 120, 198,
+  58, 60, 82, 128, 3, 184, 66, 143, 224, 145, 224, 81, 206, 163, 45, 63, 90, 168, 114, 59, 33, 159,
+  95, 28, 139, 123, 98, 125, 196, 15, 70, 194, 253, 54, 14, 109, 226, 71, 17, 161, 93, 186, 87, 244,
+  138, 20, 52, 123, 251, 26, 36, 17, 46, 52, 231, 232, 76, 31, 221, 84, 37, 216, 165, 212, 106, 197,
+  242, 98, 43, 39, 175, 254, 145, 190, 84, 118, 222, 187, 136, 120, 163, 236, 249
+] as const;
+const COMBAT_FOV = Math.PI / 3;
+const SHOOT_CENTER_DELTA_PIXELS = 20;
+const KNIFE_RANGE_TILES = 0x18000 / 0x10000;
 
 const root = document.querySelector<HTMLElement>("#app");
 if (!root) {
@@ -591,6 +637,18 @@ class WLMain {
       })),
       objects: {
         actors: this.wl_game.map.actors.length,
+        actorsDetail: this.wl_game.map.actors.map((actor) => ({
+          attackMode: actor.attackMode,
+          hitpoints: actor.hitpoints,
+          kind: actor.kind,
+          mode: actor.mode,
+          shootable: actor.shootable,
+          tile: actor.tile,
+          x: actor.x,
+          y: actor.y
+        })),
+        killedActors: this.wl_game.map.actors.filter((actor) => actor.mode === "dead" && actor.kind !== "dead_guard").length,
+        shootableActors: this.wl_game.map.actors.filter((actor) => actor.shootable).length,
         blockingStatics: this.wl_game.map.blockingStaticKeys.size,
         collectedBonuses: this.wl_game.map.statics.filter((stat) => stat.collected).length,
         doors: this.wl_game.map.doors.length,
@@ -730,6 +788,7 @@ class WLPlay {
 class WLGame {
   map = createFallbackMap();
   private attackButtonHeld = false;
+  private rndIndex = 0;
 
   readonly gamestate = {
     angle: 0,
@@ -764,7 +823,8 @@ class WLGame {
 
   get objectMetadata(): string {
     const movingDoors = this.map.doors.filter((door) => door.action !== "closed").length;
-    return `${this.map.doors.length} doors (${movingDoors} active) / ${this.map.statics.length} statics / ${this.map.actors.length} actors`;
+    const shootableActors = this.map.actors.filter((actor) => actor.shootable).length;
+    return `${this.map.doors.length} doors (${movingDoors} active) / ${this.map.statics.length} statics / ${shootableActors}/${this.map.actors.length} live actors`;
   }
 
   SetupGameLevel(level: number, wolfMap: WolfMap | null = null): void {
@@ -807,6 +867,7 @@ class WLGame {
     this.gamestate.attackcount = 0;
     this.gamestate.attackframe = 0;
     this.attackButtonHeld = false;
+    this.rndIndex = 0;
     this.gamestate.bestweapon = WP_PISTOL;
     this.gamestate.chosenweapon = WP_PISTOL;
     this.gamestate.health = MAX_HEALTH;
@@ -1099,10 +1160,137 @@ class WLGame {
     }
 
     this.gamestate.ammo -= 1;
+    const target = this.TargetActorInCrosshair();
+    if (!target) {
+      return;
+    }
+
+    const dist = this.ActorTileDistance(target);
+    let damage = 0;
+    if (dist < 2) {
+      damage = Math.floor(this.US_RndT() / 4);
+    } else if (dist < 4) {
+      damage = Math.floor(this.US_RndT() / 6);
+    } else {
+      if (Math.floor(this.US_RndT() / 12) < dist) {
+        return;
+      }
+
+      damage = Math.floor(this.US_RndT() / 6);
+    }
+
+    this.DamageActor(target, damage);
   }
 
   private RunKnifeAttackFrame(): void {
-    // DamageActor parity lands in the actor/combat slice; this frame is still timed from WL_AGENT.C.
+    const target = this.TargetActorInCrosshair();
+    if (!target) {
+      return;
+    }
+
+    const dx = target.x + 0.5 - this.gamestate.x;
+    const dy = target.y + 0.5 - this.gamestate.y;
+    if (Math.hypot(dx, dy) > KNIFE_RANGE_TILES) {
+      return;
+    }
+
+    this.DamageActor(target, this.US_RndT() >> 4);
+  }
+
+  private TargetActorInCrosshair(): PortActor | null {
+    const forwardX = Math.cos(this.gamestate.angle);
+    const forwardY = Math.sin(this.gamestate.angle);
+    const rightX = -forwardY;
+    const rightY = forwardX;
+    const projectionScale = SCREEN_WIDTH / (2 * Math.tan(COMBAT_FOV / 2));
+    let bestActor: PortActor | null = null;
+    let bestDepth = Number.POSITIVE_INFINITY;
+
+    for (const actor of this.map.actors) {
+      if (!actor.shootable || actor.mode === "dead") {
+        continue;
+      }
+
+      const dx = actor.x + 0.5 - this.gamestate.x;
+      const dy = actor.y + 0.5 - this.gamestate.y;
+      const depth = dx * forwardX + dy * forwardY;
+      if (depth <= 0) {
+        continue;
+      }
+
+      const side = dx * rightX + dy * rightY;
+      const screenX = SCREEN_WIDTH / 2 + (side / depth) * projectionScale;
+      if (Math.abs(screenX - SCREEN_WIDTH / 2) > SHOOT_CENTER_DELTA_PIXELS) {
+        continue;
+      }
+
+      if (depth < bestDepth && this.CheckLineToActor(actor)) {
+        bestActor = actor;
+        bestDepth = depth;
+      }
+    }
+
+    return bestActor;
+  }
+
+  private CheckLineToActor(actor: PortActor): boolean {
+    const targetX = actor.x + 0.5;
+    const targetY = actor.y + 0.5;
+    const dx = targetX - this.gamestate.x;
+    const dy = targetY - this.gamestate.y;
+    const steps = Math.max(1, Math.ceil(Math.hypot(dx, dy) * 16));
+
+    for (let i = 1; i < steps; i += 1) {
+      const t = i / steps;
+      const x = this.gamestate.x + dx * t;
+      const y = this.gamestate.y + dy * t;
+      const tileX = Math.floor(x);
+      const tileY = Math.floor(y);
+      if (tileX === actor.x && tileY === actor.y) {
+        continue;
+      }
+
+      if (this.GetTile(x, y) !== 0) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  private ActorTileDistance(actor: PortActor): number {
+    const playerTileX = Math.floor(this.gamestate.x);
+    const playerTileY = Math.floor(this.gamestate.y);
+    return Math.max(Math.abs(actor.x - playerTileX), Math.abs(actor.y - playerTileY));
+  }
+
+  private DamageActor(actor: PortActor, damage: number): void {
+    if (!actor.shootable || actor.mode === "dead") {
+      return;
+    }
+
+    const actualDamage = actor.attackMode ? damage : damage * 2;
+    actor.hitpoints -= actualDamage;
+    if (actor.hitpoints <= 0) {
+      this.KillActor(actor);
+      return;
+    }
+
+    actor.attackMode = true;
+  }
+
+  private KillActor(actor: PortActor): void {
+    actor.hitpoints = 0;
+    actor.mode = "dead";
+    actor.shootable = false;
+    actor.attackMode = false;
+    this.gamestate.killcount += 1;
+    this.GivePoints(actorKillScore(actor.kind));
+  }
+
+  private US_RndT(): number {
+    this.rndIndex = (this.rndIndex + 1) & 0xff;
+    return US_RND_TABLE[this.rndIndex] ?? 0;
   }
 
   private DoorOpen(door: PortDoor, tics: number): void {
@@ -2247,9 +2435,12 @@ function actorFromInfoTile(
 ): PortActor | null {
   if (tile === 124) {
     return {
+      attackMode: false,
       dir: 0,
+      hitpoints: 0,
       kind: "dead_guard",
       mode: "dead",
+      shootable: false,
       tile,
       x,
       y
@@ -2269,6 +2460,9 @@ function actorFromInfoTile(
   if (guard) {
     return {
       ...guard,
+      attackMode: false,
+      hitpoints: actorHitpoints(guard.kind, difficulty),
+      shootable: true,
       x,
       y
     };
@@ -2277,9 +2471,12 @@ function actorFromInfoTile(
   const bossKind = BOSS_INFO_TILES[tile];
   if (bossKind) {
     return {
+      attackMode: false,
       dir: 0,
+      hitpoints: actorHitpoints(bossKind, difficulty),
       kind: bossKind,
       mode: "boss",
+      shootable: true,
       tile,
       x,
       y
@@ -2289,9 +2486,12 @@ function actorFromInfoTile(
   const ghostKind = GHOST_INFO_TILES[tile];
   if (ghostKind) {
     return {
+      attackMode: false,
       dir: 0,
+      hitpoints: actorHitpoints(ghostKind, difficulty),
       kind: ghostKind,
       mode: "ghost",
+      shootable: false,
       tile,
       x,
       y
@@ -2309,7 +2509,7 @@ function directionalEnemy(
   mediumBase: number,
   hardBase: number,
   mode: "patrol" | "stand"
-): Omit<PortActor, "x" | "y"> | null {
+): Pick<PortActor, "dir" | "kind" | "mode" | "tile"> | null {
   if (tile >= hardBase && tile <= hardBase + 3) {
     if (difficultyRank(difficulty) < difficultyRank("hard")) {
       return null;
@@ -2350,6 +2550,41 @@ function directionalEnemy(
 
 function difficultyRank(difficulty: "easy" | "medium" | "hard"): number {
   return difficulty === "hard" ? 2 : difficulty === "medium" ? 1 : 0;
+}
+
+function hitpointRowForDifficulty(difficulty: "easy" | "medium" | "hard"): 1 | 2 | 3 {
+  return difficulty === "hard" ? 3 : difficulty === "medium" ? 2 : 1;
+}
+
+function actorHitpoints(kind: string, difficulty: "easy" | "medium" | "hard"): number {
+  const enemyIndex = ENEMY_HITPOINT_INDEX[kind] ?? 0;
+  return START_HITPOINTS[hitpointRowForDifficulty(difficulty)][enemyIndex] ?? 25;
+}
+
+function actorKillScore(kind: string): number {
+  switch (kind) {
+    case "guard":
+      return 100;
+    case "dog":
+      return 200;
+    case "officer":
+      return 400;
+    case "ss":
+      return 500;
+    case "mutant":
+      return 700;
+    case "fake_hitler":
+      return 2000;
+    case "boss":
+    case "fat":
+    case "gift":
+    case "gretel":
+    case "hitler":
+    case "schabbs":
+      return 5000;
+    default:
+      return 0;
+  }
 }
 
 function statShapenumForType(type: number, item: string): number {
