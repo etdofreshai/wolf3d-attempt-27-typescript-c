@@ -127,8 +127,10 @@ const sourceDirectionIndexes = parseSourceDirectionIndexes(sourceHeaderText);
 const sourceWeaponIndexes = parseSourceWeaponIndexes(sourceHeaderText);
 const sourceEnemyIndexes = parseSourceEnemyIndexes(sourceHeaderText);
 const sourceDefines = parseSourceNumericDefines(sourceHeaderText);
+const sourceAct1Defines = parseSourceNumericDefines(sourceAct1Text);
 const sourceWeaponReadySprites = parseSourceWeaponReadySprites(sourceDrawText, sourceSprites);
 const sourceStaticInfo = parseSourceStaticInfo(sourceAct1Text, sourceSprites);
+const sourceDoorPushwallContracts = parseSourceDoorPushwallContracts(sourceAct1Text, sourceAct1Defines);
 const sourceAttackInfo = parseSourceAttackInfo(sourceAgentText);
 const sourceAgentHelperContracts = parseSourceAgentHelperContracts(sourceAgentText, sourceDefines);
 const sourceStartHitpoints = parseSourceStartHitpoints(sourceText);
@@ -154,6 +156,7 @@ const typescriptParTimesSeconds = parseTypescriptParTimesSeconds(typescriptText,
 const typescriptWeaponIndexes = parseTypescriptWeaponIndexes(typescriptText);
 const typescriptEnemyHitpointIndexes = parseTypescriptEnemyHitpointIndexes(typescriptText);
 const typescriptStaticInfo = parseTypescriptStaticInfo(typescriptText);
+const typescriptDoorPushwallContracts = parseTypescriptDoorPushwallContracts(typescriptText, constants, stringConstants);
 const typescriptAttackInfo = parseTypescriptAttackInfo(typescriptText);
 const typescriptAgentHelperContracts = parseTypescriptAgentHelperContracts(typescriptText, constants, stringConstants);
 const typescriptStartHitpoints = parseTypescriptStartHitpoints(typescriptText);
@@ -194,6 +197,7 @@ for (const frame of modeledFrames.values()) {
 
 compareStaticInfo(sourceStaticInfo, typescriptStaticInfo, problems);
 compareDroppedItemTypes(sourceStaticInfo, typescriptDroppedItemTypes, problems);
+compareContractMap("WL_ACT1.C door/pushwall", sourceDoorPushwallContracts, typescriptDoorPushwallContracts, problems);
 compareSoundChunks(sourceSoundIndexes, typescriptSoundChunks, problems);
 compareWeaponReadySprites(sourceWeaponReadySprites, typescriptWeaponReadySprites, problems);
 compareWeaponIndexes(sourceWeaponIndexes, typescriptWeaponIndexes, problems);
@@ -226,7 +230,7 @@ if (problems.length > 0) {
 }
 
 console.log(
-  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourceAgentHelperContracts.size} WL_AGENT.C helper contracts, ${countComparedBonusRewards(sourceBonusRewards)} WL_AGENT.C bonus reward rows, ${sourceTreasureScores.size} WL_AGENT.C treasure score rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceKillActorRewards.size} WL_STATE.C kill reward rows, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
+  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceDoorPushwallContracts.size} WL_ACT1.C door/pushwall contracts, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourceAgentHelperContracts.size} WL_AGENT.C helper contracts, ${countComparedBonusRewards(sourceBonusRewards)} WL_AGENT.C bonus reward rows, ${sourceTreasureScores.size} WL_AGENT.C treasure score rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceKillActorRewards.size} WL_STATE.C kill reward rows, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
 );
 
 function parseSourceStates(text, sprites) {
@@ -391,6 +395,88 @@ function parseSourceStaticInfo(text, sprites) {
   }
 
   return entries;
+}
+
+function parseSourceDoorPushwallContracts(text, defines) {
+  const contracts = new Map();
+  contracts.set("DoorOpen", parseSourceDoorOpenContract(extractCFunctionBody(text, "DoorOpen"), defines));
+  contracts.set("DoorOpening", parseSourceDoorOpeningContract(extractCFunctionBody(text, "DoorOpening")));
+  contracts.set("DoorClosing", parseSourceDoorClosingContract(extractCFunctionBody(text, "DoorClosing")));
+  contracts.set("MoveDoors", parseSourceMoveDoorsContract(extractCFunctionBody(text, "MoveDoors")));
+  contracts.set("OperateDoor", parseSourceOperateDoorContract(extractCFunctionBody(text, "OperateDoor")));
+  contracts.set("PushWall", parseSourcePushWallContract(extractCFunctionBody(text, "PushWall")));
+  contracts.set("MovePushWall", parseSourceMovePushWallContract(extractCFunctionBody(text, "MovePWalls")));
+  return contracts;
+}
+
+function parseSourceDoorOpenContract(body, defines) {
+  const openTicsSymbol = body.match(/>=\s*([A-Z0-9_]+)/)?.[1] ?? null;
+  return {
+    closeAfterTics: resolveSourceDefine(openTicsSymbol, defines),
+    closesWhenElapsed: /\bCloseDoor\s*\(\s*door\s*\)/.test(body)
+  };
+}
+
+function parseSourceDoorOpeningContract(body) {
+  return {
+    actionWhenComplete: body.match(/action\s*=\s*(dr_[a-z0-9_]+)/)?.[1] ?? null,
+    connectWhenClosed: /if\s*\(\s*!position\s*\)[\s\S]*areaconnect/.test(body),
+    maxPosition: parseRequiredNumberLiteral(body, /position\s*=\s*(0x[0-9a-fA-F]+|[0-9]+)/, "DoorOpening max position"),
+    openSound: body.match(/PlaySoundLocTile\s*\(\s*([A-Z0-9_]+)/)?.[1] ?? null,
+    resetTiccount: /ticcount\s*=\s*0/.test(body),
+    slideShift: parseRequiredNumberLiteral(body, /position\s*\+=\s*tics\s*<<\s*([0-9]+)/, "DoorOpening slide shift")
+  };
+}
+
+function parseSourceDoorClosingContract(body) {
+  return {
+    actionWhenComplete: body.match(/action\s*=\s*(dr_[a-z0-9_]+)/)?.[1] ?? null,
+    disconnectWhenClosed: /position\s*=\s*0[\s\S]*areaconnect[\s\S]*--/.test(body),
+    reopensWhenBlocked: /\bOpenDoor\s*\(\s*door\s*\)/.test(body),
+    slideShift: parseRequiredNumberLiteral(body, /position\s*-=\s*tics\s*<<\s*([0-9]+)/, "DoorClosing slide shift")
+  };
+}
+
+function parseSourceMoveDoorsContract(body) {
+  return {
+    handlesClosing: /case\s+dr_closing\s*:[\s\S]*DoorClosing\s*\(\s*door\s*\)/.test(body),
+    handlesOpen: /case\s+dr_open\s*:[\s\S]*DoorOpen\s*\(\s*door\s*\)/.test(body),
+    handlesOpening: /case\s+dr_opening\s*:[\s\S]*DoorOpening\s*\(\s*door\s*\)/.test(body),
+    stopsDuringVictory: /if\s*\(\s*gamestate\.victoryflag\s*\)[\s\S]*return/.test(body)
+  };
+}
+
+function parseSourceOperateDoorContract(body) {
+  return {
+    lockedSound: body.match(/SD_PlaySound\s*\(\s*([A-Z0-9_]+)\s*\)/)?.[1] ?? null,
+    lockHigh: 4,
+    lockLow: 1,
+    opensClosedOrClosing: /case\s+dr_closed\s*:[\s\S]*case\s+dr_closing\s*:[\s\S]*OpenDoor\s*\(\s*door\s*\)/.test(body),
+    closesOpenOrOpening: /case\s+dr_open\s*:[\s\S]*case\s+dr_opening\s*:[\s\S]*CloseDoor\s*\(\s*door\s*\)/.test(body)
+  };
+}
+
+function parseSourcePushWallContract(body) {
+  return {
+    blockedSound: body.match(/SD_PlaySound\s*\(\s*NOWAYSND\s*\)/)?.[1] ?? "NOWAYSND",
+    incrementsSecret: /gamestate\.secretcount\s*\+\+/.test(body),
+    initialPos: parseRequiredNumberLiteral(body, /pwallpos\s*=\s*([0-9]+)/, "PushWall initial position"),
+    initialState: parseRequiredNumberLiteral(body, /pwallstate\s*=\s*([0-9]+)/, "PushWall initial state"),
+    oneActiveOnly: /if\s*\(\s*pwallstate\s*\)[\s\S]*return/.test(body),
+    pushSound: body.match(/SD_PlaySound\s*\(\s*(PUSHWALLSND)\s*\)/)?.[1] ?? null,
+    requiresWallTile: /if\s*\(\s*!oldtile\s*\)[\s\S]*return/.test(body)
+  };
+}
+
+function parseSourceMovePushWallContract(body) {
+  return {
+    blockStep: parseRequiredNumberLiteral(body, /oldblock\s*=\s*pwallstate\s*\/\s*([0-9]+)/, "MovePWalls block step"),
+    clearsAfterState: parseRequiredNumberLiteral(body, /if\s*\(\s*pwallstate\s*>\s*([0-9]+)/, "MovePWalls clear threshold"),
+    incrementsByTics: /pwallstate\s*\+=\s*tics/.test(body),
+    posDivisor: parseRequiredNumberLiteral(body, /pwallpos\s*=\s*\(\s*pwallstate\s*\/\s*([0-9]+)\s*\)/, "MovePWalls pos divisor"),
+    posMask: parseRequiredNumberLiteral(body, /pwallpos\s*=\s*\(\s*pwallstate\s*\/\s*[0-9]+\s*\)\s*&\s*([0-9]+)/, "MovePWalls pos mask"),
+    returnsWhenInactive: /if\s*\(\s*!pwallstate\s*\)[\s\S]*return/.test(body)
+  };
 }
 
 function parseSourceWeaponIndexes(text) {
@@ -966,6 +1052,92 @@ function parseTypescriptStaticInfo(text) {
   }));
 }
 
+function parseTypescriptDoorPushwallContracts(text, constants, stringConstants) {
+  const contracts = new Map();
+  contracts.set("DoorOpen", parseTypescriptDoorOpenContract(extractTypescriptFunctionBody(text, "DoorOpen"), constants));
+  contracts.set("DoorOpening", parseTypescriptDoorOpeningContract(extractTypescriptFunctionBody(text, "DoorOpening"), constants, stringConstants));
+  contracts.set("DoorClosing", parseTypescriptDoorClosingContract(extractTypescriptFunctionBody(text, "DoorClosing"), constants));
+  contracts.set("MoveDoors", parseTypescriptMoveDoorsContract(extractTypescriptFunctionBody(text, "MoveDoors")));
+  contracts.set("OperateDoor", parseTypescriptOperateDoorContract(extractTypescriptFunctionBody(text, "OperateDoor"), stringConstants));
+  contracts.set("PushWall", parseTypescriptPushWallContract(extractTypescriptFunctionBody(text, "PushWall"), stringConstants));
+  contracts.set("MovePushWall", parseTypescriptMovePushWallContract(extractTypescriptFunctionBody(text, "MovePushWall")));
+  return contracts;
+}
+
+function parseTypescriptDoorOpenContract(body, constants) {
+  return {
+    closeAfterTics: parseRequiredTypescriptNumber(body, /door\.ticcount\s*>=\s*([A-Z0-9_]+|[0-9]+)/, constants, "DoorOpen close tics"),
+    closesWhenElapsed: /\bthis\.CloseDoor\s*\(\s*door\s*\)/.test(body)
+  };
+}
+
+function parseTypescriptDoorOpeningContract(body, constants, stringConstants) {
+  const soundMatch = body.match(/SD_PlaySound\(([^)]+)\)/);
+  return {
+    actionWhenComplete: `dr_${body.match(/door\.action\s*=\s*"([^"]+)"/)?.[1] ?? ""}`,
+    connectWhenClosed: /door\.position\s*===\s*0[\s\S]*ChangeDoorAreaConnection\s*\(\s*door\s*,\s*1\s*\)/.test(body),
+    maxPosition: parseRequiredTypescriptNumber(body, /door\.position\s*=\s*([A-Z0-9_]+|0x[0-9a-fA-F]+|[0-9]+)/, constants, "DoorOpening max position"),
+    openSound: soundMatch ? resolveTypescriptString(soundMatch[1], stringConstants) : null,
+    resetTiccount: /door\.ticcount\s*=\s*0/.test(body),
+    slideShift: parseRequiredTypescriptNumber(body, /door\.position\s*\+=\s*tics\s*<<\s*([A-Z0-9_]+|[0-9]+)/, constants, "DoorOpening slide shift")
+  };
+}
+
+function parseTypescriptDoorClosingContract(body, constants) {
+  return {
+    actionWhenComplete: `dr_${body.match(/door\.action\s*=\s*"([^"]+)"/)?.[1] ?? ""}`,
+    disconnectWhenClosed: /door\.position\s*=\s*0[\s\S]*ChangeDoorAreaConnection\s*\(\s*door\s*,\s*-1\s*\)/.test(body),
+    reopensWhenBlocked: /\bthis\.OpenDoor\s*\(\s*door\s*\)/.test(body),
+    slideShift: parseRequiredTypescriptNumber(body, /door\.position\s*-=\s*tics\s*<<\s*([A-Z0-9_]+|[0-9]+)/, constants, "DoorClosing slide shift")
+  };
+}
+
+function parseTypescriptMoveDoorsContract(body) {
+  return {
+    handlesClosing: /door\.action\s*===\s*"closing"[\s\S]*this\.DoorClosing\s*\(\s*door/.test(body),
+    handlesOpen: /door\.action\s*===\s*"open"[\s\S]*this\.DoorOpen\s*\(\s*door/.test(body),
+    handlesOpening: /door\.action\s*===\s*"opening"[\s\S]*this\.DoorOpening\s*\(\s*door/.test(body),
+    stopsDuringVictory: /if\s*\(\s*this\.gamestate\.victoryflag\s*\)[\s\S]*return/.test(body)
+  };
+}
+
+function parseTypescriptOperateDoorContract(body, stringConstants) {
+  const soundMatch = body.match(/SD_PlaySound\(([^)]+)\)/);
+  return {
+    lockedSound: soundMatch ? resolveTypescriptString(soundMatch[1], stringConstants) : null,
+    lockHigh: parseRequiredNumber(body, /door\.lock\s*<\s*([0-9]+)/, "OperateDoor lock high exclusive") - 1,
+    lockLow: parseRequiredNumber(body, /door\.lock\s*>\s*([0-9]+)/, "OperateDoor lock low exclusive") + 1,
+    opensClosedOrClosing: /door\.action\s*===\s*"closed"[\s\S]*door\.action\s*===\s*"closing"[\s\S]*this\.OpenDoor\s*\(\s*door\s*\)/.test(body),
+    closesOpenOrOpening: /door\.action\s*===\s*"open"[\s\S]*door\.action\s*===\s*"opening"[\s\S]*this\.CloseDoor\s*\(\s*door\s*\)/.test(body)
+  };
+}
+
+function parseTypescriptPushWallContract(body, stringConstants) {
+  const soundMatches = [...body.matchAll(/SD_PlaySound\(([^)]+)\)/g)].map((match) =>
+    resolveTypescriptString(match[1], stringConstants)
+  );
+  return {
+    blockedSound: soundMatches.find((sound) => sound === "NOWAYSND") ?? null,
+    incrementsSecret: /this\.gamestate\.secretcount\s*\+=\s*1/.test(body),
+    initialPos: parseRequiredNumber(body, /pos:\s*([0-9]+)/, "PushWall initial position"),
+    initialState: parseRequiredNumber(body, /state:\s*([0-9]+)/, "PushWall initial state"),
+    oneActiveOnly: /this\.map\.pushWall/.test(body),
+    pushSound: soundMatches.find((sound) => sound === "PUSHWALLSND") ?? null,
+    requiresWallTile: /oldTile\s*===\s*0[\s\S]*return\s+false/.test(body)
+  };
+}
+
+function parseTypescriptMovePushWallContract(body) {
+  return {
+    blockStep: parseRequiredNumber(body, /Math\.floor\(pushWall\.state\s*\/\s*([0-9]+)\)/, "MovePushWall block step"),
+    clearsAfterState: parseRequiredNumber(body, /if\s*\(\s*pushWall\.state\s*>\s*([0-9]+)/, "MovePushWall clear threshold"),
+    incrementsByTics: /pushWall\.state\s*\+=\s*tics/.test(body),
+    posDivisor: parseRequiredNumber(body, /pushWall\.pos\s*=\s*Math\.floor\(pushWall\.state\s*\/\s*([0-9]+)\)/, "MovePushWall pos divisor"),
+    posMask: parseRequiredNumber(body, /pushWall\.pos\s*=\s*Math\.floor\(pushWall\.state\s*\/\s*[0-9]+\)\s*&\s*([0-9]+)/, "MovePushWall pos mask"),
+    returnsWhenInactive: /if\s*\(\s*!pushWall\s*\)[\s\S]*return/.test(body)
+  };
+}
+
 function parseTypescriptDroppedItemTypes(text) {
   const objectMatch = text.match(/const DROPPED_ITEM_TYPES = \{(?<body>[\s\S]*?)\} as const;/);
   if (!objectMatch?.groups?.body) {
@@ -1265,27 +1437,31 @@ function compareAttackInfo(sourceRows, typescriptRows, problems) {
   }
 }
 
-function compareAgentHelperContracts(sourceEntries, typescriptEntries, problems) {
-  for (const [helperName, sourceContract] of sourceEntries.entries()) {
-    const currentContract = typescriptEntries.get(helperName);
+function compareContractMap(name, sourceEntries, typescriptEntries, problems) {
+  for (const [contractName, sourceContract] of sourceEntries.entries()) {
+    const currentContract = typescriptEntries.get(contractName);
     if (!currentContract) {
-      problems.push(`${helperName}: missing TypeScript helper contract`);
+      problems.push(`${name}.${contractName}: missing TypeScript contract`);
       continue;
     }
 
     for (const [field, sourceValue] of Object.entries(sourceContract)) {
       const currentValue = currentContract[field];
       if (currentValue !== sourceValue) {
-        problems.push(`${helperName}.${field}: ${formatNullable(currentValue)} != source ${formatNullable(sourceValue)}`);
+        problems.push(`${name}.${contractName}.${field}: ${formatNullable(currentValue)} != source ${formatNullable(sourceValue)}`);
       }
     }
   }
 
-  for (const helperName of typescriptEntries.keys()) {
-    if (!sourceEntries.has(helperName)) {
-      problems.push(`${helperName}: TypeScript helper contract missing from WL_AGENT.C`);
+  for (const contractName of typescriptEntries.keys()) {
+    if (!sourceEntries.has(contractName)) {
+      problems.push(`${name}.${contractName}: TypeScript contract missing from source`);
     }
   }
+}
+
+function compareAgentHelperContracts(sourceEntries, typescriptEntries, problems) {
+  compareContractMap("WL_AGENT.C helper", sourceEntries, typescriptEntries, problems);
 }
 
 function compareEnemyHitpointIndexes(sourceEntries, typescriptEntries, problems) {
@@ -1386,9 +1562,9 @@ function compareRndTable(sourceValues, typescriptValues, problems) {
 
 function parseNumericConstants(text) {
   const constants = new Map();
-  const constantPattern = /const\s+([A-Z0-9_]+)\s*=\s*([0-9]+);/g;
+  const constantPattern = /const\s+([A-Z0-9_]+)\s*=\s*(0x[0-9a-fA-F]+|[0-9]+);/g;
   for (const match of text.matchAll(constantPattern)) {
-    constants.set(match[1], Number(match[2]));
+    constants.set(match[1], parseNumberLiteral(match[2]));
   }
 
   return constants;
@@ -1396,9 +1572,9 @@ function parseNumericConstants(text) {
 
 function parseSourceNumericDefines(text) {
   const constants = new Map();
-  const definePattern = /^\s*#define\s+([A-Z0-9_]+)\s+([0-9]+)\b/gm;
+  const definePattern = /^\s*#define\s+([A-Z0-9_]+)\s+(0x[0-9a-fA-F]+|[0-9]+)\b/gm;
   for (const match of text.matchAll(definePattern)) {
-    constants.set(match[1], Number(match[2]));
+    constants.set(match[1], parseNumberLiteral(match[2]));
   }
 
   return constants;
@@ -1435,13 +1611,31 @@ function parseNumberList(text) {
   return [...text.matchAll(/-?[0-9]+/g)].map((match) => Number(match[0]));
 }
 
+function parseNumberLiteral(value) {
+  return value.toLowerCase().startsWith("0x") ? Number.parseInt(value, 16) : Number(value);
+}
+
 function parseOptionalNumber(text, pattern) {
   const match = text.match(pattern);
   return match ? Number(match[1]) : null;
 }
 
+function parseOptionalNumberLiteral(text, pattern) {
+  const match = text.match(pattern);
+  return match ? parseNumberLiteral(match[1]) : null;
+}
+
 function parseRequiredNumber(text, pattern, label) {
   const value = parseOptionalNumber(text, pattern);
+  if (!Number.isFinite(value)) {
+    throw new Error(`Could not parse ${label}`);
+  }
+
+  return value;
+}
+
+function parseRequiredNumberLiteral(text, pattern, label) {
+  const value = parseOptionalNumberLiteral(text, pattern);
   if (!Number.isFinite(value)) {
     throw new Error(`Could not parse ${label}`);
   }
@@ -1870,8 +2064,8 @@ function resolveTics(expression, constants) {
 
 function resolveTypescriptNumber(expression, constants) {
   const normalized = expression.trim();
-  if (/^-?[0-9]+$/.test(normalized)) {
-    return Number(normalized);
+  if (/^-?(?:0x[0-9a-fA-F]+|[0-9]+)$/.test(normalized)) {
+    return parseNumberLiteral(normalized);
   }
 
   const value = constants.get(normalized);
