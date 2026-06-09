@@ -49,6 +49,7 @@ type PortMap = {
   killTotal: number;
   name: string;
   objects: Uint16Array;
+  projectiles: PortProjectile[];
   secretTotal: number;
   source: "fallback" | "wl6";
   statics: PortStatic[];
@@ -81,6 +82,20 @@ type PortStatic = {
   y: number;
 };
 
+type ProjectileKind = "fire" | "needle" | "rocket";
+
+type PortProjectile = {
+  angle: number;
+  kind: ProjectileKind;
+  speed: number;
+  stateIndex: number;
+  stateName: string;
+  stateShapenum: number;
+  stateTics: number;
+  x: number;
+  y: number;
+};
+
 type PortActor = {
   ambush: boolean;
   attackMode: boolean;
@@ -104,13 +119,20 @@ type PortActor = {
   y: number;
 };
 
-type ActorFrameAction = "bite" | "shoot";
+type ActorFrameAction = "bite" | "fakeFire" | "shoot" | "throwNeedle" | "throwRocket";
 
 type ActorStateFrame = {
   action?: ActorFrameAction;
   final?: boolean;
   name: string;
   nextMode?: "chase";
+  shapenum: number;
+  tics: number;
+};
+
+type ProjectileStateFrame = {
+  name: string;
+  rotate?: boolean;
   shapenum: number;
   tics: number;
 };
@@ -241,6 +263,8 @@ const STARTAMMO = 8;
 const TILEGLOBAL = 65536;
 const TILE_DISTANCE = 1;
 const MINACTORDIST_TILES = 0x10000 / TILEGLOBAL;
+const PROJECTILE_PROBE_TILES = 0x2000 / TILEGLOBAL;
+const PROJECTILESIZE_TILES = 0xc000 / TILEGLOBAL;
 const ATTACK_KEY_CODE = 17;
 const USE_KEY_CODE = 32;
 const WP_KNIFE = 0;
@@ -386,6 +410,7 @@ const ACTOR_SPRITES = {
   FAKE_DIE3: 330,
   FAKE_DIE4: 331,
   FAKE_DIE5: 332,
+  FAKE_SHOOT: 325,
   FAKE_W1: 321,
   FAKE_W2: 322,
   FAKE_W3: 323,
@@ -394,14 +419,22 @@ const ACTOR_SPRITES = {
   FAT_DIE1: 404,
   FAT_DIE2: 405,
   FAT_DIE3: 406,
+  FAT_SHOOT1: 400,
+  FAT_SHOOT2: 401,
+  FAT_SHOOT3: 402,
+  FAT_SHOOT4: 403,
   FAT_W1: 396,
   FAT_W2: 397,
   FAT_W3: 398,
   FAT_W4: 399,
+  FIRE1: 326,
+  FIRE2: 327,
   GIFT_DEAD: 369,
   GIFT_DIE1: 366,
   GIFT_DIE2: 367,
   GIFT_DIE3: 368,
+  GIFT_SHOOT1: 364,
+  GIFT_SHOOT2: 365,
   GIFT_W1: 360,
   GIFT_W2: 361,
   GIFT_W3: 362,
@@ -456,6 +489,7 @@ const ACTOR_SPRITES = {
   MECHA_W2: 335,
   MECHA_W3: 336,
   MECHA_W4: 337,
+  ROCKET_1: 370,
   MUT_DEAD: 233,
   MUT_DIE_1: 228,
   MUT_DIE_2: 229,
@@ -493,10 +527,16 @@ const ACTOR_SPRITES = {
   SCHABB_DIE1: 313,
   SCHABB_DIE2: 314,
   SCHABB_DIE3: 315,
+  SCHABB_SHOOT1: 311,
+  SCHABB_SHOOT2: 312,
   SCHABB_W1: 307,
   SCHABB_W2: 308,
   SCHABB_W3: 309,
   SCHABB_W4: 310,
+  HYPO1: 317,
+  HYPO2: 318,
+  HYPO3: 319,
+  HYPO4: 320,
   SS_DEAD: 183,
   SS_DIE_1: 179,
   SS_DIE_2: 180,
@@ -597,6 +637,29 @@ const ACTOR_ATTACK_STATES: Record<string, ActorStateFrame[]> = {
     { name: "s_dogjump4", shapenum: ACTOR_SPRITES.DOG_JUMP1, tics: 10 },
     { name: "s_dogjump5", nextMode: "chase", shapenum: ACTOR_SPRITES.DOG_W1_1, tics: 10 }
   ],
+  fake_hitler: [
+    { action: "fakeFire", name: "s_fakeshoot1", shapenum: ACTOR_SPRITES.FAKE_SHOOT, tics: 8 },
+    { action: "fakeFire", name: "s_fakeshoot2", shapenum: ACTOR_SPRITES.FAKE_SHOOT, tics: 8 },
+    { action: "fakeFire", name: "s_fakeshoot3", shapenum: ACTOR_SPRITES.FAKE_SHOOT, tics: 8 },
+    { action: "fakeFire", name: "s_fakeshoot4", shapenum: ACTOR_SPRITES.FAKE_SHOOT, tics: 8 },
+    { action: "fakeFire", name: "s_fakeshoot5", shapenum: ACTOR_SPRITES.FAKE_SHOOT, tics: 8 },
+    { action: "fakeFire", name: "s_fakeshoot6", shapenum: ACTOR_SPRITES.FAKE_SHOOT, tics: 8 },
+    { action: "fakeFire", name: "s_fakeshoot7", shapenum: ACTOR_SPRITES.FAKE_SHOOT, tics: 8 },
+    { action: "fakeFire", name: "s_fakeshoot8", shapenum: ACTOR_SPRITES.FAKE_SHOOT, tics: 8 },
+    { name: "s_fakeshoot9", nextMode: "chase", shapenum: ACTOR_SPRITES.FAKE_SHOOT, tics: 8 }
+  ],
+  fat: [
+    { name: "s_fatshoot1", shapenum: ACTOR_SPRITES.FAT_SHOOT1, tics: 30 },
+    { action: "throwRocket", name: "s_fatshoot2", shapenum: ACTOR_SPRITES.FAT_SHOOT2, tics: 10 },
+    { action: "shoot", name: "s_fatshoot3", shapenum: ACTOR_SPRITES.FAT_SHOOT3, tics: 10 },
+    { action: "shoot", name: "s_fatshoot4", shapenum: ACTOR_SPRITES.FAT_SHOOT4, tics: 10 },
+    { action: "shoot", name: "s_fatshoot5", shapenum: ACTOR_SPRITES.FAT_SHOOT3, tics: 10 },
+    { action: "shoot", name: "s_fatshoot6", nextMode: "chase", shapenum: ACTOR_SPRITES.FAT_SHOOT4, tics: 10 }
+  ],
+  gift: [
+    { name: "s_giftshoot1", shapenum: ACTOR_SPRITES.GIFT_SHOOT1, tics: 30 },
+    { action: "throwRocket", name: "s_giftshoot2", nextMode: "chase", shapenum: ACTOR_SPRITES.GIFT_SHOOT2, tics: 10 }
+  ],
   gretel: [
     { name: "s_gretelshoot1", shapenum: ACTOR_SPRITES.GRETEL_SHOOT1, tics: 30 },
     { action: "shoot", name: "s_gretelshoot2", shapenum: ACTOR_SPRITES.GRETEL_SHOOT2, tics: 10 },
@@ -631,6 +694,10 @@ const ACTOR_ATTACK_STATES: Record<string, ActorStateFrame[]> = {
     { action: "shoot", name: "s_ofcshoot2", shapenum: ACTOR_SPRITES.OFC_SHOOT2, tics: 20 },
     { name: "s_ofcshoot3", nextMode: "chase", shapenum: ACTOR_SPRITES.OFC_SHOOT3, tics: 10 }
   ],
+  schabbs: [
+    { name: "s_schabbshoot1", shapenum: ACTOR_SPRITES.SCHABB_SHOOT1, tics: 30 },
+    { action: "throwNeedle", name: "s_schabbshoot2", nextMode: "chase", shapenum: ACTOR_SPRITES.SCHABB_SHOOT2, tics: 10 }
+  ],
   ss: [
     { name: "s_ssshoot1", shapenum: ACTOR_SPRITES.SS_SHOOT1, tics: 20 },
     { action: "shoot", name: "s_ssshoot2", shapenum: ACTOR_SPRITES.SS_SHOOT2, tics: 20 },
@@ -642,6 +709,19 @@ const ACTOR_ATTACK_STATES: Record<string, ActorStateFrame[]> = {
     { action: "shoot", name: "s_ssshoot8", shapenum: ACTOR_SPRITES.SS_SHOOT2, tics: 10 },
     { name: "s_ssshoot9", nextMode: "chase", shapenum: ACTOR_SPRITES.SS_SHOOT3, tics: 10 }
   ]
+};
+const PROJECTILE_STATES: Record<ProjectileKind, ProjectileStateFrame[]> = {
+  fire: [
+    { name: "s_fire1", shapenum: ACTOR_SPRITES.FIRE1, tics: 6 },
+    { name: "s_fire2", shapenum: ACTOR_SPRITES.FIRE2, tics: 6 }
+  ],
+  needle: [
+    { name: "s_needle1", shapenum: ACTOR_SPRITES.HYPO1, tics: 6 },
+    { name: "s_needle2", shapenum: ACTOR_SPRITES.HYPO2, tics: 6 },
+    { name: "s_needle3", shapenum: ACTOR_SPRITES.HYPO3, tics: 6 },
+    { name: "s_needle4", shapenum: ACTOR_SPRITES.HYPO4, tics: 6 }
+  ],
+  rocket: [{ name: "s_rocket", rotate: true, shapenum: ACTOR_SPRITES.ROCKET_1, tics: 3 }]
 };
 const ACTOR_PATROL_STATES: Record<string, ActorStateFrame[]> = {
   dog: pathFrames("dog", [ACTOR_SPRITES.DOG_W1_1, ACTOR_SPRITES.DOG_W2_1, ACTOR_SPRITES.DOG_W3_1, ACTOR_SPRITES.DOG_W4_1]),
@@ -1080,6 +1160,18 @@ class WLMain {
           x: actor.x,
           y: actor.y
         })),
+        projectiles: this.wl_game.map.projectiles.length,
+        projectilesDetail: this.wl_game.map.projectiles.map((projectile) => ({
+          angle: projectile.angle,
+          kind: projectile.kind,
+          speed: projectile.speed,
+          stateIndex: projectile.stateIndex,
+          stateName: projectile.stateName,
+          stateShapenum: projectile.stateShapenum,
+          stateTics: projectile.stateTics,
+          x: projectile.x,
+          y: projectile.y
+        })),
         killedActors: this.wl_game.gamestate.killcount,
         shootableActors: this.wl_game.map.actors.filter((actor) => actor.shootable).length,
         blockingStatics: this.wl_game.map.blockingStaticKeys.size,
@@ -1224,6 +1316,7 @@ class WLPlay {
     const tics = ticsFromMilliseconds(ticMs);
     const moved = this.wl_game.PlayPlayerInput(this.id_in, ticMs, tics, this.id_in.ConsumeUse());
     this.wl_game.MoveActors(tics);
+    this.wl_game.MoveProjectiles(tics);
     this.wl_game.MoveDoors(tics);
     this.wl_draw.ThreeDRefresh(this.wl_game);
     this.id_sd.SD_Service(moved, ticMs);
@@ -1270,7 +1363,7 @@ class WLGame {
   get objectMetadata(): string {
     const movingDoors = this.map.doors.filter((door) => door.action !== "closed").length;
     const shootableActors = this.map.actors.filter((actor) => actor.shootable).length;
-    return `${this.map.doors.length} doors (${movingDoors} active) / ${this.map.statics.length} statics / ${shootableActors}/${this.map.actors.length} live actors`;
+    return `${this.map.doors.length} doors (${movingDoors} active) / ${this.map.statics.length} statics / ${shootableActors}/${this.map.actors.length} live actors / ${this.map.projectiles.length} projectiles`;
   }
 
   SetupGameLevel(level: number, wolfMap: WolfMap | null = null): void {
@@ -1296,6 +1389,7 @@ class WLGame {
         killTotal: scan.killTotal,
         name: `WL6 ${wolfMap.index} ${wolfMap.header.name || "unnamed"}`,
         objects: wolfMap.planes[1],
+        projectiles: [],
         secretTotal: scan.secretTotal,
         source: "wl6",
         statics: scan.statics,
@@ -1450,6 +1544,18 @@ class WLGame {
     }
   }
 
+  MoveProjectiles(tics: number): void {
+    const activeProjectiles: PortProjectile[] = [];
+    for (const projectile of this.map.projectiles) {
+      this.MoveProjectileState(projectile, tics);
+      if (this.T_Projectile(projectile, tics)) {
+        activeProjectiles.push(projectile);
+      }
+    }
+
+    this.map.projectiles = activeProjectiles;
+  }
+
   private MoveActorState(actor: PortActor, tics: number): void {
     if (actor.mode === "dying") {
       this.MoveDeathState(actor, tics);
@@ -1466,7 +1572,13 @@ class WLGame {
       if (actor.mode === "patrol") {
         this.T_Path(actor, tics);
       } else if (actor.mode === "chase") {
-        this.T_Chase(actor, tics);
+        if (actor.kind === "fake_hitler") {
+          this.T_Fake(actor, tics);
+        } else if (actor.kind === "fat" || actor.kind === "gift" || actor.kind === "schabbs") {
+          this.T_ProjectileBossChase(actor, tics);
+        } else {
+          this.T_Chase(actor, tics);
+        }
       }
     }
   }
@@ -1555,8 +1667,47 @@ class WLGame {
     }
   }
 
+  private MoveProjectileState(projectile: PortProjectile, tics: number): void {
+    const sequence = PROJECTILE_STATES[projectile.kind];
+    projectile.stateTics -= tics;
+    while (projectile.stateTics <= 0) {
+      const nextIndex = (projectile.stateIndex + 1) % sequence.length;
+      this.SetProjectileSequenceState(projectile, sequence, nextIndex, projectile.stateTics);
+    }
+  }
+
   private T_Stand(actor: PortActor, tics: number): void {
     this.SightPlayer(actor, tics);
+  }
+
+  private T_Projectile(projectile: PortProjectile, tics: number): boolean {
+    const move = (projectile.speed * tics) / TILEGLOBAL;
+    let dx = Math.cos(projectile.angle) * move;
+    let dy = Math.sin(projectile.angle) * move;
+    if (dx > TILE_DISTANCE) {
+      dx = TILE_DISTANCE;
+    }
+
+    if (dy > TILE_DISTANCE) {
+      dy = TILE_DISTANCE;
+    }
+
+    projectile.x += dx;
+    projectile.y += dy;
+
+    if (!this.ProjectileTryMove(projectile)) {
+      return false;
+    }
+
+    if (
+      Math.abs(projectile.x - this.gamestate.x) < PROJECTILESIZE_TILES &&
+      Math.abs(projectile.y - this.gamestate.y) < PROJECTILESIZE_TILES
+    ) {
+      this.TakeProjectileDamage(projectile);
+      return false;
+    }
+
+    return true;
   }
 
   private T_Chase(actor: PortActor, tics: number): void {
@@ -1622,6 +1773,101 @@ class WLGame {
         this.SelectChaseDir(actor);
       }
 
+      if (actor.dir === NODIR) {
+        return;
+      }
+    }
+  }
+
+  private T_ProjectileBossChase(actor: PortActor, tics: number): void {
+    let dodge = false;
+    const dist = this.ActorTileDistance(actor);
+    if (this.CheckLineToActor(actor)) {
+      if (this.US_RndT() < (tics << 3) && this.StartAttackState(actor)) {
+        return;
+      }
+
+      dodge = true;
+    }
+
+    if (actor.dir === NODIR) {
+      if (dodge) {
+        this.SelectDodgeDir(actor);
+      } else {
+        this.SelectChaseDir(actor);
+      }
+
+      if (actor.dir === NODIR) {
+        return;
+      }
+    }
+
+    this.MoveSourceChaseLoop(actor, tics, () => {
+      if (dist < 4) {
+        this.SelectRunDir(actor);
+      } else if (dodge) {
+        this.SelectDodgeDir(actor);
+      } else {
+        this.SelectChaseDir(actor);
+      }
+    });
+  }
+
+  private T_Fake(actor: PortActor, tics: number): void {
+    if (this.CheckLineToActor(actor) && this.US_RndT() < (tics << 1) && this.StartAttackState(actor)) {
+      return;
+    }
+
+    if (actor.dir === NODIR) {
+      this.SelectDodgeDir(actor);
+      if (actor.dir === NODIR) {
+        return;
+      }
+    }
+
+    this.MoveSourceChaseLoop(actor, tics, () => this.SelectDodgeDir(actor), false);
+  }
+
+  private MoveSourceChaseLoop(
+    actor: PortActor,
+    tics: number,
+    selectNextDir: () => void,
+    waitForDoors = true
+  ): void {
+    let move = (actor.speed * tics) / TILEGLOBAL;
+    while (move > 0) {
+      if (actor.distance < 0) {
+        if (!waitForDoors) {
+          actor.dir = NODIR;
+          return;
+        }
+
+        const door = this.map.doors[-actor.distance - 1];
+        if (!door) {
+          actor.dir = NODIR;
+          return;
+        }
+
+        this.OpenDoor(door);
+        if (door.action !== "open") {
+          return;
+        }
+
+        actor.distance = TILE_DISTANCE;
+      }
+
+      if (actor.distance > 0 && move < actor.distance) {
+        this.MoveObj(actor, move, tics);
+        break;
+      }
+
+      actor.x = actor.targetX;
+      actor.y = actor.targetY;
+      if (actor.distance > 0) {
+        move -= actor.distance;
+      }
+
+      selectNextDir();
       if (actor.dir === NODIR) {
         return;
       }
@@ -1828,6 +2074,32 @@ class WLGame {
 
     if (turnaround !== NODIR) {
       actor.dir = turnaround;
+      if (this.TryWalk(actor)) {
+        return;
+      }
+    }
+
+    actor.dir = NODIR;
+  }
+
+  private SelectRunDir(actor: PortActor): void {
+    const deltaX = Math.floor(this.gamestate.x) - Math.floor(actor.targetX);
+    const deltaY = Math.floor(this.gamestate.y) - Math.floor(actor.targetY);
+    const directions: [number, number] = [deltaX < 0 ? 0 : 4, deltaY < 0 ? 6 : 2];
+    if (Math.abs(deltaY) > Math.abs(deltaX)) {
+      [directions[0], directions[1]] = [directions[1], directions[0]];
+    }
+
+    for (const dir of directions) {
+      actor.dir = dir;
+      if (this.TryWalk(actor)) {
+        return;
+      }
+    }
+
+    const fallbackDirs = this.US_RndT() > 128 ? [2, 0, 6, 4] : [4, 6, 0, 2];
+    for (const dir of fallbackDirs) {
+      actor.dir = dir;
       if (this.TryWalk(actor)) {
         return;
       }
@@ -2438,6 +2710,73 @@ class WLGame {
     }
   }
 
+  private T_SchabbThrow(actor: PortActor): void {
+    this.SpawnProjectile("needle", actor, 0x2000);
+  }
+
+  private T_GiftThrow(actor: PortActor): void {
+    this.SpawnProjectile("rocket", actor, 0x2000);
+  }
+
+  private T_FakeFire(actor: PortActor): void {
+    this.SpawnProjectile("fire", actor, 0x1200);
+  }
+
+  private SpawnProjectile(kind: ProjectileKind, actor: PortActor, speed: number): void {
+    const sequence = PROJECTILE_STATES[kind];
+    const frame = sequence[0];
+    if (!frame) {
+      return;
+    }
+
+    const x = actor.x + 0.5;
+    const y = actor.y + 0.5;
+    this.map.projectiles.push({
+      angle: normalizeAngle(Math.atan2(this.gamestate.y - y, this.gamestate.x - x)),
+      kind,
+      speed,
+      stateIndex: 0,
+      stateName: frame.name,
+      stateShapenum: frame.shapenum,
+      stateTics: 1,
+      x,
+      y
+    });
+  }
+
+  private ProjectileTryMove(projectile: PortProjectile): boolean {
+    const xl = Math.floor(projectile.x - PROJECTILE_PROBE_TILES);
+    const yl = Math.floor(projectile.y - PROJECTILE_PROBE_TILES);
+    const xh = Math.floor(projectile.x + PROJECTILE_PROBE_TILES);
+    const yh = Math.floor(projectile.y + PROJECTILE_PROBE_TILES);
+
+    for (let y = yl; y <= yh; y += 1) {
+      for (let x = xl; x <= xh; x += 1) {
+        if (this.GetTile(x, y) !== 0 || this.map.blockingStaticKeys.has(tileKey(x, y))) {
+          return false;
+        }
+      }
+    }
+
+    return true;
+  }
+
+  private TakeProjectileDamage(projectile: PortProjectile): void {
+    switch (projectile.kind) {
+      case "needle":
+        this.TakeDamage((this.US_RndT() >> 3) + 20);
+        break;
+      case "rocket":
+        this.TakeDamage((this.US_RndT() >> 3) + 30);
+        break;
+      case "fire":
+        this.TakeDamage(this.US_RndT() >> 3);
+        break;
+      default:
+        break;
+    }
+  }
+
   private TakeDamage(points: number): void {
     this.gamestate.health = Math.max(0, this.gamestate.health - Math.max(0, points));
   }
@@ -2573,8 +2912,17 @@ class WLGame {
       case "bite":
         this.T_Bite(actor);
         break;
+      case "fakeFire":
+        this.T_FakeFire(actor);
+        break;
       case "shoot":
         this.T_Shoot(actor);
+        break;
+      case "throwNeedle":
+        this.T_SchabbThrow(actor);
+        break;
+      case "throwRocket":
+        this.T_GiftThrow(actor);
         break;
       default:
         break;
@@ -2598,6 +2946,23 @@ class WLGame {
     actor.stateName = frame.name;
     actor.stateShapenum = frame.shapenum;
     actor.stateTics = frame.final || frame.tics === 0 ? Math.max(0, frame.tics + carry) : frame.tics + carry;
+  }
+
+  private SetProjectileSequenceState(
+    projectile: PortProjectile,
+    sequence: ProjectileStateFrame[],
+    index: number,
+    carry = 0
+  ): void {
+    const frame = sequence[index] ?? sequence[sequence.length - 1];
+    if (!frame) {
+      return;
+    }
+
+    projectile.stateIndex = index;
+    projectile.stateName = frame.name;
+    projectile.stateShapenum = frame.shapenum;
+    projectile.stateTics = frame.tics + carry;
   }
 
   private DoorOpen(door: PortDoor, tics: number): void {
@@ -2945,6 +3310,24 @@ class WLDraw {
         actorRgb(actor),
         actorSpriteInfo?.width ?? 64,
         actorSprite ? this.id_pm.PM_GetSpriteBitmap(actorSprite.shapenum) : null
+      );
+      if (sprite) {
+        sprites.push(sprite);
+      }
+    }
+
+    for (const projectile of wl_game.map.projectiles) {
+      const projectileSprite = projectileSpriteDescriptor(projectile, wl_game.gamestate.angle);
+      const projectileSpriteInfo = projectileSprite ? this.id_pm.PM_GetSpritePageInfo(projectileSprite.shapenum) : null;
+      const sprite = this.TransformSprite(
+        wl_game,
+        projectile.x,
+        projectile.y,
+        fov,
+        horizon,
+        projectileRgb(projectile),
+        projectileSpriteInfo?.width ?? 64,
+        projectileSprite ? this.id_pm.PM_GetSpriteBitmap(projectileSprite.shapenum) : null
       );
       if (sprite) {
         sprites.push(sprite);
@@ -3623,6 +4006,7 @@ function createFallbackMap(): PortMap {
     killTotal: 0,
     name: "fallback scaffold",
     objects,
+    projectiles: [],
     secretTotal: 0,
     source: "fallback",
     statics: [],
@@ -4196,6 +4580,19 @@ function staticRgb(stat: PortStatic): [number, number, number] {
   return [116, 102, 82];
 }
 
+function projectileRgb(projectile: PortProjectile): [number, number, number] {
+  switch (projectile.kind) {
+    case "fire":
+      return [238, 72, 48];
+    case "needle":
+      return [96, 212, 126];
+    case "rocket":
+      return [228, 132, 52];
+    default:
+      return [220, 220, 190];
+  }
+}
+
 function actorRgb(actor: PortActor): [number, number, number] {
   if (actor.mode === "dead" || actor.mode === "dying") {
     return [96, 60, 54];
@@ -4217,6 +4614,18 @@ function actorRgb(actor: PortActor): [number, number, number] {
     default:
       return [92, 126, 78];
   }
+}
+
+function projectileSpriteDescriptor(projectile: PortProjectile, playerAngle: number): ActorSpriteDescriptor | null {
+  const frame = PROJECTILE_STATES[projectile.kind]?.[projectile.stateIndex];
+  if (!frame) {
+    return null;
+  }
+
+  return {
+    rotate: frame.rotate ?? false,
+    shapenum: frame.rotate ? frame.shapenum + calcProjectileRotate(projectile, playerAngle) : frame.shapenum
+  };
 }
 
 function actorSpriteDescriptor(actor: PortActor, playerAngle: number): ActorSpriteDescriptor | null {
@@ -4293,6 +4702,13 @@ function calcActorRotate(actor: PortActor, playerAngle: number): number {
   const dirType = Math.max(0, Math.min(8, actor.dir));
   const actorDirection = DIR_ANGLE_DEGREES[dirType] ?? 0;
   const rotateAngle = normalizeDegrees(playerAngleDegrees - 180 - actorDirection + 360 / 16);
+  return Math.floor(rotateAngle / (360 / 8)) % 8;
+}
+
+function calcProjectileRotate(projectile: PortProjectile, playerAngle: number): number {
+  const playerAngleDegrees = normalizeDegrees((-playerAngle * 180) / Math.PI);
+  const projectileDirection = normalizeDegrees((-projectile.angle * 180) / Math.PI);
+  const rotateAngle = normalizeDegrees(playerAngleDegrees - 180 - projectileDirection + 360 / 16);
   return Math.floor(rotateAngle / (360 / 8)) % 8;
 }
 
