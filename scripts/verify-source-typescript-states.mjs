@@ -5,9 +5,11 @@ import { fileURLToPath } from "node:url";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
+const sourceAudioPath = path.join(repoRoot, "source", "WOLFSRC", "AUDIOWL6.H");
 const sourceHeaderPath = path.join(repoRoot, "source", "WOLFSRC", "WL_DEF.H");
 const sourceAct1Path = path.join(repoRoot, "source", "WOLFSRC", "WL_ACT1.C");
 const sourceAgentPath = path.join(repoRoot, "source", "WOLFSRC", "WL_AGENT.C");
+const sourceDrawPath = path.join(repoRoot, "source", "WOLFSRC", "WL_DRAW.C");
 const sourceGamePath = path.join(repoRoot, "source", "WOLFSRC", "WL_GAME.C");
 const sourceInterPath = path.join(repoRoot, "source", "WOLFSRC", "WL_INTER.C");
 const sourcePath = path.join(repoRoot, "source", "WOLFSRC", "WL_ACT2.C");
@@ -75,9 +77,11 @@ const DIGITIZED_BOSS_DEATH_TICS = new Map([
 ]);
 
 const [
+  sourceAudioText,
   sourceHeaderText,
   sourceAct1Text,
   sourceAgentText,
+  sourceDrawText,
   sourceGameText,
   sourceInterText,
   sourceText,
@@ -85,9 +89,11 @@ const [
   sourceUserAsmText,
   typescriptText
 ] = await Promise.all([
+  readFile(sourceAudioPath, "utf8"),
   readFile(sourceHeaderPath, "utf8"),
   readFile(sourceAct1Path, "utf8"),
   readFile(sourceAgentPath, "utf8"),
+  readFile(sourceDrawPath, "utf8"),
   readFile(sourceGamePath, "utf8"),
   readFile(sourceInterPath, "utf8"),
   readFile(sourcePath, "utf8"),
@@ -97,9 +103,11 @@ const [
 ]);
 
 const sourceSprites = parseSourceSprites(sourceHeaderText);
+const sourceSoundIndexes = parseSourceSoundIndexes(sourceAudioText);
 const sourceDirectionIndexes = parseSourceDirectionIndexes(sourceHeaderText);
 const sourceWeaponIndexes = parseSourceWeaponIndexes(sourceHeaderText);
 const sourceEnemyIndexes = parseSourceEnemyIndexes(sourceHeaderText);
+const sourceWeaponReadySprites = parseSourceWeaponReadySprites(sourceDrawText, sourceSprites);
 const sourceStaticInfo = parseSourceStaticInfo(sourceAct1Text, sourceSprites);
 const sourceAttackInfo = parseSourceAttackInfo(sourceAgentText);
 const sourceStartHitpoints = parseSourceStartHitpoints(sourceText);
@@ -111,9 +119,11 @@ const sourceParTimesSeconds = parseSourceParTimesSeconds(sourceInterText);
 const sourceRndTable = parseSourceRndTable(sourceUserAsmText);
 const sourceStates = parseSourceStates(sourceText, sourceSprites);
 const constants = parseNumericConstants(typescriptText);
+const typescriptSoundChunks = parseTypescriptSoundChunks(typescriptText);
 const typescriptDirectionDeltas = parseTypescriptDirectionDeltas(typescriptText);
 const typescriptOppositeDirections = parseTypescriptOppositeDirections(typescriptText, constants);
 const typescriptDiagonalDirections = parseTypescriptDiagonalDirections(typescriptText, constants);
+const typescriptWeaponReadySprites = parseTypescriptWeaponReadySprites(typescriptText, constants);
 const typescriptElevatorBackTo = parseTypescriptElevatorBackTo(typescriptText, constants);
 const typescriptParTimesSeconds = parseTypescriptParTimesSeconds(typescriptText, constants);
 const typescriptWeaponIndexes = parseTypescriptWeaponIndexes(typescriptText);
@@ -154,6 +164,8 @@ for (const frame of modeledFrames.values()) {
 
 compareStaticInfo(sourceStaticInfo, typescriptStaticInfo, problems);
 compareDroppedItemTypes(sourceStaticInfo, typescriptDroppedItemTypes, problems);
+compareSoundChunks(sourceSoundIndexes, typescriptSoundChunks, problems);
+compareWeaponReadySprites(sourceWeaponReadySprites, typescriptWeaponReadySprites, problems);
 compareWeaponIndexes(sourceWeaponIndexes, typescriptWeaponIndexes, problems);
 compareAttackInfo(sourceAttackInfo, typescriptAttackInfo, problems);
 compareEnemyHitpointIndexes(sourceEnemyIndexes, typescriptEnemyHitpointIndexes, problems);
@@ -180,7 +192,7 @@ if (problems.length > 0) {
 }
 
 console.log(
-  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
+  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
 );
 
 function parseSourceStates(text, sprites) {
@@ -307,6 +319,22 @@ function parseSourceDirectionIndexes(text) {
   return directions;
 }
 
+function parseSourceSoundIndexes(text) {
+  const enumMatch = text.match(/typedef\s+enum\s*\{(?<body>[\s\S]*?)LASTSOUND\s*\}\s*soundnames;/);
+  if (!enumMatch?.groups?.body) {
+    throw new Error("Could not find soundnames enum in AUDIOWL6.H");
+  }
+
+  const sounds = new Map();
+  let value = 0;
+  for (const match of enumMatch.groups.body.matchAll(/\b([A-Z0-9_]+SND)\b/g)) {
+    sounds.set(match[1], value);
+    value += 1;
+  }
+
+  return sounds;
+}
+
 function parseSourceStaticInfo(text, sprites) {
   const activeText = filterWl6Source(text);
   const start = activeText.indexOf("statinfo[]");
@@ -426,6 +454,20 @@ function parseSourceRealHitlerHitpoints(text) {
   }
 
   return parseNumberList(match[1]);
+}
+
+function parseSourceWeaponReadySprites(text, sprites) {
+  const start = text.indexOf("weaponscale[NUMWEAPONS]");
+  if (start < 0) {
+    throw new Error("Could not find weaponscale[NUMWEAPONS] in WL_DRAW.C");
+  }
+
+  const match = text.slice(start).match(/\{([^}]+)\}/);
+  if (!match) {
+    throw new Error("Could not parse weaponscale[] initializer in WL_DRAW.C");
+  }
+
+  return [...match[1].matchAll(/\b(SPR_[A-Z0-9_]+)\b/g)].map((shape) => resolveSourceShape(shape[1], sprites));
 }
 
 function parseSourceElevatorBackTo(text) {
@@ -549,6 +591,20 @@ function parseTypescriptDiagonalDirections(text, constants) {
   return rows;
 }
 
+function parseTypescriptSoundChunks(text) {
+  const objectMatch = text.match(/const SOURCE_SOUND_CHUNKS:\s*Record<SourceSoundName,\s*number>\s*=\s*\{(?<body>[\s\S]*?)\};/);
+  if (!objectMatch?.groups?.body) {
+    throw new Error("Could not find SOURCE_SOUND_CHUNKS in source-typescript main.ts");
+  }
+
+  const sounds = new Map();
+  for (const match of objectMatch.groups.body.matchAll(/\b([A-Z0-9_]+SND):\s*([0-9]+),?/g)) {
+    sounds.set(match[1], Number(match[2]));
+  }
+
+  return sounds;
+}
+
 function parseTypescriptElevatorBackTo(text, constants) {
   const match = text.match(/const ELEVATOR_BACK_TO\s*=\s*\[(?<body>[^\]]+)\]\s*as const;/);
   if (!match?.groups?.body) {
@@ -565,6 +621,15 @@ function parseTypescriptParTimesSeconds(text, constants) {
   }
 
   return match.groups.body.split(",").filter((part) => part.trim()).map((part) => resolveTypescriptNumber(part, constants));
+}
+
+function parseTypescriptWeaponReadySprites(text, constants) {
+  const match = text.match(/const WEAPON_READY_SPRITES\s*=\s*\[(?<body>[^\]]+)\]\s*as const;/);
+  if (!match?.groups?.body) {
+    throw new Error("Could not find WEAPON_READY_SPRITES in source-typescript main.ts");
+  }
+
+  return match.groups.body.split(",").map((part) => resolveTypescriptNumber(part, constants));
 }
 
 function parseTypescriptWeaponIndexes(text) {
@@ -731,6 +796,30 @@ function compareDroppedItemTypes(sourceEntries, typescriptEntries, problems) {
       problems.push(`DROPPED_ITEM_TYPES.${item}: type ${typeIndex} != source first type ${sourceIndex}`);
     }
   }
+}
+
+function compareSoundChunks(sourceEntries, typescriptEntries, problems) {
+  for (const [sound, sourceIndex] of sourceEntries.entries()) {
+    const currentIndex = typescriptEntries.get(sound);
+    if (!Number.isFinite(currentIndex)) {
+      problems.push(`${sound}: missing TypeScript sound chunk`);
+      continue;
+    }
+
+    if (currentIndex !== sourceIndex) {
+      problems.push(`${sound}: sound chunk ${currentIndex} != source ${sourceIndex}`);
+    }
+  }
+
+  for (const sound of typescriptEntries.keys()) {
+    if (!sourceEntries.has(sound)) {
+      problems.push(`${sound}: TypeScript sound chunk missing from AUDIOWL6.H`);
+    }
+  }
+}
+
+function compareWeaponReadySprites(sourceValues, typescriptValues, problems) {
+  compareNumberList("WEAPON_READY_SPRITES", sourceValues, typescriptValues, problems);
 }
 
 function compareWeaponIndexes(sourceEntries, typescriptEntries, problems) {

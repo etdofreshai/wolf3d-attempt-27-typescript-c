@@ -643,7 +643,7 @@ const WP_PISTOL = 1;
 const WP_MACHINEGUN = 2;
 const WP_CHAINGUN = 3;
 // WL_DRAW.C weaponscale[] for WL6: SPR_KNIFEREADY, SPR_PISTOLREADY, etc.
-const WEAPON_READY_SPRITES = [416, 421, 426, 431] as const;
+const WEAPON_READY_SPRITES = [416, 421, 426, 430] as const;
 // WL_AGENT.C attackinfo[4][14], trimmed to the populated frames in the WL6 source.
 const ATTACK_INFO: AttackInfo[][] = [
   [
