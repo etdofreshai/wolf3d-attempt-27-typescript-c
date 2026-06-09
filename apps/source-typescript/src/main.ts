@@ -701,6 +701,13 @@ const DIRECTION_DELTAS: Record<number, { dx: number; dy: number }> = {
   6: { dx: 0, dy: 1 },
   7: { dx: 1, dy: 1 }
 };
+const OPPOSITE_DIRECTIONS = [4, 5, 6, 7, 0, 1, 2, 3, NODIR] as const;
+const DIAGONAL_DIRECTIONS: Record<number, Partial<Record<number, number>>> = {
+  0: { 2: 1, 6: 7 },
+  2: { 0: 1, 4: 3 },
+  4: { 2: 3, 6: 5 },
+  6: { 0: 7, 4: 5 }
+};
 const CARDINAL_DIRECTIONS = new Set([0, 2, 4, 6]);
 const CARDINAL_TILE_DELTAS = [
   { dx: 1, dy: 0 },
@@ -1332,6 +1339,8 @@ class WLGame {
       this.MoveLoopingActorState(actor, tics);
       if (actor.mode === "patrol") {
         this.T_Path(actor, tics);
+      } else if (actor.mode === "chase") {
+        this.T_Chase(actor, tics);
       }
     }
   }
@@ -1382,6 +1391,60 @@ class WLGame {
 
   private T_Stand(actor: PortActor, tics: number): void {
     this.SightPlayer(actor, tics);
+  }
+
+  private T_Chase(actor: PortActor, tics: number): void {
+    const dodge = this.CheckLineToActor(actor);
+    if (actor.dir === NODIR) {
+      if (dodge) {
+        this.SelectDodgeDir(actor);
+      } else {
+        this.SelectChaseDir(actor);
+      }
+
+      if (actor.dir === NODIR) {
+        return;
+      }
+    }
+
+    let move = (actor.speed * tics) / TILEGLOBAL;
+    while (move > 0) {
+      if (actor.distance < 0) {
+        const door = this.map.doors[-actor.distance - 1];
+        if (!door) {
+          actor.dir = NODIR;
+          return;
+        }
+
+        this.OpenDoor(door);
+        if (door.action !== "open") {
+          return;
+        }
+
+        actor.distance = TILE_DISTANCE;
+      }
+
+      if (actor.distance > 0 && move < actor.distance) {
+        this.MoveObj(actor, move);
+        break;
+      }
+
+      actor.x = actor.targetX;
+      actor.y = actor.targetY;
+      if (actor.distance > 0) {
+        move -= actor.distance;
+      }
+
+      if (dodge) {
+        this.SelectDodgeDir(actor);
+      } else {
+        this.SelectChaseDir(actor);
+      }
+
+      if (actor.dir === NODIR) {
+        return;
+      }
+    }
   }
 
   private T_Path(actor: PortActor, tics: number): void {
@@ -1460,6 +1523,122 @@ class WLGame {
     }
   }
 
+  private SelectDodgeDir(actor: PortActor): void {
+    const turnaround = actor.firstAttack ? NODIR : OPPOSITE_DIRECTIONS[actor.dir] ?? NODIR;
+    actor.firstAttack = false;
+    const deltaX = Math.floor(this.gamestate.x) - Math.floor(actor.targetX);
+    const deltaY = Math.floor(this.gamestate.y) - Math.floor(actor.targetY);
+    const directions: [number, number, number, number, number] = [
+      NODIR,
+      deltaX > 0 ? 0 : 4,
+      deltaY > 0 ? 6 : 2,
+      deltaX > 0 ? 4 : 0,
+      deltaY > 0 ? 2 : 6
+    ];
+
+    if (Math.abs(deltaX) > Math.abs(deltaY)) {
+      [directions[1], directions[2]] = [directions[2], directions[1]];
+      [directions[3], directions[4]] = [directions[4], directions[3]];
+    }
+
+    if (this.US_RndT() < 128) {
+      [directions[1], directions[2]] = [directions[2], directions[1]];
+      [directions[3], directions[4]] = [directions[4], directions[3]];
+    }
+
+    directions[0] = DIAGONAL_DIRECTIONS[directions[1]]?.[directions[2]] ?? NODIR;
+    for (const dir of directions) {
+      if (dir === NODIR || dir === turnaround) {
+        continue;
+      }
+
+      actor.dir = dir;
+      if (this.TryWalk(actor)) {
+        return;
+      }
+    }
+
+    if (turnaround !== NODIR) {
+      actor.dir = turnaround;
+      if (this.TryWalk(actor)) {
+        return;
+      }
+    }
+
+    actor.dir = NODIR;
+  }
+
+  private SelectChaseDir(actor: PortActor): void {
+    const oldDir = actor.dir;
+    const turnaround = OPPOSITE_DIRECTIONS[oldDir] ?? NODIR;
+    const deltaX = Math.floor(this.gamestate.x) - Math.floor(actor.targetX);
+    const deltaY = Math.floor(this.gamestate.y) - Math.floor(actor.targetY);
+    const directions: [number, number, number] = [NODIR, NODIR, NODIR];
+
+    if (deltaX > 0) {
+      directions[1] = 0;
+    } else if (deltaX < 0) {
+      directions[1] = 4;
+    }
+
+    if (deltaY > 0) {
+      directions[2] = 6;
+    } else if (deltaY < 0) {
+      directions[2] = 2;
+    }
+
+    if (Math.abs(deltaY) > Math.abs(deltaX)) {
+      [directions[1], directions[2]] = [directions[2], directions[1]];
+    }
+
+    if (directions[1] === turnaround) {
+      directions[1] = NODIR;
+    }
+
+    if (directions[2] === turnaround) {
+      directions[2] = NODIR;
+    }
+
+    for (const dir of [directions[1], directions[2]]) {
+      if (dir === NODIR) {
+        continue;
+      }
+
+      actor.dir = dir;
+      if (this.TryWalk(actor)) {
+        return;
+      }
+    }
+
+    if (oldDir !== NODIR) {
+      actor.dir = oldDir;
+      if (this.TryWalk(actor)) {
+        return;
+      }
+    }
+
+    const fallbackDirs = this.US_RndT() > 128 ? [2, 3, 4] : [4, 3, 2];
+    for (const dir of fallbackDirs) {
+      if (dir === turnaround) {
+        continue;
+      }
+
+      actor.dir = dir;
+      if (this.TryWalk(actor)) {
+        return;
+      }
+    }
+
+    if (turnaround !== NODIR) {
+      actor.dir = turnaround;
+      if (this.TryWalk(actor)) {
+        return;
+      }
+    }
+
+    actor.dir = NODIR;
+  }
+
   private TryWalk(actor: PortActor): boolean {
     const delta = DIRECTION_DELTAS[actor.dir];
     if (!delta) {
@@ -1468,6 +1647,21 @@ class WLGame {
 
     const nextX = actor.targetX + delta.dx;
     const nextY = actor.targetY + delta.dy;
+    if (delta.dx !== 0 && delta.dy !== 0) {
+      if (
+        !this.CanActorEnterTile(actor, nextX, nextY) ||
+        !this.CanActorEnterTile(actor, nextX, actor.targetY) ||
+        !this.CanActorEnterTile(actor, actor.targetX, nextY)
+      ) {
+        return false;
+      }
+
+      actor.targetX = nextX;
+      actor.targetY = nextY;
+      actor.distance = TILE_DISTANCE;
+      return true;
+    }
+
     const door = this.DoorAt(nextX, nextY);
     if (door && door.action !== "open") {
       if (!this.CanActorWaitForDoor(actor, nextX, nextY)) {
