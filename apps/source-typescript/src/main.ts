@@ -1472,7 +1472,7 @@ class WLPlay {
   PlayLoop(ticMs: number): void {
     const tics = ticsFromMilliseconds(ticMs);
     this.wl_game.BeginActorThinking();
-    const moved = this.wl_game.PlayPlayerInput(this.id_in, ticMs, tics, this.id_in.ConsumeUse());
+    const moved = this.wl_game.PlayPlayerInput(this.id_in, ticMs, tics);
     this.wl_game.MoveDoors(tics);
     this.wl_game.MovePushWall(tics);
     this.wl_game.MoveActors(tics);
@@ -1600,7 +1600,7 @@ class WLGame {
     this.ConnectAreas();
   }
 
-  PlayPlayerInput(id_in: IDIN, ticMs: number, tics: number, usePressed: boolean): boolean {
+  PlayPlayerInput(id_in: IDIN, ticMs: number, tics: number): boolean {
     const attackDown = id_in.IN_AttackDown();
     let moved = false;
 
@@ -1610,7 +1610,7 @@ class WLGame {
     } else {
       this.CheckWeaponChange(id_in);
 
-      if (usePressed) {
+      if (id_in.ConsumeUse()) {
         this.Cmd_Use();
       }
 
@@ -4436,6 +4436,10 @@ class IDIN {
   }
 
   KeyUp(keyCode: number): void {
+    if (keyCode === USE_KEY_CODE) {
+      this.pendingUse = false;
+    }
+
     this.keys.delete(keyCode);
   }
 }
