@@ -4701,6 +4701,10 @@ class WLGame {
     actor.attackMode = false;
     this.RecordDeathCamSourcePosition(actor);
     this.StartDeathState(actor);
+    if (actor.kind === "schabbs" || actor.kind === "real_hitler") {
+      this.A_DeathScream(actor);
+    }
+
     this.gamestate.killcount += 1;
     this.GivePoints(actorKillScore(actor.kind));
     this.PlaceKillDrop(actor);
