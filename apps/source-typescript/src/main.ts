@@ -2846,7 +2846,7 @@ class WLGame {
 
       if (this.ProjectileIsEffect(projectile)) {
         activeProjectiles.push(projectile);
-      } else if (projectile.kind === "fire" || this.T_Projectile(projectile, tics)) {
+      } else if (this.T_Projectile(projectile, tics)) {
         activeProjectiles.push(projectile);
       }
     }
@@ -3024,10 +3024,6 @@ class WLGame {
     const sequence = PROJECTILE_STATES[projectile.kind];
     projectile.stateTics -= tics;
     while (projectile.stateTics <= 0) {
-      if (projectile.kind === "fire" && !this.T_Projectile(projectile, tics)) {
-        return false;
-      }
-
       let nextIndex = projectile.stateIndex + 1;
       if (nextIndex >= sequence.length) {
         if (!LOOPING_PROJECTILE_KINDS.has(projectile.kind)) {
