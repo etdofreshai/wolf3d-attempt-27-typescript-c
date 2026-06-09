@@ -1133,6 +1133,7 @@ const ACTOR_SIDE_DOOR_KINDS = new Set([
   "schabbs",
   "ss"
 ]);
+const DEATH_CAM_SOURCE_POSITION_ACTORS = new Set(["fat", "gift", "real_hitler", "schabbs"]);
 
 const root = document.querySelector<HTMLElement>("#app");
 if (!root) {
@@ -4217,10 +4218,20 @@ class WLGame {
     actor.hitpoints = 0;
     actor.shootable = false;
     actor.attackMode = false;
+    this.RecordDeathCamSourcePosition(actor);
     this.StartDeathState(actor);
     this.gamestate.killcount += 1;
     this.GivePoints(actorKillScore(actor.kind));
     this.PlaceKillDrop(actor);
+  }
+
+  private RecordDeathCamSourcePosition(actor: PortActor): void {
+    if (!DEATH_CAM_SOURCE_POSITION_ACTORS.has(actor.kind)) {
+      return;
+    }
+
+    this.gamestate.killx = this.gamestate.x;
+    this.gamestate.killy = this.gamestate.y;
   }
 
   private US_RndT(): number {
