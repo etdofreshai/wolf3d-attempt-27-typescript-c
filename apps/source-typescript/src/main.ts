@@ -150,7 +150,7 @@ type PortActor = {
   firstAttack: boolean;
   hitpoints: number;
   kind: string;
-  mode: "attack" | "boss" | "chase" | "dead" | "dying" | "ghost" | "pain" | "patrol" | "stand";
+  mode: "attack" | "boss" | "chase" | "dead" | "dying" | "ghost" | "pain" | "patrol" | "stand" | "victory";
   reactionTime: number;
   shootable: boolean;
   speed: number;
@@ -161,11 +161,22 @@ type PortActor = {
   targetX: number;
   targetY: number;
   tile: number;
+  victoryPhase?: "jump" | "run";
+  victoryTilesRemaining?: number;
   x: number;
   y: number;
 };
 
-type ActorFrameAction = "bite" | "fakeFire" | "hitlerMorph" | "shoot" | "throwNeedle" | "throwRocket";
+type ActorFrameAction =
+  | "bite"
+  | "bjDone"
+  | "bjYell"
+  | "fakeFire"
+  | "hitlerMorph"
+  | "shoot"
+  | "throwNeedle"
+  | "throwRocket";
+type ActorFrameThink = "bjJump" | "bjRun";
 
 type ActorStateFrame = {
   action?: ActorFrameAction;
@@ -173,6 +184,7 @@ type ActorStateFrame = {
   name: string;
   nextMode?: "chase";
   shapenum: number;
+  think?: ActorFrameThink;
   tics: number;
 };
 
@@ -292,6 +304,8 @@ const DEMO_DEFAULT_HOLD_MS = 90;
 const ALTELEVATORTILE = 107;
 const AMBUSHTILE = 106;
 const AREATILE = 107;
+const BJJUMPSPEED = 680;
+const BJRUNSPEED = 2048;
 const ELEVATORTILE = 21;
 const ELEVATOR_BACK_TO = [1, 1, 7, 3, 5, 3] as const;
 const EXITTILE = 99;
@@ -487,6 +501,14 @@ const ACTOR_SPRITES = {
   FAT_W2: 397,
   FAT_W3: 398,
   FAT_W4: 399,
+  BJ_W1: 408,
+  BJ_W2: 409,
+  BJ_W3: 410,
+  BJ_W4: 411,
+  BJ_JUMP1: 412,
+  BJ_JUMP2: 413,
+  BJ_JUMP3: 414,
+  BJ_JUMP4: 415,
   FIRE1: 326,
   FIRE2: 327,
   GIFT_DEAD: 369,
@@ -786,6 +808,20 @@ const ACTOR_ATTACK_STATES: Record<string, ActorStateFrame[]> = {
     { name: "s_ssshoot9", nextMode: "chase", shapenum: ACTOR_SPRITES.SS_SHOOT3, tics: 10 }
   ]
 };
+const ACTOR_VICTORY_RUN_STATES: ActorStateFrame[] = [
+  { name: "s_bjrun1", shapenum: ACTOR_SPRITES.BJ_W1, think: "bjRun", tics: 12 },
+  { name: "s_bjrun1s", shapenum: ACTOR_SPRITES.BJ_W1, tics: 3 },
+  { name: "s_bjrun2", shapenum: ACTOR_SPRITES.BJ_W2, think: "bjRun", tics: 8 },
+  { name: "s_bjrun3", shapenum: ACTOR_SPRITES.BJ_W3, think: "bjRun", tics: 12 },
+  { name: "s_bjrun3s", shapenum: ACTOR_SPRITES.BJ_W3, tics: 3 },
+  { name: "s_bjrun4", shapenum: ACTOR_SPRITES.BJ_W4, think: "bjRun", tics: 8 }
+];
+const ACTOR_VICTORY_JUMP_STATES: ActorStateFrame[] = [
+  { name: "s_bjjump1", shapenum: ACTOR_SPRITES.BJ_JUMP1, think: "bjJump", tics: 14 },
+  { action: "bjYell", name: "s_bjjump2", shapenum: ACTOR_SPRITES.BJ_JUMP2, think: "bjJump", tics: 14 },
+  { name: "s_bjjump3", shapenum: ACTOR_SPRITES.BJ_JUMP3, think: "bjJump", tics: 14 },
+  { action: "bjDone", name: "s_bjjump4", shapenum: ACTOR_SPRITES.BJ_JUMP4, tics: 300 }
+];
 const PROJECTILE_STATES: Record<ProjectileKind, ProjectileStateFrame[]> = {
   boom: [
     { name: "s_boom1", shapenum: ACTOR_SPRITES.BOOM_1, tics: 6 },
@@ -1325,6 +1361,8 @@ class WLMain {
           targetX: actor.targetX,
           targetY: actor.targetY,
           tile: actor.tile,
+          victoryPhase: actor.victoryPhase ?? null,
+          victoryTilesRemaining: actor.victoryTilesRemaining ?? null,
           x: actor.x,
           y: actor.y
         })),
@@ -2104,6 +2142,8 @@ class WLGame {
       this.MoveAttackState(actor, tics);
     } else if (actor.mode === "ghost") {
       this.MoveGhostState(actor, tics);
+    } else if (actor.mode === "victory") {
+      this.MoveVictoryState(actor, tics);
     } else if (actor.mode === "boss" || actor.mode === "stand") {
       this.T_Stand(actor, tics);
     } else if (actor.mode === "patrol" || actor.mode === "chase") {
@@ -2165,6 +2205,36 @@ class WLGame {
     }
 
     this.T_Ghosts(actor, tics);
+  }
+
+  private MoveVictoryState(actor: PortActor, tics: number): void {
+    if (actor.stateTics === 0) {
+      this.RunActorFrameThink(actor, this.VictoryActorFrame(actor), tics);
+      return;
+    }
+
+    actor.stateTics -= tics;
+    while (actor.mode === "victory" && actor.stateTics <= 0) {
+      const frame = this.VictoryActorFrame(actor);
+      this.RunActorFrameAction(actor, frame);
+      if (this.playstate !== "ex_stillplaying") {
+        return;
+      }
+
+      const sequence = actor.victoryPhase === "jump" ? ACTOR_VICTORY_JUMP_STATES : ACTOR_VICTORY_RUN_STATES;
+      const nextIndex =
+        actor.victoryPhase === "jump"
+          ? Math.min(actor.stateIndex + 1, sequence.length - 1)
+          : (actor.stateIndex + 1) % sequence.length;
+      this.SetActorSequenceState(actor, sequence, nextIndex, "victory", actor.stateTics);
+    }
+
+    this.RunActorFrameThink(actor, this.VictoryActorFrame(actor), tics);
+  }
+
+  private VictoryActorFrame(actor: PortActor): ActorStateFrame | undefined {
+    const sequence = actor.victoryPhase === "jump" ? ACTOR_VICTORY_JUMP_STATES : ACTOR_VICTORY_RUN_STATES;
+    return sequence[actor.stateIndex];
   }
 
   private MoveAttackState(actor: PortActor, tics: number): void {
@@ -2559,6 +2629,61 @@ class WLGame {
         return;
       }
     }
+  }
+
+  private T_BJRun(actor: PortActor, tics: number): void {
+    let move = (BJRUNSPEED * tics) / TILEGLOBAL;
+    while (move > 0) {
+      if (actor.distance > 0 && move < actor.distance) {
+        this.MoveVictoryObj(actor, move);
+        break;
+      }
+
+      actor.x = actor.targetX;
+      actor.y = actor.targetY;
+      if (actor.distance > 0) {
+        move -= actor.distance;
+      }
+
+      this.SelectPathDir(actor);
+      actor.victoryTilesRemaining = (actor.victoryTilesRemaining ?? 0) - 1;
+      if (actor.victoryTilesRemaining <= 0) {
+        this.StartBJJumpState(actor);
+        return;
+      }
+
+      if (actor.dir === NODIR || actor.distance <= 0) {
+        return;
+      }
+    }
+  }
+
+  private T_BJJump(actor: PortActor, tics: number): void {
+    this.MoveVictoryObj(actor, (BJJUMPSPEED * tics) / TILEGLOBAL);
+  }
+
+  private T_BJYell(): void {
+    // Audio parity will route YEAHSND through the source sound tables in a later slice.
+  }
+
+  private T_BJDone(): void {
+    this.SetPlayState("ex_victorious");
+  }
+
+  private MoveVictoryObj(actor: PortActor, move: number): void {
+    const delta = DIRECTION_DELTAS[actor.dir];
+    if (!delta) {
+      return;
+    }
+
+    actor.x += delta.dx * move;
+    actor.y += delta.dy * move;
+    actor.distance -= move;
+  }
+
+  private StartBJJumpState(actor: PortActor): void {
+    actor.victoryPhase = "jump";
+    this.SetActorSequenceState(actor, ACTOR_VICTORY_JUMP_STATES, 0, "victory");
   }
 
   private MoveObj(actor: PortActor, move: number, tics: number): void {
@@ -3508,9 +3633,47 @@ class WLGame {
   }
 
   private VictoryTile(): void {
-    // WL_AGENT.C starts the end-of-episode sequence here; BJ's actor animation is a later parity slice.
+    this.SpawnBJVictory();
     this.gamestate.victoryflag = true;
     this.victorySpinTargetY = Math.floor(this.gamestate.y) - 5 - 0x3000 / TILEGLOBAL;
+  }
+
+  private SpawnBJVictory(): void {
+    if (this.map.actors.some((actor) => actor.kind === "bj" && actor.mode === "victory")) {
+      return;
+    }
+
+    const frame = ACTOR_VICTORY_RUN_STATES[0];
+    if (!frame) {
+      return;
+    }
+
+    const tileX = Math.floor(this.gamestate.x);
+    const tileY = Math.floor(this.gamestate.y) + 1;
+    this.map.actors.push({
+      ambush: false,
+      attackMode: false,
+      dir: 2,
+      distance: 0,
+      firstAttack: false,
+      hitpoints: 0,
+      kind: "bj",
+      mode: "victory",
+      reactionTime: 0,
+      shootable: false,
+      speed: BJRUNSPEED,
+      stateIndex: 0,
+      stateName: frame.name,
+      stateShapenum: frame.shapenum,
+      stateTics: this.US_RndT() % frame.tics,
+      targetX: tileX,
+      targetY: tileY,
+      tile: 0,
+      victoryPhase: "run",
+      victoryTilesRemaining: 6,
+      x: this.gamestate.x - 0.5,
+      y: this.gamestate.y - 0.5
+    });
   }
 
   private VictorySpin(tics: number): void {
@@ -3686,6 +3849,12 @@ class WLGame {
       case "bite":
         this.T_Bite(actor);
         break;
+      case "bjDone":
+        this.T_BJDone();
+        break;
+      case "bjYell":
+        this.T_BJYell();
+        break;
       case "fakeFire":
         this.T_FakeFire(actor);
         break;
@@ -3700,6 +3869,19 @@ class WLGame {
         break;
       case "throwRocket":
         this.T_GiftThrow(actor);
+        break;
+      default:
+        break;
+    }
+  }
+
+  private RunActorFrameThink(actor: PortActor, frame: ActorStateFrame | undefined, tics: number): void {
+    switch (frame?.think) {
+      case "bjJump":
+        this.T_BJJump(actor, tics);
+        break;
+      case "bjRun":
+        this.T_BJRun(actor, tics);
         break;
       default:
         break;
@@ -5533,6 +5715,10 @@ function actorRgb(actor: PortActor): [number, number, number] {
     return [150, 126, 182];
   }
 
+  if (actor.mode === "victory") {
+    return [194, 154, 98];
+  }
+
   switch (actor.kind) {
     case "dog":
       return [120, 88, 58];
@@ -5578,6 +5764,13 @@ function actorSpriteDescriptor(actor: PortActor, playerAngle: number): ActorSpri
     return {
       rotate: false,
       shapenum: actor.stateShapenum ?? ACTOR_STAND_SPRITES[actor.kind] ?? ACTOR_SPRITES.GRD_S_1
+    };
+  }
+
+  if (actor.mode === "victory") {
+    return {
+      rotate: false,
+      shapenum: actor.stateShapenum ?? ACTOR_SPRITES.BJ_W1
     };
   }
 
