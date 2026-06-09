@@ -42,6 +42,25 @@ const ACTION_NAMES = new Map([
   ["T_Shoot", "shoot"]
 ]);
 
+const TYPESCRIPT_KIND_TO_SOURCE_ENEMY = new Map([
+  ["blinky", "en_blinky"],
+  ["boss", "en_boss"],
+  ["clyde", "en_clyde"],
+  ["dog", "en_dog"],
+  ["fake_hitler", "en_fake"],
+  ["fat", "en_fat"],
+  ["gift", "en_gift"],
+  ["gretel", "en_gretel"],
+  ["guard", "en_guard"],
+  ["hitler", "en_hitler"],
+  ["inky", "en_inky"],
+  ["mutant", "en_mutant"],
+  ["officer", "en_officer"],
+  ["pinky", "en_pinky"],
+  ["schabbs", "en_schabbs"],
+  ["ss", "en_ss"]
+]);
+
 // The TypeScript lane models the original source path where digitized boss
 // death sounds are enabled, matching the runtime tictime mutations in WL_ACT2.C.
 const DIGITIZED_BOSS_DEATH_TICS = new Map([
@@ -61,13 +80,19 @@ const [sourceHeaderText, sourceAct1Text, sourceAgentText, sourceText, typescript
 
 const sourceSprites = parseSourceSprites(sourceHeaderText);
 const sourceWeaponIndexes = parseSourceWeaponIndexes(sourceHeaderText);
+const sourceEnemyIndexes = parseSourceEnemyIndexes(sourceHeaderText);
 const sourceStaticInfo = parseSourceStaticInfo(sourceAct1Text, sourceSprites);
 const sourceAttackInfo = parseSourceAttackInfo(sourceAgentText);
+const sourceStartHitpoints = parseSourceStartHitpoints(sourceText);
+const sourceRealHitlerHitpoints = parseSourceRealHitlerHitpoints(sourceText);
 const sourceStates = parseSourceStates(sourceText, sourceSprites);
 const constants = parseNumericConstants(typescriptText);
 const typescriptWeaponIndexes = parseTypescriptWeaponIndexes(typescriptText);
+const typescriptEnemyHitpointIndexes = parseTypescriptEnemyHitpointIndexes(typescriptText);
 const typescriptStaticInfo = parseTypescriptStaticInfo(typescriptText);
 const typescriptAttackInfo = parseTypescriptAttackInfo(typescriptText);
+const typescriptStartHitpoints = parseTypescriptStartHitpoints(typescriptText);
+const typescriptRealHitlerHitpoints = parseTypescriptRealHitlerHitpoints(typescriptText);
 const typescriptDroppedItemTypes = parseTypescriptDroppedItemTypes(typescriptText);
 const typescriptSprites = parseTypescriptSprites(typescriptText);
 const modeledFrames = parseModeledFrames(typescriptText, constants, typescriptSprites);
@@ -101,6 +126,9 @@ compareStaticInfo(sourceStaticInfo, typescriptStaticInfo, problems);
 compareDroppedItemTypes(sourceStaticInfo, typescriptDroppedItemTypes, problems);
 compareWeaponIndexes(sourceWeaponIndexes, typescriptWeaponIndexes, problems);
 compareAttackInfo(sourceAttackInfo, typescriptAttackInfo, problems);
+compareEnemyHitpointIndexes(sourceEnemyIndexes, typescriptEnemyHitpointIndexes, problems);
+compareStartHitpoints(sourceStartHitpoints, typescriptStartHitpoints, problems);
+compareRealHitlerHitpoints(sourceRealHitlerHitpoints, typescriptRealHitlerHitpoints, problems);
 
 if (problems.length > 0) {
   console.error(`source-typescript source verifier failed with ${problems.length} mismatch(es):`);
@@ -116,7 +144,7 @@ if (problems.length > 0) {
 }
 
 console.log(
-  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, and ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows match source.`
+  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, and ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows match source.`
 );
 
 function parseSourceStates(text, sprites) {
@@ -267,6 +295,22 @@ function parseSourceWeaponIndexes(text) {
   return weapons;
 }
 
+function parseSourceEnemyIndexes(text) {
+  const enumMatch = text.match(/typedef\s+enum\s*\{(?<body>[\s\S]*?)\}\s*enemy_t;/);
+  if (!enumMatch?.groups?.body) {
+    throw new Error("Could not find enemy_t enum in WL_DEF.H");
+  }
+
+  const enemies = new Map();
+  let value = 0;
+  for (const match of enumMatch.groups.body.matchAll(/\b(en_[a-z0-9_]+)\b/g)) {
+    enemies.set(match[1], value);
+    value += 1;
+  }
+
+  return enemies;
+}
+
 function parseSourceAttackInfo(text) {
   const start = text.indexOf("attackinfo[4][14]");
   if (start < 0) {
@@ -303,6 +347,35 @@ function parseSourceAttackInfo(text) {
   return rows;
 }
 
+function parseSourceStartHitpoints(text) {
+  const start = text.indexOf("starthitpoints[4][NUMENEMIES]");
+  if (start < 0) {
+    throw new Error("Could not find starthitpoints[4][NUMENEMIES] in WL_ACT2.C");
+  }
+
+  const tableStart = text.indexOf("{", start);
+  const tableEnd = text.indexOf(";", tableStart);
+  if (tableStart < 0 || tableEnd < 0) {
+    throw new Error("Could not parse starthitpoints initializer in WL_ACT2.C");
+  }
+
+  return parseNumericRows(text.slice(tableStart, tableEnd));
+}
+
+function parseSourceRealHitlerHitpoints(text) {
+  const start = text.indexOf("void A_HitlerMorph");
+  if (start < 0) {
+    throw new Error("Could not find A_HitlerMorph in WL_ACT2.C");
+  }
+
+  const match = text.slice(start).match(/hitpoints\[4\]\s*=\s*\{([^}]+)\}/);
+  if (!match) {
+    throw new Error("Could not find A_HitlerMorph hitpoints[4] in WL_ACT2.C");
+  }
+
+  return parseNumberList(match[1]);
+}
+
 function parseTypescriptWeaponIndexes(text) {
   const weapons = new Map();
   for (const match of text.matchAll(/\bconst\s+(WP_[A-Z0-9_]+)\s*=\s*([0-9]+);/g)) {
@@ -310,6 +383,20 @@ function parseTypescriptWeaponIndexes(text) {
   }
 
   return weapons;
+}
+
+function parseTypescriptEnemyHitpointIndexes(text) {
+  const objectMatch = text.match(/const ENEMY_HITPOINT_INDEX:\s*Record<string, number>\s*=\s*\{(?<body>[\s\S]*?)\};/);
+  if (!objectMatch?.groups?.body) {
+    throw new Error("Could not find ENEMY_HITPOINT_INDEX in source-typescript main.ts");
+  }
+
+  const enemies = new Map();
+  for (const match of objectMatch.groups.body.matchAll(/\b([a-z_]+):\s*([0-9]+),?/g)) {
+    enemies.set(match[1], Number(match[2]));
+  }
+
+  return enemies;
 }
 
 function parseTypescriptAttackInfo(text) {
@@ -344,6 +431,25 @@ function parseTypescriptAttackInfo(text) {
   }
 
   return rows;
+}
+
+function parseTypescriptStartHitpoints(text) {
+  const start = text.indexOf("const START_HITPOINTS");
+  const end = text.indexOf("const ENEMY_HITPOINT_INDEX", start);
+  if (start < 0 || end < 0) {
+    throw new Error("Could not find START_HITPOINTS in source-typescript main.ts");
+  }
+
+  return parseNumericRows(text.slice(start, end));
+}
+
+function parseTypescriptRealHitlerHitpoints(text) {
+  const match = text.match(/const REAL_HITLER_HITPOINTS\s*=\s*\[([^\]]+)\]\s*as const;/);
+  if (!match) {
+    throw new Error("Could not find REAL_HITLER_HITPOINTS in source-typescript main.ts");
+  }
+
+  return parseNumberList(match[1]);
 }
 
 function parseTypescriptStaticInfo(text) {
@@ -465,6 +571,34 @@ function compareAttackInfo(sourceRows, typescriptRows, problems) {
   }
 }
 
+function compareEnemyHitpointIndexes(sourceEntries, typescriptEntries, problems) {
+  for (const [kind, sourceEnemy] of TYPESCRIPT_KIND_TO_SOURCE_ENEMY.entries()) {
+    const sourceIndex = sourceEntries.get(sourceEnemy);
+    const currentIndex = typescriptEntries.get(kind);
+    if (!Number.isFinite(sourceIndex)) {
+      problems.push(`${kind}: missing source enemy index ${sourceEnemy}`);
+      continue;
+    }
+
+    if (!Number.isFinite(currentIndex)) {
+      problems.push(`${kind}: missing TypeScript enemy hitpoint index`);
+      continue;
+    }
+
+    if (currentIndex !== sourceIndex) {
+      problems.push(`${kind}: hitpoint index ${currentIndex} != source ${sourceEnemy} index ${sourceIndex}`);
+    }
+  }
+}
+
+function compareStartHitpoints(sourceRows, typescriptRows, problems) {
+  compareNumberRows("starthitpoints", sourceRows, typescriptRows, problems);
+}
+
+function compareRealHitlerHitpoints(sourceValues, typescriptValues, problems) {
+  compareNumberList("A_HitlerMorph.hitpoints", sourceValues, typescriptValues, problems);
+}
+
 function parseNumericConstants(text) {
   const constants = new Map();
   const constantPattern = /const\s+([A-Z0-9_]+)\s*=\s*([0-9]+);/g;
@@ -473,6 +607,51 @@ function parseNumericConstants(text) {
   }
 
   return constants;
+}
+
+function parseNumericRows(text) {
+  const rows = [];
+  const stripped = text.replace(/\/\/.*$/gm, "");
+  for (const rowMatch of stripped.matchAll(/[\{\[]([^\{\}\[\]]+)[\}\]]/g)) {
+    const values = parseNumberList(rowMatch[1]);
+    if (values.length > 0) {
+      rows.push(values);
+    }
+  }
+
+  if (rows.length === 0) {
+    throw new Error("Could not parse numeric rows");
+  }
+
+  return rows;
+}
+
+function parseNumberList(text) {
+  return [...text.matchAll(/-?[0-9]+/g)].map((match) => Number(match[0]));
+}
+
+function compareNumberRows(name, sourceRows, typescriptRows, problems) {
+  if (sourceRows.length !== typescriptRows.length) {
+    problems.push(`${name} row count ${typescriptRows.length} != source ${sourceRows.length}`);
+  }
+
+  const rowCount = Math.min(sourceRows.length, typescriptRows.length);
+  for (let row = 0; row < rowCount; row += 1) {
+    compareNumberList(`${name}[${row}]`, sourceRows[row], typescriptRows[row], problems);
+  }
+}
+
+function compareNumberList(name, sourceValues, typescriptValues, problems) {
+  if (sourceValues.length !== typescriptValues.length) {
+    problems.push(`${name} length ${typescriptValues.length} != source ${sourceValues.length}`);
+  }
+
+  const count = Math.min(sourceValues.length, typescriptValues.length);
+  for (let index = 0; index < count; index += 1) {
+    if (typescriptValues[index] !== sourceValues[index]) {
+      problems.push(`${name}[${index}] ${typescriptValues[index]} != source ${sourceValues[index]}`);
+    }
+  }
 }
 
 function parseModeledFrames(text, constants, sprites) {

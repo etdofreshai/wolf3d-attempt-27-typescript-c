@@ -147,7 +147,8 @@ npm run build
 projectile state-frame shapenums/tics/actions/thinks against
 `source/WOLFSRC/WL_ACT2.C`, plus WL6 static-object table parity against
 `source/WOLFSRC/WL_ACT1.C`, weapon attack-frame parity against
-`source/WOLFSRC/WL_AGENT.C`, and the sprite/weapon enums in
+`source/WOLFSRC/WL_AGENT.C`, enemy hitpoint parity against
+`source/WOLFSRC/WL_ACT2.C`, and the sprite/weapon/enemy enums in
 `source/WOLFSRC/WL_DEF.H`.
 
 This repo is intended to contain **no proprietary game assets** in new tracked
