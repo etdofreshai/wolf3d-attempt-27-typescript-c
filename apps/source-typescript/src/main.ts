@@ -293,6 +293,7 @@ const ALTELEVATORTILE = 107;
 const AMBUSHTILE = 106;
 const AREATILE = 107;
 const ELEVATORTILE = 21;
+const ELEVATOR_BACK_TO = [1, 1, 7, 3, 5, 3] as const;
 const ICONARROWS = 90;
 const NODIR = 8;
 const DOOR_POSITION_MAX = 0xffff;
@@ -1192,6 +1193,18 @@ class WLMain {
     this.RenderUi();
   }
 
+  ApplyCompletedLevelTransition(): boolean {
+    const applied = this.wl_game.ApplyCompletedLevelTransition();
+    if (applied) {
+      this.id_us.US_Print(
+        `ApplyCompletedLevelTransition mapon ${this.wl_game.gamestate.mapon} level ${this.wl_game.gamestate.level}`
+      );
+    }
+
+    this.RenderUi();
+    return applied;
+  }
+
   async RunDemoPlan(): Promise<void> {
     if (!this.demoPlan || this.demoRunning) {
       return;
@@ -1500,6 +1513,12 @@ class WLPlay {
 
   PlayLoop(ticMs: number): void {
     const tics = ticsFromMilliseconds(ticMs);
+    if (!this.wl_game.IsStillPlaying()) {
+      this.wl_draw.ThreeDRefresh(this.wl_game);
+      this.id_sd.SD_Service(false, ticMs);
+      return;
+    }
+
     this.wl_game.BeginActorThinking();
     const moved = this.wl_game.PlayPlayerInput(this.id_in, ticMs, tics);
     this.wl_game.MoveDoors(tics);
@@ -1520,6 +1539,7 @@ class WLGame {
   killer: DamageSource | null = null;
   playstate: SourcePlayState = "ex_stillplaying";
   private attackButtonHeld = false;
+  private completedLevelTransitionApplied = false;
   private rndIndex = 0;
 
   readonly gamestate = {
@@ -1583,6 +1603,10 @@ class WLGame {
     this.gamestate.timecount += tics;
   }
 
+  IsStillPlaying(): boolean {
+    return this.playstate === "ex_stillplaying";
+  }
+
   SetupGameLevel(level: number, wolfMap: WolfMap | null = null): void {
     let spawn: PlayerSpawn = {
       angle: 0,
@@ -1627,6 +1651,7 @@ class WLGame {
     this.gamestate.attackcount = 0;
     this.gamestate.attackframe = 0;
     this.attackButtonHeld = false;
+    this.completedLevelTransitionApplied = false;
     this.madeNoise = false;
     this.lastAttacker = null;
     this.killer = null;
@@ -1808,6 +1833,30 @@ class WLGame {
     }
 
     return false;
+  }
+
+  ApplyCompletedLevelTransition(): boolean {
+    if (
+      this.completedLevelTransitionApplied
+      || (this.playstate !== "ex_completed" && this.playstate !== "ex_secretlevel")
+    ) {
+      return false;
+    }
+
+    this.gamestate.keys = 0;
+    this.gamestate.oldscore = this.gamestate.score;
+
+    if (this.gamestate.mapon === 9) {
+      this.gamestate.mapon = ELEVATOR_BACK_TO[this.gamestate.episode] ?? this.gamestate.mapon;
+    } else if (this.playstate === "ex_secretlevel") {
+      this.gamestate.mapon = 9;
+    } else {
+      this.gamestate.mapon += 1;
+    }
+
+    this.gamestate.level = this.gamestate.episode * 10 + this.gamestate.mapon;
+    this.completedLevelTransitionApplied = true;
+    return true;
   }
 
   PushWall(checkX: number, checkY: number, dir: PushWallDirection): boolean {
@@ -3353,6 +3402,7 @@ class WLGame {
   private SetPlayState(playstate: SourcePlayState): void {
     this.playstate = playstate;
     this.gamestate.playstate = playstate;
+    this.completedLevelTransitionApplied = false;
   }
 
   private DamageSource(attacker: PortActor | PortProjectile): DamageSource {
@@ -4582,6 +4632,7 @@ function startSourceTypescriptApp(): void {
 
   (window as Window & {
     wolf3dTypeScriptHarness?: {
+      applyCompletedLevelTransition: () => boolean;
       exportPng: () => Promise<void>;
       exportState: () => Promise<void>;
       exportWav: () => Promise<void>;
@@ -4592,6 +4643,7 @@ function startSourceTypescriptApp(): void {
       tick: (ticMs?: number) => void;
     };
   }).wolf3dTypeScriptHarness = {
+    applyCompletedLevelTransition: () => wlMain.ApplyCompletedLevelTransition(),
     exportPng: () => wlMain.ExportPng("harness", false),
     exportState: () => wlMain.ExportState("harness", false),
     exportWav: () => wlMain.ExportWav("harness", false),
