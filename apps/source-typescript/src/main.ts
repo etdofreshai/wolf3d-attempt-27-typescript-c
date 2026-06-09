@@ -119,7 +119,7 @@ type PortActor = {
   y: number;
 };
 
-type ActorFrameAction = "bite" | "fakeFire" | "shoot" | "throwNeedle" | "throwRocket";
+type ActorFrameAction = "bite" | "fakeFire" | "hitlerMorph" | "shoot" | "throwNeedle" | "throwRocket";
 
 type ActorStateFrame = {
   action?: ActorFrameAction;
@@ -475,6 +475,9 @@ const ACTOR_SPRITES = {
   HITLER_DIE5: 357,
   HITLER_DIE6: 358,
   HITLER_DIE7: 359,
+  HITLER_SHOOT1: 349,
+  HITLER_SHOOT2: 350,
+  HITLER_SHOOT3: 351,
   HITLER_W1: 345,
   HITLER_W2: 346,
   HITLER_W3: 347,
@@ -582,6 +585,7 @@ const ACTOR_BOSS_SPRITES: Record<string, number> = {
   gretel: ACTOR_SPRITES.GRETEL_W1,
   // WL_ACT2.C SpawnHitler starts in s_mechastand before morphing to Hitler.
   hitler: ACTOR_SPRITES.MECHA_W1,
+  real_hitler: ACTOR_SPRITES.HITLER_W1,
   schabbs: ACTOR_SPRITES.SCHABB_W1
 };
 const ACTOR_GHOST_SPRITES: Record<string, number> = {
@@ -701,6 +705,14 @@ const ACTOR_ATTACK_STATES: Record<string, ActorStateFrame[]> = {
     { action: "shoot", name: "s_ofcshoot2", shapenum: ACTOR_SPRITES.OFC_SHOOT2, tics: 20 },
     { name: "s_ofcshoot3", nextMode: "chase", shapenum: ACTOR_SPRITES.OFC_SHOOT3, tics: 10 }
   ],
+  real_hitler: [
+    { name: "s_hitlershoot1", shapenum: ACTOR_SPRITES.HITLER_SHOOT1, tics: 30 },
+    { action: "shoot", name: "s_hitlershoot2", shapenum: ACTOR_SPRITES.HITLER_SHOOT2, tics: 10 },
+    { action: "shoot", name: "s_hitlershoot3", shapenum: ACTOR_SPRITES.HITLER_SHOOT3, tics: 10 },
+    { action: "shoot", name: "s_hitlershoot4", shapenum: ACTOR_SPRITES.HITLER_SHOOT2, tics: 10 },
+    { action: "shoot", name: "s_hitlershoot5", shapenum: ACTOR_SPRITES.HITLER_SHOOT3, tics: 10 },
+    { name: "s_hitlershoot6", nextMode: "chase", shapenum: ACTOR_SPRITES.HITLER_SHOOT2, tics: 10 }
+  ],
   schabbs: [
     { name: "s_schabbshoot1", shapenum: ACTOR_SPRITES.SCHABB_SHOOT1, tics: 30 },
     { action: "throwNeedle", name: "s_schabbshoot2", nextMode: "chase", shapenum: ACTOR_SPRITES.SCHABB_SHOOT2, tics: 10 }
@@ -760,6 +772,7 @@ const ACTOR_CHASE_STATES: Record<string, ActorStateFrame[]> = {
   hitler: chaseFrames("mecha", [ACTOR_SPRITES.MECHA_W1, ACTOR_SPRITES.MECHA_W2, ACTOR_SPRITES.MECHA_W3, ACTOR_SPRITES.MECHA_W4], [10, 6, 8, 10, 6, 8]),
   mutant: chaseFrames("mut", [ACTOR_SPRITES.MUT_W1_1, ACTOR_SPRITES.MUT_W2_1, ACTOR_SPRITES.MUT_W3_1, ACTOR_SPRITES.MUT_W4_1]),
   officer: chaseFrames("ofc", [ACTOR_SPRITES.OFC_W1_1, ACTOR_SPRITES.OFC_W2_1, ACTOR_SPRITES.OFC_W3_1, ACTOR_SPRITES.OFC_W4_1]),
+  real_hitler: chaseFrames("hitler", [ACTOR_SPRITES.HITLER_W1, ACTOR_SPRITES.HITLER_W2, ACTOR_SPRITES.HITLER_W3, ACTOR_SPRITES.HITLER_W4], [6, 4, 2, 6, 4, 2]),
   schabbs: chaseFrames("schabb", [ACTOR_SPRITES.SCHABB_W1, ACTOR_SPRITES.SCHABB_W2, ACTOR_SPRITES.SCHABB_W3, ACTOR_SPRITES.SCHABB_W4]),
   ss: chaseFrames("ss", [ACTOR_SPRITES.SS_W1_1, ACTOR_SPRITES.SS_W2_1, ACTOR_SPRITES.SS_W3_1, ACTOR_SPRITES.SS_W4_1])
 };
@@ -815,7 +828,7 @@ const ACTOR_DEATH_STATES: Record<string, ActorStateFrame[]> = {
   hitler: deathFrames([
     ["s_mechadie1", ACTOR_SPRITES.MECHA_DIE1, 10],
     ["s_mechadie2", ACTOR_SPRITES.MECHA_DIE2, 10],
-    ["s_mechadie3", ACTOR_SPRITES.MECHA_DIE3, 10],
+    ["s_mechadie3", ACTOR_SPRITES.MECHA_DIE3, 10, false, "hitlerMorph"],
     ["s_mechadie4", ACTOR_SPRITES.MECHA_DEAD, 0, true]
   ]),
   mutant: deathFrames([
@@ -831,6 +844,18 @@ const ACTOR_DEATH_STATES: Record<string, ActorStateFrame[]> = {
     ["s_ofcdie3", ACTOR_SPRITES.OFC_DIE_3, 11],
     ["s_ofcdie4", ACTOR_SPRITES.OFC_DIE_4, 11],
     ["s_ofcdie5", ACTOR_SPRITES.OFC_DEAD, 0, true]
+  ]),
+  real_hitler: deathFrames([
+    ["s_hitlerdie1", ACTOR_SPRITES.HITLER_W1, 1],
+    ["s_hitlerdie2", ACTOR_SPRITES.HITLER_W1, 10],
+    ["s_hitlerdie3", ACTOR_SPRITES.HITLER_DIE1, 10],
+    ["s_hitlerdie4", ACTOR_SPRITES.HITLER_DIE2, 10],
+    ["s_hitlerdie5", ACTOR_SPRITES.HITLER_DIE3, 10],
+    ["s_hitlerdie6", ACTOR_SPRITES.HITLER_DIE4, 10],
+    ["s_hitlerdie7", ACTOR_SPRITES.HITLER_DIE5, 10],
+    ["s_hitlerdie8", ACTOR_SPRITES.HITLER_DIE6, 10],
+    ["s_hitlerdie9", ACTOR_SPRITES.HITLER_DIE7, 10],
+    ["s_hitlerdie10", ACTOR_SPRITES.HITLER_DEAD, 20, true]
   ]),
   schabbs: deathFrames([
     ["s_schabbdie1", ACTOR_SPRITES.SCHABB_W1, 10],
@@ -884,9 +909,11 @@ const ENEMY_HITPOINT_INDEX: Record<string, number> = {
   mutant: 8,
   officer: 1,
   pinky: 11,
+  real_hitler: 7,
   schabbs: 5,
   ss: 2
 };
+const REAL_HITLER_HITPOINTS = [500, 700, 800, 900] as const;
 // ID_US_A.ASM rndtable. US_RndT increments rndindex before reading this table.
 const US_RND_TABLE = [
   0, 8, 109, 220, 222, 241, 149, 107, 75, 248, 254, 140, 16, 66, 74, 21, 211, 47, 80, 242, 154, 27,
@@ -1622,6 +1649,7 @@ class WLGame {
     while (actor.mode === "dying" && actor.stateTics <= 0) {
       const nextIndex = Math.min(actor.stateIndex + 1, sequence.length - 1);
       this.NewActorState(actor, sequence, nextIndex, actor.stateTics);
+      this.RunActorFrameAction(actor, sequence[nextIndex]);
       if (nextIndex === sequence.length - 1) {
         return;
       }
@@ -2790,6 +2818,37 @@ class WLGame {
     });
   }
 
+  private A_HitlerMorph(actor: PortActor): void {
+    const sequence = ACTOR_CHASE_STATES.real_hitler;
+    const frame = sequence?.[0];
+    if (!frame) {
+      return;
+    }
+
+    this.map.actors.push({
+      ambush: false,
+      attackMode: true,
+      dir: actor.dir,
+      distance: actor.distance,
+      firstAttack: actor.firstAttack,
+      hitpoints: realHitlerHitpoints(this.gamestate.difficulty),
+      kind: "real_hitler",
+      mode: "chase",
+      reactionTime: 0,
+      shootable: true,
+      speed: SPDPATROL * 5,
+      stateIndex: 0,
+      stateName: frame.name,
+      stateShapenum: frame.shapenum,
+      stateTics: frame.tics,
+      targetX: actor.targetX,
+      targetY: actor.targetY,
+      tile: actor.tile,
+      x: actor.x,
+      y: actor.y
+    });
+  }
+
   private A_Smoke(projectile: PortProjectile, spawnedProjectiles: PortProjectile[]): void {
     const frame = PROJECTILE_STATES.smoke[0];
     if (!frame) {
@@ -2999,6 +3058,9 @@ class WLGame {
         break;
       case "fakeFire":
         this.T_FakeFire(actor);
+        break;
+      case "hitlerMorph":
+        this.A_HitlerMorph(actor);
         break;
       case "shoot":
         this.T_Shoot(actor);
@@ -4220,13 +4282,17 @@ function walkFrames(
   ];
 }
 
-function deathFrames(frames: Array<[string, number, number, boolean?]>): ActorStateFrame[] {
-  return frames.map(([name, shapenum, tics, final]) => {
+function deathFrames(frames: Array<[string, number, number, boolean?, ActorFrameAction?]>): ActorStateFrame[] {
+  return frames.map(([name, shapenum, tics, final, action]) => {
     const frame: ActorStateFrame = {
       name,
       shapenum,
       tics
     };
+    if (action) {
+      frame.action = action;
+    }
+
     if (final) {
       frame.final = true;
     }
@@ -4320,6 +4386,8 @@ function actorChaseSpeed(kind: string, currentSpeed: number): number {
       return SPDPATROL * 3;
     case "dog":
       return currentSpeed * 2;
+    case "real_hitler":
+      return SPDPATROL * 5;
     case "guard":
     case "mutant":
     case "fake_hitler":
@@ -4355,6 +4423,7 @@ function reactionDelayForActor(kind: string, rnd: () => number): number {
     case "gift":
     case "gretel":
     case "hitler":
+    case "real_hitler":
     case "schabbs":
       return 1;
     default:
@@ -4393,6 +4462,8 @@ function actorStatePrefix(kind: string): string {
       return "mut";
     case "officer":
       return "ofc";
+    case "real_hitler":
+      return "hitler";
     default:
       return kind;
   }
@@ -4561,8 +4632,16 @@ function hitpointRowForDifficulty(difficulty: "easy" | "medium" | "hard"): 1 | 2
 }
 
 function actorHitpoints(kind: string, difficulty: "easy" | "medium" | "hard"): number {
+  if (kind === "real_hitler") {
+    return realHitlerHitpoints(difficulty);
+  }
+
   const enemyIndex = ENEMY_HITPOINT_INDEX[kind] ?? 0;
   return START_HITPOINTS[hitpointRowForDifficulty(difficulty)][enemyIndex] ?? 25;
+}
+
+function realHitlerHitpoints(difficulty: "easy" | "medium" | "hard"): number {
+  return REAL_HITLER_HITPOINTS[hitpointRowForDifficulty(difficulty)] ?? 700;
 }
 
 function actorKillScore(kind: string): number {
@@ -4584,6 +4663,7 @@ function actorKillScore(kind: string): number {
     case "gift":
     case "gretel":
     case "hitler":
+    case "real_hitler":
     case "schabbs":
       return 5000;
     default:
