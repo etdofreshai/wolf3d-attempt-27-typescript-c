@@ -2201,8 +2201,10 @@ class WLGame {
       y: 3.5
     };
 
+    this.rndIndex = 0;
+
     if (wolfMap) {
-      const scan = scanInfoPlane(wolfMap, this.gamestate.difficulty);
+      const scan = scanInfoPlane(wolfMap, this.gamestate.difficulty, (stateTics) => this.US_RndT() % stateTics);
       const doors = scanWallPlaneForDoors(wolfMap);
       const blockingStaticKeys = new Set(
         scan.statics.filter((stat) => stat.blocking).map((stat) => tileKey(stat.x, stat.y))
@@ -2246,7 +2248,6 @@ class WLGame {
     this.madeNoise = false;
     this.lastAttacker = null;
     this.killer = null;
-    this.rndIndex = 0;
     this.victorySpinTargetY = null;
     this.gamestate.episode = Math.floor(level / 10);
     this.gamestate.faceframe = 0;
@@ -2928,7 +2929,7 @@ class WLGame {
 
   private MoveGhostState(actor: PortActor, tics: number): void {
     const sequence = ACTOR_GHOST_STATES[actor.kind];
-    if (sequence) {
+    if (sequence && actor.stateTics !== 0) {
       actor.stateTics -= tics;
       while (actor.stateTics <= 0) {
         const nextIndex = (actor.stateIndex + 1) % sequence.length;
@@ -3006,16 +3007,18 @@ class WLGame {
       return;
     }
 
-    actor.stateTics -= tics;
-    while (actor.stateTics <= 0) {
-      const currentFrame = sequence[actor.stateIndex];
-      this.RunActorFrameAction(actor, currentFrame);
-      if (actor.mode !== "patrol" && actor.mode !== "chase") {
-        return;
-      }
+    if (actor.stateTics !== 0) {
+      actor.stateTics -= tics;
+      while (actor.stateTics <= 0) {
+        const currentFrame = sequence[actor.stateIndex];
+        this.RunActorFrameAction(actor, currentFrame);
+        if (actor.mode !== "patrol" && actor.mode !== "chase") {
+          return;
+        }
 
-      const nextIndex = (actor.stateIndex + 1) % sequence.length;
-      this.SetActorSequenceState(actor, sequence, nextIndex, actor.mode, actor.stateTics);
+        const nextIndex = (actor.stateIndex + 1) % sequence.length;
+        this.SetActorSequenceState(actor, sequence, nextIndex, actor.mode, actor.stateTics);
+      }
     }
   }
 
@@ -6452,7 +6455,13 @@ function scanWallPlaneForDoors(map: WolfMap): PortDoor[] {
   return doors;
 }
 
-function scanInfoPlane(map: WolfMap, difficulty: SourceDifficulty): ScanInfoPlaneResult {
+type SpawnTicRandomizer = (stateTics: number) => number;
+
+function scanInfoPlane(
+  map: WolfMap,
+  difficulty: SourceDifficulty,
+  randomSpawnTic?: SpawnTicRandomizer
+): ScanInfoPlaneResult {
   const statics: PortStatic[] = [];
   const actors: PortActor[] = [];
   let secretTotal = 0;
@@ -6492,7 +6501,7 @@ function scanInfoPlane(map: WolfMap, difficulty: SourceDifficulty): ScanInfoPlan
         continue;
       }
 
-      const actor = actorFromInfoTile(tile, x, y, difficulty);
+      const actor = actorFromInfoTile(tile, x, y, difficulty, randomSpawnTic);
       if (actor) {
         if (actor.mode === "stand" && (map.planes[0][y * width + x] ?? 0) === AMBUSHTILE) {
           actor.ambush = true;
@@ -6591,7 +6600,8 @@ function bossDeathCamFrame(kind: string): ActorStateFrame | null {
 function initialActorState(
   kind: string,
   mode: PortActor["mode"],
-  shapenum: number | null = null
+  shapenum: number | null = null,
+  randomSpawnTic?: SpawnTicRandomizer
 ): Pick<PortActor, "stateIndex" | "stateName" | "stateShapenum" | "stateTics"> {
   const sequence =
     mode === "patrol"
@@ -6607,7 +6617,7 @@ function initialActorState(
       stateIndex: 0,
       stateName: firstFrame.name,
       stateShapenum: firstFrame.shapenum,
-      stateTics: firstFrame.tics
+      stateTics: firstFrame.tics && randomSpawnTic ? randomSpawnTic(firstFrame.tics) : firstFrame.tics
     };
   }
 
@@ -6781,7 +6791,8 @@ function actorFromInfoTile(
   tile: number,
   x: number,
   y: number,
-  difficulty: SourceDifficulty
+  difficulty: SourceDifficulty,
+  randomSpawnTic?: SpawnTicRandomizer
 ): PortActor | null {
   if (tile === 124) {
     return {
@@ -6819,7 +6830,7 @@ function actorFromInfoTile(
       hitpoints: actorHitpoints(guard.kind, difficulty),
       shootable: true,
       ...initialActorAwareness(),
-      ...initialActorState(guard.kind, guard.mode),
+      ...initialActorState(guard.kind, guard.mode, null, randomSpawnTic),
       ...initialActorMovement(guard.kind, guard.mode, guard.dir, x, y),
       x,
       y
@@ -6838,7 +6849,7 @@ function actorFromInfoTile(
       mode: "boss",
       shootable: true,
       ...initialActorAwareness(true),
-      ...initialActorState(bossKind, "boss"),
+      ...initialActorState(bossKind, "boss", null, randomSpawnTic),
       ...initialActorMovement(bossKind, "boss", dir, x, y),
       tile,
       x,
@@ -6857,7 +6868,7 @@ function actorFromInfoTile(
       mode: "ghost",
       shootable: false,
       ...initialActorAwareness(),
-      ...initialActorState(ghostKind, "ghost"),
+      ...initialActorState(ghostKind, "ghost", null, randomSpawnTic),
       ...initialActorMovement(ghostKind, "ghost", NODIR, x, y),
       tile,
       x,
