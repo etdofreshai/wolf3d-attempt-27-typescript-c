@@ -3524,7 +3524,7 @@ class WLGame {
       }
     }
 
-    const fallbackDirs = this.US_RndT() > 128 ? [2, 0, 6, 4] : [4, 6, 0, 2];
+    const fallbackDirs = this.US_RndT() > 128 ? [2, 3, 4] : [4, 3, 2];
     for (const dir of fallbackDirs) {
       actor.dir = dir;
       if (this.TryWalk(actor)) {
