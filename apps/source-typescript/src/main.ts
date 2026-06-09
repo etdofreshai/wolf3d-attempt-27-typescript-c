@@ -2318,6 +2318,9 @@ class WLGame {
       }
 
       moved = this.ControlMovement(id_in, tics);
+      if (this.gamestate.victoryflag) {
+        return moved;
+      }
     }
 
     if (!attackDown) {

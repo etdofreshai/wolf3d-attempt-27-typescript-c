@@ -133,6 +133,7 @@ const sourceStaticInfo = parseSourceStaticInfo(sourceAct1Text, sourceSprites);
 const sourceDoorPushwallContracts = parseSourceDoorPushwallContracts(sourceAct1Text, sourceAct1Defines);
 const sourceAttackInfo = parseSourceAttackInfo(sourceAgentText);
 const sourcePlayerAttackContracts = parseSourcePlayerAttackContracts(sourceAgentText);
+const sourcePlayerCommandContracts = parseSourcePlayerCommandContracts(sourceAgentText);
 const sourceAgentHelperContracts = parseSourceAgentHelperContracts(sourceAgentText, sourceDefines);
 const sourceStartHitpoints = parseSourceStartHitpoints(sourceText);
 const sourceRealHitlerHitpoints = parseSourceRealHitlerHitpoints(sourceText);
@@ -162,6 +163,7 @@ const typescriptStaticInfo = parseTypescriptStaticInfo(typescriptText);
 const typescriptDoorPushwallContracts = parseTypescriptDoorPushwallContracts(typescriptText, constants, stringConstants);
 const typescriptAttackInfo = parseTypescriptAttackInfo(typescriptText);
 const typescriptPlayerAttackContracts = parseTypescriptPlayerAttackContracts(typescriptText, constants, stringConstants);
+const typescriptPlayerCommandContracts = parseTypescriptPlayerCommandContracts(typescriptText, stringConstants);
 const typescriptAgentHelperContracts = parseTypescriptAgentHelperContracts(typescriptText, constants, stringConstants);
 const typescriptStartHitpoints = parseTypescriptStartHitpoints(typescriptText);
 const typescriptRealHitlerHitpoints = parseTypescriptRealHitlerHitpoints(typescriptText);
@@ -209,6 +211,7 @@ compareWeaponReadySprites(sourceWeaponReadySprites, typescriptWeaponReadySprites
 compareWeaponIndexes(sourceWeaponIndexes, typescriptWeaponIndexes, problems);
 compareAttackInfo(sourceAttackInfo, typescriptAttackInfo, problems);
 compareContractMap("WL_AGENT.C player attack", sourcePlayerAttackContracts, typescriptPlayerAttackContracts, problems);
+compareContractMap("WL_AGENT.C player command", sourcePlayerCommandContracts, typescriptPlayerCommandContracts, problems);
 compareAgentHelperContracts(sourceAgentHelperContracts, typescriptAgentHelperContracts, problems);
 compareEnemyHitpointIndexes(sourceEnemyIndexes, typescriptEnemyHitpointIndexes, problems);
 compareStartHitpoints(sourceStartHitpoints, typescriptStartHitpoints, problems);
@@ -239,7 +242,7 @@ if (problems.length > 0) {
 }
 
 console.log(
-  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceDoorPushwallContracts.size} WL_ACT1.C door/pushwall contracts, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourcePlayerAttackContracts.size} WL_AGENT.C player attack contracts, ${sourceAgentHelperContracts.size} WL_AGENT.C helper contracts, ${countComparedBonusRewards(sourceBonusRewards)} WL_AGENT.C bonus reward rows, ${sourceTreasureScores.size} WL_AGENT.C treasure score rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceKillActorRewards.size} WL_STATE.C kill reward rows, ${sourceDamagePainStates.size} WL_STATE.C damage pain rows, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
+  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceDoorPushwallContracts.size} WL_ACT1.C door/pushwall contracts, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourcePlayerAttackContracts.size} WL_AGENT.C player attack contracts, ${sourcePlayerCommandContracts.size} WL_AGENT.C player command contracts, ${sourceAgentHelperContracts.size} WL_AGENT.C helper contracts, ${countComparedBonusRewards(sourceBonusRewards)} WL_AGENT.C bonus reward rows, ${sourceTreasureScores.size} WL_AGENT.C treasure score rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceKillActorRewards.size} WL_STATE.C kill reward rows, ${sourceDamagePainStates.size} WL_STATE.C damage pain rows, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
 );
 
 function parseSourceStates(text, sprites) {
@@ -650,6 +653,54 @@ function parseSourceAttackLoopContract(body) {
 
 function parseSourceSwitchSound(body, label) {
   return body.match(new RegExp(`case\\s+${label}\\s*:[\\s\\S]*?SD_PlaySound\\s*\\(\\s*([A-Z0-9_]+)\\s*\\)`))?.[1] ?? null;
+}
+
+function parseSourcePlayerCommandContracts(text) {
+  const activeText = filterWl6Source(text);
+  const cmdUseBody = extractCFunctionBody(activeText, "Cmd_Use");
+  const playerBody = extractCFunctionBody(activeText, "T_Player");
+  const contracts = new Map();
+  contracts.set("Cmd_Use", parseSourceCmdUseContract(cmdUseBody));
+  contracts.set("T_Player", parseSourceTPlayerContract(playerBody));
+  return contracts;
+}
+
+function parseSourceCmdUseContract(body) {
+  return {
+    completedLevelOtherwise: /else\s+playstate\s*=\s*ex_completed/.test(body),
+    doorRequiresUseNotHeld: /else\s+if\s*\(\s*!\s*buttonheld\s*\[\s*bt_use\s*\]\s*&&\s*doornum\s*&\s*0x80\s*\)/.test(body),
+    doorUsesDoorMarker: /doornum\s*&\s*0x80/.test(body),
+    eastTarget: /player->angle\s*<\s*ANGLES\s*\/\s*8\s*\|\|\s*player->angle\s*>\s*7\s*\*\s*ANGLES\s*\/\s*8[\s\S]*?checkx\s*=\s*player->tilex\s*\+\s*1[\s\S]*?checky\s*=\s*player->tiley[\s\S]*?dir\s*=\s*di_east[\s\S]*?elevatorok\s*=\s*true/.test(body),
+    elevatorRequiresElevatorTile: /doornum\s*==\s*ELEVATORTILE/.test(body),
+    elevatorRequiresHorizontalTarget: /&&\s*elevatorok/.test(body),
+    elevatorRequiresUseNotHeld: /!\s*buttonheld\s*\[\s*bt_use\s*\]\s*&&\s*doornum\s*==\s*ELEVATORTILE/.test(body),
+    flipsElevatorSwitch: /tilemap\s*\[\s*checkx\s*\]\s*\[\s*checky\s*\]\s*\+\+/.test(body),
+    holdsUseOnDoor: /else\s+if[\s\S]*?buttonheld\s*\[\s*bt_use\s*\]\s*=\s*true[\s\S]*?OperateDoor/.test(body),
+    holdsUseOnElevator: /doornum\s*==\s*ELEVATORTILE[\s\S]*?buttonheld\s*\[\s*bt_use\s*\]\s*=\s*true/.test(body),
+    levelDoneSound: body.match(/SD_PlaySound\s*\(\s*(LEVELDONESND)\s*\)/)?.[1] ?? null,
+    noActionSound: body.match(/SD_PlaySound\s*\(\s*(DONOTHINGSND)\s*\)/)?.[1] ?? null,
+    northTarget: /player->angle\s*<\s*3\s*\*\s*ANGLES\s*\/\s*8[\s\S]*?checkx\s*=\s*player->tilex[\s\S]*?checky\s*=\s*player->tiley\s*-\s*1[\s\S]*?dir\s*=\s*di_north[\s\S]*?elevatorok\s*=\s*false/.test(body),
+    operatesDoor: /OperateDoor\s*\(\s*doornum\s*&\s*~0x80\s*\)/.test(body),
+    pushwallBeforeElevator: body.indexOf("PushWall") >= 0 && body.indexOf("PushWall") < body.indexOf("ELEVATORTILE"),
+    pushwallPassesDirection: /PushWall\s*\(\s*checkx\s*,\s*checky\s*,\s*dir\s*\)/.test(body),
+    pushwallUsesObjectPlane: /mapsegs\s*\[\s*1\s*\][\s\S]*?PUSHABLETILE/.test(body),
+    secretLevelFromAltElevator: /ALTELEVATORTILE[\s\S]*?playstate\s*=\s*ex_secretlevel/.test(body),
+    southTarget: /else\s*\{[\s\S]*?checkx\s*=\s*player->tilex[\s\S]*?checky\s*=\s*player->tiley\s*\+\s*1[\s\S]*?dir\s*=\s*di_south[\s\S]*?elevatorok\s*=\s*false/.test(body),
+    westTarget: /player->angle\s*<\s*5\s*\*\s*ANGLES\s*\/\s*8[\s\S]*?checkx\s*=\s*player->tilex\s*-\s*1[\s\S]*?checky\s*=\s*player->tiley[\s\S]*?dir\s*=\s*di_west[\s\S]*?elevatorok\s*=\s*true/.test(body)
+  };
+}
+
+function parseSourceTPlayerContract(body) {
+  return {
+    attackButtonStartsFireWhenNotHeld:
+      /buttonstate\s*\[\s*bt_attack\s*\]\s*&&\s*!\s*buttonheld\s*\[\s*bt_attack\s*\][\s\S]*?Cmd_Fire\s*\(\s*\)/.test(body),
+    controlAfterCommands: /Cmd_Fire\s*\(\s*\)[\s\S]*?ControlMovement\s*\(\s*ob\s*\)/.test(body),
+    secondVictoryCheckAfterMovement: /ControlMovement\s*\(\s*ob\s*\)[\s\S]*?if\s*\(\s*gamestate\.victoryflag\s*\)[\s\S]*?return/.test(body),
+    updateFaceBeforeWeaponChange: /UpdateFace\s*\(\s*\)[\s\S]*?CheckWeaponChange\s*\(\s*\)/.test(body),
+    useButtonCallsCmdUse: /buttonstate\s*\[\s*bt_use\s*\][\s\S]*?Cmd_Use\s*\(\s*\)/.test(body),
+    victoryBeforeFace: /if\s*\(\s*gamestate\.victoryflag\s*\)[\s\S]*?VictorySpin\s*\(\s*\)[\s\S]*?return[\s\S]*?UpdateFace\s*\(\s*\)/.test(body),
+    weaponChangeBeforeUse: /CheckWeaponChange\s*\(\s*\)[\s\S]*?buttonstate\s*\[\s*bt_use\s*\]/.test(body)
+  };
 }
 
 function parseSourceAgentHelperContracts(text, defines) {
@@ -1195,6 +1246,75 @@ function parseTypescriptAttackLoopContract(attackBody, finishBody) {
 function parseTypescriptSwitchReturnString(body, label, stringConstants) {
   const match = body.match(new RegExp(`case\\s+${label}\\s*:[\\s\\S]*?return\\s+([^;]+);`));
   return match ? resolveTypescriptString(match[1], stringConstants) : null;
+}
+
+function parseTypescriptPlayerCommandContracts(text, stringConstants) {
+  const cmdUseBody = extractTypescriptFunctionBody(text, "Cmd_Use");
+  const useTargetBody = extractTypescriptFunctionBody(text, "UseTarget");
+  const inputBody = extractTypescriptFunctionBody(text, "PlayPlayerInput");
+  const contracts = new Map();
+  contracts.set("Cmd_Use", parseTypescriptCmdUseContract(cmdUseBody, useTargetBody, stringConstants));
+  contracts.set("T_Player", parseTypescriptTPlayerContract(inputBody));
+  return contracts;
+}
+
+function parseTypescriptCmdUseContract(cmdUseBody, useTargetBody, stringConstants) {
+  const levelDoneSoundMatch = cmdUseBody.match(/SD_PlaySound\s*\(\s*([^)]*LEVELDONESND[^)]*)\)/);
+  const noActionSoundMatch = cmdUseBody.match(/SD_PlaySound\s*\(\s*([^)]*DONOTHINGSND[^)]*)\)/);
+  return {
+    completedLevelOtherwise: /:\s*"ex_completed"/.test(cmdUseBody),
+    doorRequiresUseNotHeld: /if\s*\(\s*!\s*this\.useButtonHeld\s*&&\s*door\s*\)/.test(cmdUseBody),
+    doorUsesDoorMarker: /\bthis\.DoorAt\s*\(\s*target\.x\s*,\s*target\.y\s*\)/.test(cmdUseBody),
+    eastTarget: /angle\s*<\s*SOURCE_ANGLES\s*\/\s*8\s*\|\|\s*angle\s*>\s*\(\s*SOURCE_ANGLES\s*\*\s*7\s*\)\s*\/\s*8[\s\S]*?dir:\s*"east"[\s\S]*?elevatorOk:\s*true[\s\S]*?x:\s*tileX\s*\+\s*1[\s\S]*?y:\s*tileY/.test(useTargetBody),
+    elevatorRequiresElevatorTile: /wallTile\s*===\s*ELEVATORTILE/.test(cmdUseBody),
+    elevatorRequiresHorizontalTarget: /&&\s*target\.elevatorOk/.test(cmdUseBody),
+    elevatorRequiresUseNotHeld: /!\s*this\.useButtonHeld\s*&&\s*wallTile\s*===\s*ELEVATORTILE/.test(cmdUseBody),
+    flipsElevatorSwitch: /this\.SetWallTile\s*\(\s*target\.x\s*,\s*target\.y\s*,\s*ELEVATORTILE\s*\+\s*1\s*\)/.test(cmdUseBody),
+    holdsUseOnDoor: /if\s*\(\s*!\s*this\.useButtonHeld\s*&&\s*door\s*\)[\s\S]*?this\.useButtonHeld\s*=\s*true[\s\S]*?this\.OperateDoor/.test(cmdUseBody),
+    holdsUseOnElevator:
+      /wallTile\s*===\s*ELEVATORTILE[\s\S]*?this\.useButtonHeld\s*=\s*true/.test(cmdUseBody),
+    levelDoneSound: levelDoneSoundMatch ? resolveTypescriptString(levelDoneSoundMatch[1], stringConstants) : null,
+    noActionSound: noActionSoundMatch ? resolveTypescriptString(noActionSoundMatch[1], stringConstants) : null,
+    northTarget: /angle\s*<\s*\(\s*SOURCE_ANGLES\s*\*\s*3\s*\)\s*\/\s*8[\s\S]*?dir:\s*"north"[\s\S]*?elevatorOk:\s*false[\s\S]*?x:\s*tileX[\s\S]*?y:\s*tileY\s*-\s*1/.test(useTargetBody),
+    operatesDoor: /this\.OperateDoor\s*\(\s*door\.index\s*\)/.test(cmdUseBody),
+    pushwallBeforeElevator: cmdUseBody.indexOf("PushWall") >= 0 && cmdUseBody.indexOf("PushWall") < cmdUseBody.indexOf("ELEVATORTILE"),
+    pushwallPassesDirection: /this\.PushWall\s*\(\s*target\.x\s*,\s*target\.y\s*,\s*target\.dir\s*\)/.test(cmdUseBody),
+    pushwallUsesObjectPlane: /this\.map\.objects\s*\[[^\]]+\][\s\S]*?PUSHABLETILE/.test(cmdUseBody),
+    secretLevelFromAltElevator: /PlayerFloorTile\s*\(\s*\)\s*===\s*ALTELEVATORTILE[\s\S]*?"ex_secretlevel"/.test(cmdUseBody),
+    southTarget: /return\s*\{[\s\S]*?dir:\s*"south"[\s\S]*?elevatorOk:\s*false[\s\S]*?x:\s*tileX[\s\S]*?y:\s*tileY\s*\+\s*1/.test(useTargetBody),
+    westTarget: /angle\s*<\s*\(\s*SOURCE_ANGLES\s*\*\s*5\s*\)\s*\/\s*8[\s\S]*?dir:\s*"west"[\s\S]*?elevatorOk:\s*true[\s\S]*?x:\s*tileX\s*-\s*1[\s\S]*?y:\s*tileY/.test(useTargetBody)
+  };
+}
+
+function parseTypescriptTPlayerContract(body) {
+  const readyBody = extractReadyPlayerInputBranch(body);
+  return {
+    attackButtonStartsFireWhenNotHeld: /attackDown\s*&&\s*!\s*this\.attackButtonHeld[\s\S]*?this\.Cmd_Fire\s*\(\s*\)/.test(readyBody),
+    controlAfterCommands: /this\.Cmd_Fire\s*\(\s*\)[\s\S]*?this\.ControlMovement\s*\(\s*id_in\s*,\s*tics\s*\)/.test(readyBody),
+    secondVictoryCheckAfterMovement:
+      /this\.ControlMovement\s*\(\s*id_in\s*,\s*tics\s*\)[\s\S]*?if\s*\(\s*this\.gamestate\.victoryflag\s*\)[\s\S]*?return\s+moved/.test(
+        readyBody
+      ),
+    updateFaceBeforeWeaponChange: /this\.UpdateFace\s*\(\s*tics\s*\)[\s\S]*?this\.CheckWeaponChange\s*\(\s*id_in\s*\)/.test(readyBody),
+    useButtonCallsCmdUse: /if\s*\(\s*useDown\s*\)[\s\S]*?this\.Cmd_Use\s*\(\s*\)/.test(readyBody),
+    victoryBeforeFace: /if\s*\(\s*this\.gamestate\.victoryflag\s*\)[\s\S]*?return\s+false[\s\S]*?this\.UpdateFace\s*\(\s*tics\s*\)/.test(readyBody),
+    weaponChangeBeforeUse: /this\.CheckWeaponChange\s*\(\s*id_in\s*\)[\s\S]*?if\s*\(\s*useDown\s*\)/.test(readyBody)
+  };
+}
+
+function extractReadyPlayerInputBranch(body) {
+  const marker = "} else {";
+  const start = body.indexOf(marker);
+  if (start < 0) {
+    throw new Error("Could not find ready-state PlayPlayerInput branch");
+  }
+
+  const openIndex = body.indexOf("{", start);
+  if (openIndex < 0) {
+    throw new Error("Could not find ready-state PlayPlayerInput opening brace");
+  }
+
+  return extractBraceBody(body, openIndex);
 }
 
 function parseTypescriptAgentHelperContracts(text, constants, stringConstants) {
