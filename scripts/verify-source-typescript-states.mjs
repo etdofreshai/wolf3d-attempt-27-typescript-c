@@ -83,6 +83,9 @@ const SOURCE_KILL_CLASS_TO_TYPESCRIPT_KIND = new Map([
   ["ssobj", "ss"]
 ]);
 
+const SOURCE_ONLY_BONUS_ITEMS = new Set(["bo_spear"]);
+const BONUS_REWARD_FIELDS = ["condition", "sound", "heal", "ammo", "weapon", "key", "score", "extraLife", "treasure"];
+
 // The TypeScript lane models the original source path where digitized boss
 // death sounds are enabled, matching the runtime tictime mutations in WL_ACT2.C.
 const DIGITIZED_BOSS_DEATH_TICS = new Map([
@@ -128,6 +131,7 @@ const sourceStaticInfo = parseSourceStaticInfo(sourceAct1Text, sourceSprites);
 const sourceAttackInfo = parseSourceAttackInfo(sourceAgentText);
 const sourceStartHitpoints = parseSourceStartHitpoints(sourceText);
 const sourceRealHitlerHitpoints = parseSourceRealHitlerHitpoints(sourceText);
+const sourceBonusRewards = parseSourceBonusRewards(sourceAgentText);
 const sourceTreasureScores = parseSourceTreasureScores(sourceAgentText);
 const sourceOppositeDirections = parseSourceDirectionList(sourceStateText, "opposite", sourceDirectionIndexes);
 const sourceDiagonalDirections = parseSourceDirectionMatrix(sourceStateText, "diagonal", sourceDirectionIndexes);
@@ -137,6 +141,7 @@ const sourceParTimesSeconds = parseSourceParTimesSeconds(sourceInterText);
 const sourceRndTable = parseSourceRndTable(sourceUserAsmText);
 const sourceStates = parseSourceStates(sourceText, sourceSprites);
 const constants = parseNumericConstants(typescriptText);
+const stringConstants = parseStringConstants(typescriptText);
 const typescriptSoundChunks = parseTypescriptSoundChunks(typescriptText);
 const typescriptDirectionDeltas = parseTypescriptDirectionDeltas(typescriptText);
 const typescriptOppositeDirections = parseTypescriptOppositeDirections(typescriptText, constants);
@@ -154,6 +159,7 @@ const typescriptRndTable = parseTypescriptRndTable(typescriptText);
 const typescriptActorKillScores = parseTypescriptActorKillScores(typescriptText);
 const typescriptKillDrops = parseTypescriptKillDrops(typescriptText);
 const typescriptTreasureScores = parseTypescriptTreasureScores(typescriptText);
+const typescriptBonusRewards = parseTypescriptBonusRewards(typescriptText, typescriptTreasureScores, stringConstants);
 const typescriptDroppedItemTypes = parseTypescriptDroppedItemTypes(typescriptText);
 const typescriptSprites = parseTypescriptSprites(typescriptText);
 const modeledFrames = parseModeledFrames(typescriptText, constants, typescriptSprites);
@@ -192,6 +198,7 @@ compareAttackInfo(sourceAttackInfo, typescriptAttackInfo, problems);
 compareEnemyHitpointIndexes(sourceEnemyIndexes, typescriptEnemyHitpointIndexes, problems);
 compareStartHitpoints(sourceStartHitpoints, typescriptStartHitpoints, problems);
 compareRealHitlerHitpoints(sourceRealHitlerHitpoints, typescriptRealHitlerHitpoints, problems);
+compareBonusRewards(sourceBonusRewards, typescriptBonusRewards, problems);
 compareTreasureScores(sourceTreasureScores, typescriptTreasureScores, problems);
 compareKillActorRewards(sourceKillActorRewards, typescriptActorKillScores, typescriptKillDrops, problems);
 compareDirectionDeltas(sourceDirectionIndexes, typescriptDirectionDeltas, problems);
@@ -215,7 +222,7 @@ if (problems.length > 0) {
 }
 
 console.log(
-  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourceTreasureScores.size} WL_AGENT.C treasure score rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceKillActorRewards.size} WL_STATE.C kill reward rows, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
+  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${countComparedBonusRewards(sourceBonusRewards)} WL_AGENT.C bonus reward rows, ${sourceTreasureScores.size} WL_AGENT.C treasure score rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceKillActorRewards.size} WL_STATE.C kill reward rows, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
 );
 
 function parseSourceStates(text, sprites) {
@@ -477,6 +484,42 @@ function parseSourceRealHitlerHitpoints(text) {
   }
 
   return parseNumberList(match[1]);
+}
+
+function parseSourceBonusRewards(text) {
+  const body = extractCFunctionBody(filterWl6Source(text), "GetBonus");
+  const switchBody = extractFirstSwitchBody(body, "GetBonus");
+  return parseSourceCaseGroups(switchBody, (item, caseBody) => parseSourceBonusReward(item, caseBody));
+}
+
+function parseSourceBonusReward(item, body) {
+  const reward = createEmptyBonusReward();
+  reward.condition = parseSourceBonusCondition(body);
+  reward.sound = body.match(/SD_PlaySound\s*\(\s*([A-Z0-9_]+)\s*\)/)?.[1] ?? null;
+  reward.heal = parseOptionalNumber(body, /HealSelf\s*\(\s*([0-9]+)\s*\)/);
+  reward.ammo = parseOptionalNumber(body, /GiveAmmo\s*\(\s*([0-9]+)\s*\)/);
+  reward.weapon = normalizeWeaponSymbol(body.match(/GiveWeapon\s*\(\s*(wp_[a-z0-9_]+)\s*\)/)?.[1] ?? null);
+  reward.key = /GiveKey\s*\(\s*check->itemnumber\s*-\s*bo_key1\s*\)/.test(body) ? "item-bo_key1" : null;
+  reward.score = parseOptionalNumber(body, /GivePoints\s*\(\s*([0-9]+)\s*\)/);
+  reward.extraLife = /\bGiveExtraMan\s*\(/.test(body);
+  reward.treasure = /gamestate\.treasurecount\s*\+\+/.test(body);
+  return reward;
+}
+
+function parseSourceBonusCondition(body) {
+  if (/gamestate\.health\s*==\s*100/.test(body)) {
+    return "health<100";
+  }
+
+  if (/gamestate\.health\s*>\s*10/.test(body)) {
+    return "health<=10";
+  }
+
+  if (/gamestate\.ammo\s*==\s*99/.test(body)) {
+    return "ammo<99";
+  }
+
+  return null;
 }
 
 function parseSourceTreasureScores(text) {
@@ -824,6 +867,47 @@ function parseTypescriptTreasureScores(text) {
   return parseTypescriptSwitchStringReturns(extractFirstSwitchBody(body, "treasureScoreForBonus"));
 }
 
+function parseTypescriptBonusRewards(text, treasureScores, stringConstants) {
+  const body = extractTypescriptFunctionBody(text, "GetBonus");
+  const switchBody = extractFirstSwitchBody(body, "GetBonus");
+  return parseTypescriptCaseGroups(switchBody, (item, caseBody) =>
+    parseTypescriptBonusReward(item, caseBody, treasureScores, stringConstants)
+  );
+}
+
+function parseTypescriptBonusReward(item, body, treasureScores, stringConstants) {
+  const reward = createEmptyBonusReward();
+  reward.condition = parseTypescriptBonusCondition(body);
+  const soundMatch = body.match(/SD_PlaySound\(([^)]+)\)/);
+  reward.sound = soundMatch ? resolveTypescriptString(soundMatch[1], stringConstants) : null;
+  reward.heal = parseOptionalNumber(body, /HealSelf\(\s*([0-9]+)\s*\)/);
+  reward.ammo = parseOptionalNumber(body, /GiveAmmo\(\s*([0-9]+)\s*\)/);
+  reward.weapon = normalizeWeaponSymbol(body.match(/GiveWeapon\(\s*(WP_[A-Z0-9_]+)\s*\)/)?.[1] ?? null);
+  reward.key = /GiveKey\(\s*keyNumberForBonus\(stat\.item\)\s*\)/.test(body) ? "item-bo_key1" : null;
+  reward.score = /GivePoints\(\s*treasureScoreForBonus\(stat\.item\)\s*\)/.test(body)
+    ? treasureScores.get(item) ?? null
+    : parseOptionalNumber(body, /GivePoints\(\s*([0-9]+)\s*\)/);
+  reward.extraLife = /\bGiveExtraMan\(/.test(body);
+  reward.treasure = /this\.gamestate\.treasurecount\s*\+=\s*1/.test(body);
+  return reward;
+}
+
+function parseTypescriptBonusCondition(body) {
+  if (/this\.gamestate\.health\s*===\s*MAX_HEALTH/.test(body)) {
+    return "health<100";
+  }
+
+  if (/this\.gamestate\.health\s*>\s*10/.test(body)) {
+    return "health<=10";
+  }
+
+  if (/this\.gamestate\.ammo\s*===\s*MAX_AMMO/.test(body)) {
+    return "ammo<99";
+  }
+
+  return null;
+}
+
 function parseTypescriptKillDrops(text) {
   const body = extractTypescriptFunctionBody(text, "PlaceKillDrop");
   const switchBody = extractFirstSwitchBody(body, "PlaceKillDrop");
@@ -904,6 +988,45 @@ function compareDroppedItemTypes(sourceEntries, typescriptEntries, problems) {
       problems.push(`DROPPED_ITEM_TYPES.${item}: type ${typeIndex} != source first type ${sourceIndex}`);
     }
   }
+}
+
+function compareBonusRewards(sourceEntries, typescriptEntries, problems) {
+  for (const [item, sourceReward] of sourceEntries.entries()) {
+    if (SOURCE_ONLY_BONUS_ITEMS.has(item)) {
+      continue;
+    }
+
+    const currentReward = typescriptEntries.get(item);
+    if (!currentReward) {
+      problems.push(`${item}: missing TypeScript GetBonus reward`);
+      continue;
+    }
+
+    for (const field of BONUS_REWARD_FIELDS) {
+      if (currentReward[field] !== sourceReward[field]) {
+        problems.push(
+          `${item}: GetBonus ${field} ${formatNullable(currentReward[field])} != source ${formatNullable(sourceReward[field])}`
+        );
+      }
+    }
+  }
+
+  for (const item of typescriptEntries.keys()) {
+    if (!sourceEntries.has(item) && !SOURCE_ONLY_BONUS_ITEMS.has(item)) {
+      problems.push(`${item}: TypeScript GetBonus reward missing from WL_AGENT.C GetBonus`);
+    }
+  }
+}
+
+function countComparedBonusRewards(sourceEntries) {
+  let count = 0;
+  for (const item of sourceEntries.keys()) {
+    if (!SOURCE_ONLY_BONUS_ITEMS.has(item)) {
+      count += 1;
+    }
+  }
+
+  return count;
 }
 
 function compareTreasureScores(sourceEntries, typescriptEntries, problems) {
@@ -1125,6 +1248,16 @@ function parseNumericConstants(text) {
   return constants;
 }
 
+function parseStringConstants(text) {
+  const constants = new Map();
+  const constantPattern = /const\s+([A-Z0-9_]+)(?::\s*[A-Za-z0-9_<>| ]+)?\s*=\s*"([^"]+)";/g;
+  for (const match of text.matchAll(constantPattern)) {
+    constants.set(match[1], match[2]);
+  }
+
+  return constants;
+}
+
 function parseNumericRows(text) {
   const rows = [];
   const stripped = text.replace(/\/\/.*$/gm, "");
@@ -1146,12 +1279,99 @@ function parseNumberList(text) {
   return [...text.matchAll(/-?[0-9]+/g)].map((match) => Number(match[0]));
 }
 
+function parseOptionalNumber(text, pattern) {
+  const match = text.match(pattern);
+  return match ? Number(match[1]) : null;
+}
+
+function createEmptyBonusReward() {
+  return {
+    ammo: null,
+    condition: null,
+    extraLife: false,
+    heal: null,
+    key: null,
+    score: null,
+    sound: null,
+    treasure: false,
+    weapon: null
+  };
+}
+
+function normalizeWeaponSymbol(symbol) {
+  return symbol ? symbol.toUpperCase() : null;
+}
+
+function resolveTypescriptString(expression, stringConstants) {
+  const normalized = expression.trim();
+  const quoted = normalized.match(/^"([^"]+)"$/);
+  if (quoted) {
+    return quoted[1];
+  }
+
+  const constant = stringConstants.get(normalized);
+  if (constant) {
+    return constant;
+  }
+
+  throw new Error(`Could not resolve TypeScript string expression: ${expression}`);
+}
+
+function parseSourceCaseGroups(switchBody, parseReward) {
+  return parseSwitchCaseGroups(parseSourceCaseBlocks(switchBody), parseReward);
+}
+
+function parseTypescriptCaseGroups(switchBody, parseReward) {
+  return parseSwitchCaseGroups(parseTypescriptCaseBlocks(switchBody), parseReward);
+}
+
+function parseSwitchCaseGroups(blocks, parseReward) {
+  const entries = new Map();
+  let labels = [];
+  let body = "";
+  for (const block of blocks) {
+    labels.push(block.label);
+    body += block.bodyWithoutLabel;
+    if (/\bbreak\s*;/.test(block.bodyWithoutLabel)) {
+      for (const label of labels) {
+        entries.set(label, parseReward(label, body));
+      }
+
+      labels = [];
+      body = "";
+    }
+  }
+
+  if (labels.length > 0) {
+    for (const label of labels) {
+      entries.set(label, parseReward(label, body));
+    }
+  }
+
+  return entries;
+}
+
 function parseSourceCaseBlocks(switchBody) {
   const caseMatches = [...switchBody.matchAll(/^\s*case\s+([A-Za-z0-9_]+)\s*:/gm)];
   return caseMatches.map((match, index) => {
     const next = caseMatches[index + 1];
+    const body = switchBody.slice(match.index, next?.index ?? switchBody.length);
     return {
-      body: switchBody.slice(match.index, next?.index ?? switchBody.length),
+      body,
+      bodyWithoutLabel: body.replace(/^\s*case\s+[A-Za-z0-9_]+\s*:\s*/, ""),
+      label: match[1]
+    };
+  });
+}
+
+function parseTypescriptCaseBlocks(switchBody) {
+  const caseMatches = [...switchBody.matchAll(/^\s*case\s+"([^"]+)"\s*:/gm)];
+  return caseMatches.map((match, index) => {
+    const next = caseMatches[index + 1];
+    const body = switchBody.slice(match.index, next?.index ?? switchBody.length);
+    return {
+      body,
+      bodyWithoutLabel: body.replace(/^\s*case\s+"[^"]+"\s*:\s*/, ""),
       label: match[1]
     };
   });
