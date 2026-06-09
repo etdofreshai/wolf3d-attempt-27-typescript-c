@@ -204,6 +204,7 @@ type PortActor = {
   targetX: number;
   targetY: number;
   tile: number;
+  visible: boolean;
   victoryPhase?: "jump" | "run";
   victoryTilesRemaining?: number;
   x: number;
@@ -1769,6 +1770,7 @@ class WLMain {
           targetX: actor.targetX,
           targetY: actor.targetY,
           tile: actor.tile,
+          visible: actor.visible,
           victoryPhase: actor.victoryPhase ?? null,
           victoryTilesRemaining: actor.victoryTilesRemaining ?? null,
           x: actor.x,
@@ -3987,7 +3989,7 @@ class WLGame {
     let bestDepth = Number.POSITIVE_INFINITY;
 
     for (const actor of this.map.actors) {
-      if (!actor.shootable || actor.mode === "dead") {
+      if (!actor.shootable || !actor.visible || actor.mode === "dead") {
         continue;
       }
 
@@ -4344,6 +4346,7 @@ class WLGame {
       targetX: actor.targetX,
       targetY: actor.targetY,
       tile: actor.tile,
+      visible: false,
       x: actor.x,
       y: actor.y
     });
@@ -4552,6 +4555,7 @@ class WLGame {
       targetX: tileX,
       targetY: tileY,
       tile: 0,
+      visible: false,
       victoryPhase: "run",
       victoryTilesRemaining: 6,
       x: this.gamestate.x - 0.5,
@@ -5238,8 +5242,37 @@ class WLDraw {
 
   private StaticTileVisible(wl_game: WLGame, stat: PortStatic): boolean {
     // WL_DRAW.C DrawScaleds checks spotvis before TransformTile for static sprites.
-    const worldX = stat.x + 0.5;
-    const worldY = stat.y + 0.5;
+    return this.TileCenterVisible(wl_game, stat.x, stat.y);
+  }
+
+  private ActorTileVisible(wl_game: WLGame, actor: PortActor): boolean {
+    // WL_DRAW.C checks the actor tile plus eight open neighbor tiles against spotvis.
+    const tileX = Math.floor(actor.x);
+    const tileY = Math.floor(actor.y);
+    if (this.TileCenterVisible(wl_game, tileX, tileY)) {
+      return true;
+    }
+
+    for (let yOffset = -1; yOffset <= 1; yOffset += 1) {
+      for (let xOffset = -1; xOffset <= 1; xOffset += 1) {
+        if (xOffset === 0 && yOffset === 0) {
+          continue;
+        }
+
+        const checkX = tileX + xOffset;
+        const checkY = tileY + yOffset;
+        if (wl_game.GetTile(checkX, checkY) === 0 && this.TileCenterVisible(wl_game, checkX, checkY)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  private TileCenterVisible(wl_game: WLGame, tileX: number, tileY: number): boolean {
+    const worldX = tileX + 0.5;
+    const worldY = tileY + 0.5;
     const dx = worldX - wl_game.gamestate.x;
     const dy = worldY - wl_game.gamestate.y;
     const distance = Math.hypot(dx, dy);
@@ -5449,6 +5482,11 @@ class WLDraw {
     }
 
     for (const actor of wl_game.map.actors) {
+      if (!this.ActorTileVisible(wl_game, actor)) {
+        actor.visible = false;
+        continue;
+      }
+
       const actorSprite = actorSpriteDescriptor(actor, wl_game.gamestate.angle);
       const actorSpriteInfo = actorSprite ? this.id_pm.PM_GetSpritePageInfo(actorSprite.shapenum) : null;
       const sprite = this.TransformSprite(
@@ -5462,7 +5500,10 @@ class WLDraw {
         actorSprite ? this.id_pm.PM_GetSpriteBitmap(actorSprite.shapenum) : null
       );
       if (sprite) {
+        actor.visible = true;
         sprites.push(sprite);
+      } else {
+        actor.visible = false;
       }
     }
 
@@ -6492,11 +6533,12 @@ function initialActorMovement(
   };
 }
 
-function initialActorAwareness(ambush = false): Pick<PortActor, "ambush" | "firstAttack" | "reactionTime"> {
+function initialActorAwareness(ambush = false): Pick<PortActor, "ambush" | "firstAttack" | "reactionTime" | "visible"> {
   return {
     ambush,
     firstAttack: false,
-    reactionTime: 0
+    reactionTime: 0,
+    visible: false
   };
 }
 
