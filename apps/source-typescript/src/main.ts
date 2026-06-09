@@ -142,6 +142,31 @@ type DamageSource = {
   y: number;
 };
 
+type SourceLevelRatio = {
+  kill: number;
+  secret: number;
+  time: number;
+  treasure: number;
+};
+
+type SourceLevelCompletionSummary = SourceLevelRatio & {
+  bonus: number;
+  mapon: number;
+  timeLeft: number;
+  type: "regular" | "secret";
+};
+
+type SourceVictorySummary = {
+  averageKill: number;
+  averageSecret: number;
+  averageTreasure: number;
+  displayMinutes: number;
+  displaySeconds: number;
+  highScoreCompleted: number;
+  score: number;
+  totalTime: number;
+};
+
 type PortActor = {
   ambush: boolean;
   attackMode: boolean;
@@ -322,7 +347,12 @@ const RUNSPEED = 6000;
 const SOURCE_BASEMOVE = 35;
 const SOURCE_FORWARD_MOVESCALE = 150;
 const SOURCE_BACK_MOVESCALE = 100;
+const SOURCE_LEVEL_RATIO_COUNT = 8;
+const SOURCE_PAR_AMOUNT = 500;
+const SOURCE_PERCENT_100_BONUS = 10000;
 const SOURCE_RUNMOVE = 70;
+const SOURCE_SECRET_FLOOR_BONUS = 15000;
+const SOURCE_TICS_PER_SECOND = 70;
 const PUSHABLETILE = 98;
 const SCREEN_WIDTH = 320;
 const SCREEN_HEIGHT = 200;
@@ -334,6 +364,14 @@ const TILE_DISTANCE = 1;
 const MINACTORDIST_TILES = 0x10000 / TILEGLOBAL;
 const PROJECTILE_PROBE_TILES = 0x2000 / TILEGLOBAL;
 const PROJECTILESIZE_TILES = 0xc000 / TILEGLOBAL;
+const WL6_PAR_TIMES_SECONDS = [
+  90, 120, 120, 210, 180, 180, 150, 150, 0, 0,
+  90, 210, 180, 120, 240, 360, 60, 180, 0, 0,
+  90, 90, 150, 150, 210, 150, 120, 360, 0, 0,
+  120, 120, 90, 60, 270, 210, 120, 270, 0, 0,
+  150, 90, 150, 150, 240, 180, 270, 210, 0, 0,
+  390, 240, 270, 360, 300, 330, 330, 510, 0, 0
+] as const;
 const ATTACK_KEY_CODE = 17;
 const RUN_KEY_CODE = 16;
 const STRAFE_KEY_CODE = 18;
@@ -1253,6 +1291,19 @@ class WLMain {
     return applied;
   }
 
+  ApplyVictoriousTransition(): boolean {
+    const applied = this.wl_game.ApplyVictoriousTransition();
+    if (applied && this.wl_game.victorySummary) {
+      const summary = this.wl_game.victorySummary;
+      this.id_us.US_Print(
+        `ApplyVictoriousTransition time ${formatClockSeconds(summary.totalTime)} avg ${summary.averageKill}/${summary.averageSecret}/${summary.averageTreasure}`
+      );
+    }
+
+    this.RenderUi();
+    return applied;
+  }
+
   async RunDemoPlan(): Promise<void> {
     if (!this.demoPlan || this.demoRunning) {
       return;
@@ -1339,6 +1390,11 @@ class WLMain {
       damage: {
         killer: this.wl_game.killer,
         lastAttacker: this.wl_game.lastAttacker
+      },
+      intermission: {
+        lastLevelCompletion: this.wl_game.lastLevelCompletion ? { ...this.wl_game.lastLevelCompletion } : null,
+        levelRatios: this.wl_game.levelRatios.map((ratio) => ({ ...ratio })),
+        victorySummary: this.wl_game.victorySummary ? { ...this.wl_game.victorySummary } : null
       },
       objects: {
         actors: this.wl_game.map.actors.length,
@@ -1477,7 +1533,7 @@ class WLMain {
   }
 
   private async AdvanceDemoWait(milliseconds: number): Promise<void> {
-    const ticMs = 1000 / 70;
+    const ticMs = 1000 / SOURCE_TICS_PER_SECOND;
     let remaining = milliseconds;
     let steps = 0;
     while (remaining > 0) {
@@ -1585,13 +1641,17 @@ class WLGame {
   map = createFallbackMap();
   madeNoise = false;
   thrustSpeed = 0;
+  lastLevelCompletion: SourceLevelCompletionSummary | null = null;
+  levelRatios: SourceLevelRatio[] = createLevelRatios();
   lastAttacker: DamageSource | null = null;
   killer: DamageSource | null = null;
   playstate: SourcePlayState = "ex_stillplaying";
+  victorySummary: SourceVictorySummary | null = null;
   private attackButtonHeld = false;
   private completedLevelTransitionApplied = false;
   private diedTransitionApplied = false;
   private rndIndex = 0;
+  private victoriousTransitionApplied = false;
   private victorySpinTargetY: number | null = null;
 
   readonly gamestate = {
@@ -1663,12 +1723,16 @@ class WLGame {
     this.attackButtonHeld = false;
     this.completedLevelTransitionApplied = false;
     this.diedTransitionApplied = false;
+    this.lastLevelCompletion = null;
+    this.levelRatios = createLevelRatios();
     this.lastAttacker = null;
     this.killer = null;
     this.madeNoise = false;
     this.playstate = "ex_stillplaying";
     this.rndIndex = 0;
     this.thrustSpeed = 0;
+    this.victoriousTransitionApplied = false;
+    this.victorySummary = null;
     this.victorySpinTargetY = null;
 
     this.gamestate.ammo = STARTAMMO;
@@ -1942,6 +2006,7 @@ class WLGame {
       return false;
     }
 
+    this.RecordLevelCompleted();
     this.gamestate.keys = 0;
     this.gamestate.oldscore = this.gamestate.score;
 
@@ -1956,6 +2021,96 @@ class WLGame {
     this.gamestate.level = this.gamestate.episode * 10 + this.gamestate.mapon;
     this.completedLevelTransitionApplied = true;
     return true;
+  }
+
+  ApplyVictoriousTransition(): boolean {
+    if (this.victoriousTransitionApplied || this.playstate !== "ex_victorious") {
+      return false;
+    }
+
+    this.victorySummary = this.CalculateVictorySummary();
+    this.victoriousTransitionApplied = true;
+    return true;
+  }
+
+  private RecordLevelCompleted(): void {
+    const mapon = this.gamestate.mapon;
+    const ratios = this.CurrentLevelRatios();
+
+    if (mapon < SOURCE_LEVEL_RATIO_COUNT) {
+      const parSeconds = WL6_PAR_TIMES_SECONDS[this.gamestate.episode * 10 + mapon] ?? 0;
+      const timeLeft = this.gamestate.timecount < parSeconds * SOURCE_TICS_PER_SECOND
+        ? Math.max(0, parSeconds - ratios.time)
+        : 0;
+      const bonus =
+        timeLeft * SOURCE_PAR_AMOUNT
+        + (ratios.kill === 100 ? SOURCE_PERCENT_100_BONUS : 0)
+        + (ratios.secret === 100 ? SOURCE_PERCENT_100_BONUS : 0)
+        + (ratios.treasure === 100 ? SOURCE_PERCENT_100_BONUS : 0);
+
+      this.GivePoints(bonus);
+      this.levelRatios[mapon] = ratios;
+      this.lastLevelCompletion = {
+        ...ratios,
+        bonus,
+        mapon,
+        timeLeft,
+        type: "regular"
+      };
+      return;
+    }
+
+    this.GivePoints(SOURCE_SECRET_FLOOR_BONUS);
+    this.lastLevelCompletion = {
+      ...ratios,
+      bonus: SOURCE_SECRET_FLOOR_BONUS,
+      mapon,
+      timeLeft: 0,
+      type: "secret"
+    };
+  }
+
+  private CurrentLevelRatios(): SourceLevelRatio {
+    const time = Math.min(Math.trunc(this.gamestate.timecount / SOURCE_TICS_PER_SECOND), 99 * 60);
+    return {
+      kill: this.gamestate.killtotal ? Math.trunc((this.gamestate.killcount * 100) / this.gamestate.killtotal) : 0,
+      secret: this.gamestate.secrettotal
+        ? Math.trunc((this.gamestate.secretcount * 100) / this.gamestate.secrettotal)
+        : 0,
+      time,
+      treasure: this.gamestate.treasuretotal
+        ? Math.trunc((this.gamestate.treasurecount * 100) / this.gamestate.treasuretotal)
+        : 0
+    };
+  }
+
+  private CalculateVictorySummary(): SourceVictorySummary {
+    const totals = this.levelRatios.reduce<SourceLevelRatio>(
+      (sum, ratio) => ({
+        kill: sum.kill + ratio.kill,
+        secret: sum.secret + ratio.secret,
+        time: sum.time + ratio.time,
+        treasure: sum.treasure + ratio.treasure
+      }),
+      { kill: 0, secret: 0, time: 0, treasure: 0 }
+    );
+    let displayMinutes = Math.trunc(totals.time / 60);
+    let displaySeconds = totals.time % 60;
+    if (displayMinutes > 99) {
+      displayMinutes = 99;
+      displaySeconds = 99;
+    }
+
+    return {
+      averageKill: Math.trunc(totals.kill / SOURCE_LEVEL_RATIO_COUNT),
+      averageSecret: Math.trunc(totals.secret / SOURCE_LEVEL_RATIO_COUNT),
+      averageTreasure: Math.trunc(totals.treasure / SOURCE_LEVEL_RATIO_COUNT),
+      displayMinutes,
+      displaySeconds,
+      highScoreCompleted: this.gamestate.mapon + 1,
+      score: this.gamestate.score,
+      totalTime: totals.time
+    };
   }
 
   ApplyDiedTransition(): boolean {
@@ -3698,6 +3853,7 @@ class WLGame {
     this.gamestate.playstate = playstate;
     this.completedLevelTransitionApplied = false;
     this.diedTransitionApplied = false;
+    this.victoriousTransitionApplied = false;
   }
 
   private DamageSource(attacker: PortActor | PortProjectile): DamageSource {
@@ -4948,6 +5104,7 @@ function startSourceTypescriptApp(): void {
     wolf3dTypeScriptHarness?: {
       applyCompletedLevelTransition: () => boolean;
       applyDiedTransition: () => boolean;
+      applyVictoriousTransition: () => boolean;
       exportPng: () => Promise<void>;
       exportState: () => Promise<void>;
       exportWav: () => Promise<void>;
@@ -4960,6 +5117,7 @@ function startSourceTypescriptApp(): void {
   }).wolf3dTypeScriptHarness = {
     applyCompletedLevelTransition: () => wlMain.ApplyCompletedLevelTransition(),
     applyDiedTransition: () => wlMain.ApplyDiedTransition(),
+    applyVictoriousTransition: () => wlMain.ApplyVictoriousTransition(),
     exportPng: () => wlMain.ExportPng("harness", false),
     exportState: () => wlMain.ExportState("harness", false),
     exportWav: () => wlMain.ExportWav("harness", false),
@@ -5638,6 +5796,21 @@ function keyNumberForBonus(item: string): number {
   }
 }
 
+function createLevelRatios(): SourceLevelRatio[] {
+  return Array.from({ length: SOURCE_LEVEL_RATIO_COUNT }, () => ({
+    kill: 0,
+    secret: 0,
+    time: 0,
+    treasure: 0
+  }));
+}
+
+function formatClockSeconds(totalSeconds: number): string {
+  const minutes = Math.trunc(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
 function treasureScoreForBonus(item: string): number {
   switch (item) {
     case "bo_cross":
@@ -6256,7 +6429,7 @@ function delay(milliseconds: number): Promise<void> {
 }
 
 function ticsFromMilliseconds(milliseconds: number): number {
-  return Math.max(1, Math.round((milliseconds * 70) / 1000));
+  return Math.max(1, Math.round((milliseconds * SOURCE_TICS_PER_SECOND) / 1000));
 }
 
 function normalizeAngle(angle: number): number {
