@@ -7,6 +7,7 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
 const sourceHeaderPath = path.join(repoRoot, "source", "WOLFSRC", "WL_DEF.H");
 const sourceAct1Path = path.join(repoRoot, "source", "WOLFSRC", "WL_ACT1.C");
+const sourceAgentPath = path.join(repoRoot, "source", "WOLFSRC", "WL_AGENT.C");
 const sourcePath = path.join(repoRoot, "source", "WOLFSRC", "WL_ACT2.C");
 const typescriptPath = path.join(repoRoot, "apps", "source-typescript", "src", "main.ts");
 
@@ -50,18 +51,23 @@ const DIGITIZED_BOSS_DEATH_TICS = new Map([
   ["s_schabbdie2", 140]
 ]);
 
-const [sourceHeaderText, sourceAct1Text, sourceText, typescriptText] = await Promise.all([
+const [sourceHeaderText, sourceAct1Text, sourceAgentText, sourceText, typescriptText] = await Promise.all([
   readFile(sourceHeaderPath, "utf8"),
   readFile(sourceAct1Path, "utf8"),
+  readFile(sourceAgentPath, "utf8"),
   readFile(sourcePath, "utf8"),
   readFile(typescriptPath, "utf8")
 ]);
 
 const sourceSprites = parseSourceSprites(sourceHeaderText);
+const sourceWeaponIndexes = parseSourceWeaponIndexes(sourceHeaderText);
 const sourceStaticInfo = parseSourceStaticInfo(sourceAct1Text, sourceSprites);
+const sourceAttackInfo = parseSourceAttackInfo(sourceAgentText);
 const sourceStates = parseSourceStates(sourceText, sourceSprites);
 const constants = parseNumericConstants(typescriptText);
+const typescriptWeaponIndexes = parseTypescriptWeaponIndexes(typescriptText);
 const typescriptStaticInfo = parseTypescriptStaticInfo(typescriptText);
+const typescriptAttackInfo = parseTypescriptAttackInfo(typescriptText);
 const typescriptDroppedItemTypes = parseTypescriptDroppedItemTypes(typescriptText);
 const typescriptSprites = parseTypescriptSprites(typescriptText);
 const modeledFrames = parseModeledFrames(typescriptText, constants, typescriptSprites);
@@ -93,6 +99,8 @@ for (const frame of modeledFrames.values()) {
 
 compareStaticInfo(sourceStaticInfo, typescriptStaticInfo, problems);
 compareDroppedItemTypes(sourceStaticInfo, typescriptDroppedItemTypes, problems);
+compareWeaponIndexes(sourceWeaponIndexes, typescriptWeaponIndexes, problems);
+compareAttackInfo(sourceAttackInfo, typescriptAttackInfo, problems);
 
 if (problems.length > 0) {
   console.error(`source-typescript source verifier failed with ${problems.length} mismatch(es):`);
@@ -108,7 +116,7 @@ if (problems.length > 0) {
 }
 
 console.log(
-  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames and ${sourceStaticInfo.length} WL_ACT1.C statinfo entries match source.`
+  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, and ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows match source.`
 );
 
 function parseSourceStates(text, sprites) {
@@ -243,6 +251,101 @@ function parseSourceStaticInfo(text, sprites) {
   return entries;
 }
 
+function parseSourceWeaponIndexes(text) {
+  const enumMatch = text.match(/typedef\s+enum\s*\{(?<body>[\s\S]*?)\}\s*weapontype;/);
+  if (!enumMatch?.groups?.body) {
+    throw new Error("Could not find weapontype enum in WL_DEF.H");
+  }
+
+  const weapons = new Map();
+  let value = 0;
+  for (const match of enumMatch.groups.body.matchAll(/\b(wp_[a-z0-9_]+)\b/g)) {
+    weapons.set(match[1].toUpperCase(), value);
+    value += 1;
+  }
+
+  return weapons;
+}
+
+function parseSourceAttackInfo(text) {
+  const start = text.indexOf("attackinfo[4][14]");
+  if (start < 0) {
+    throw new Error("Could not find attackinfo[4][14] in WL_AGENT.C");
+  }
+
+  const tableStart = text.indexOf("{", start);
+  const tableEnd = text.indexOf("};", tableStart);
+  if (tableStart < 0 || tableEnd < 0) {
+    throw new Error("Could not parse attackinfo initializer in WL_AGENT.C");
+  }
+
+  const rows = [];
+  const rowPattern = /\{\s*((?:\{\s*-?[0-9]+\s*,\s*-?[0-9]+\s*,\s*-?[0-9]+\s*\}\s*,?\s*)+)\}/g;
+  for (const rowMatch of text.slice(tableStart, tableEnd).matchAll(rowPattern)) {
+    const entries = [];
+    for (const entryMatch of rowMatch[1].matchAll(/\{\s*(-?[0-9]+)\s*,\s*(-?[0-9]+)\s*,\s*(-?[0-9]+)\s*\}/g)) {
+      entries.push({
+        attack: Number(entryMatch[2]),
+        frame: Number(entryMatch[3]),
+        tics: Number(entryMatch[1])
+      });
+    }
+
+    if (entries.length > 0) {
+      rows.push(entries);
+    }
+  }
+
+  if (rows.length === 0) {
+    throw new Error("Could not parse any attackinfo rows in WL_AGENT.C");
+  }
+
+  return rows;
+}
+
+function parseTypescriptWeaponIndexes(text) {
+  const weapons = new Map();
+  for (const match of text.matchAll(/\bconst\s+(WP_[A-Z0-9_]+)\s*=\s*([0-9]+);/g)) {
+    weapons.set(match[1], Number(match[2]));
+  }
+
+  return weapons;
+}
+
+function parseTypescriptAttackInfo(text) {
+  const start = text.indexOf("const ATTACK_INFO");
+  const end = text.indexOf("const STATIC_INFO_TYPES", start);
+  if (start < 0 || end < 0) {
+    throw new Error("Could not find ATTACK_INFO in source-typescript main.ts");
+  }
+
+  const rows = [];
+  const rowPattern =
+    /\[\s*((?:\{\s*attack:\s*-?[0-9]+\s*,\s*frame:\s*-?[0-9]+\s*,\s*tics:\s*-?[0-9]+\s*\}\s*,?\s*)+)\]/g;
+  for (const rowMatch of text.slice(start, end).matchAll(rowPattern)) {
+    const entries = [];
+    for (const entryMatch of rowMatch[1].matchAll(
+      /\{\s*attack:\s*(-?[0-9]+)\s*,\s*frame:\s*(-?[0-9]+)\s*,\s*tics:\s*(-?[0-9]+)\s*\}/g
+    )) {
+      entries.push({
+        attack: Number(entryMatch[1]),
+        frame: Number(entryMatch[2]),
+        tics: Number(entryMatch[3])
+      });
+    }
+
+    if (entries.length > 0) {
+      rows.push(entries);
+    }
+  }
+
+  if (rows.length === 0) {
+    throw new Error("Could not parse any ATTACK_INFO rows in source-typescript main.ts");
+  }
+
+  return rows;
+}
+
 function parseTypescriptStaticInfo(text) {
   const staticTypesMatch = text.match(/const STATIC_INFO_TYPES = \[(?<body>[\s\S]*?)\] as const;/);
   if (!staticTypesMatch?.groups?.body) {
@@ -320,6 +423,44 @@ function compareDroppedItemTypes(sourceEntries, typescriptEntries, problems) {
 
     if (typeIndex !== sourceIndex) {
       problems.push(`DROPPED_ITEM_TYPES.${item}: type ${typeIndex} != source first type ${sourceIndex}`);
+    }
+  }
+}
+
+function compareWeaponIndexes(sourceEntries, typescriptEntries, problems) {
+  for (const [weapon, sourceIndex] of sourceEntries.entries()) {
+    const currentIndex = typescriptEntries.get(weapon);
+    if (!Number.isFinite(currentIndex)) {
+      problems.push(`${weapon}: missing TypeScript weapon index`);
+      continue;
+    }
+
+    if (currentIndex !== sourceIndex) {
+      problems.push(`${weapon}: index ${currentIndex} != source ${sourceIndex}`);
+    }
+  }
+}
+
+function compareAttackInfo(sourceRows, typescriptRows, problems) {
+  if (sourceRows.length !== typescriptRows.length) {
+    problems.push(`attackinfo row count ${typescriptRows.length} != source ${sourceRows.length}`);
+  }
+
+  const rowCount = Math.min(sourceRows.length, typescriptRows.length);
+  for (let row = 0; row < rowCount; row += 1) {
+    if (sourceRows[row].length !== typescriptRows[row].length) {
+      problems.push(`attackinfo[${row}] populated frame count ${typescriptRows[row].length} != source ${sourceRows[row].length}`);
+    }
+
+    const frameCount = Math.min(sourceRows[row].length, typescriptRows[row].length);
+    for (let frame = 0; frame < frameCount; frame += 1) {
+      const source = sourceRows[row][frame];
+      const current = typescriptRows[row][frame];
+      for (const field of ["tics", "attack", "frame"]) {
+        if (current[field] !== source[field]) {
+          problems.push(`attackinfo[${row}][${frame}].${field} ${current[field]} != source ${source[field]}`);
+        }
+      }
     }
   }
 }
