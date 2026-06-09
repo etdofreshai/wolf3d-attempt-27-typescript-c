@@ -395,7 +395,22 @@ type DemoPlanStep =
       wav?: boolean;
     };
 
+type ArtifactKind = "audio" | "frame" | "state";
+
+type ArtifactRecord = {
+  bytes: number;
+  fileName: string;
+  kind: ArtifactKind;
+  label: string;
+  mimeType: string;
+  sequence: number;
+  tickSource: "dos-frame" | "unknown";
+  ticcount: number;
+};
+
 type RunnerState = {
+  artifactRecords: ArtifactRecord[];
+  artifactSequence: number;
   artifactUrls: string[];
   audioChunks: Float32Array[];
   audioSampleCount: number;
@@ -473,6 +488,10 @@ appRoot.innerHTML = `
             <dt>Demo</dt>
             <dd id="demo-status">--</dd>
           </div>
+          <div>
+            <dt>Artifacts</dt>
+            <dd id="artifact-status">0</dd>
+          </div>
         </dl>
         <div class="build-note" id="build-note"></div>
         <div class="file-list" id="missing-list" aria-live="polite"></div>
@@ -504,6 +523,7 @@ const toolchainFiles = requireElement<HTMLElement>("#toolchain-files");
 const runImage = requireElement<HTMLElement>("#run-image");
 const captureStatus = requireElement<HTMLElement>("#capture-status");
 const demoStatus = requireElement<HTMLElement>("#demo-status");
+const artifactStatus = requireElement<HTMLElement>("#artifact-status");
 const buildNote = requireElement<HTMLElement>("#build-note");
 const missingList = requireElement<HTMLElement>("#missing-list");
 const downloadBuilt = requireElement<HTMLAnchorElement>("#download-built");
@@ -514,6 +534,8 @@ const dosCanvas = requireElement<HTMLCanvasElement>("#dos-canvas");
 const dosContext = dosCanvas.getContext("2d");
 
 const state: RunnerState = {
+  artifactRecords: [],
+  artifactSequence: 0,
   artifactUrls: [],
   audioChunks: [],
   audioSampleCount: 0,
@@ -639,6 +661,7 @@ function renderStatus(status: SourceDosStatus): void {
       ? "source/WOLFSRC/WOLF3D.EXE"
       : "Missing";
   captureStatus.textContent = `${state.frameCount} frames / ${formatDuration(audioDurationSeconds())} audio`;
+  renderArtifactStatus();
   demoStatus.textContent = state.demoPlan
     ? state.demoRunning
       ? `Running ${state.demoPlan.name}`
@@ -1030,7 +1053,7 @@ async function exportPng(label: string, autoDownload = true): Promise<void> {
   }
 
   const blob = await imageDataToBlob(imageData);
-  registerArtifact(blob, artifactFileName("frame", label, "png"), autoDownload);
+  registerArtifact(blob, "frame", label, "png", autoDownload);
 }
 
 async function exportWav(label: string, autoDownload = true): Promise<void> {
@@ -1045,7 +1068,9 @@ async function exportWav(label: string, autoDownload = true): Promise<void> {
     new Blob([new Uint8Array(wav)], {
       type: "audio/wav"
     }),
-    artifactFileName("audio", label, "wav"),
+    "audio",
+    label,
+    "wav",
     autoDownload
   );
 }
@@ -1063,7 +1088,9 @@ async function exportStateBin(label: string, autoDownload = true): Promise<void>
     new Blob([new Uint8Array(bytes)], {
       type: "application/octet-stream"
     }),
-    artifactFileName("state", label, "bin"),
+    "state",
+    label,
+    "bin",
     autoDownload
   );
 }
@@ -1106,15 +1133,41 @@ function canvasToBlob(canvas: HTMLCanvasElement, type: string): Promise<Blob> {
   });
 }
 
-function registerArtifact(blob: Blob, fileName: string, autoDownload: boolean): void {
+function registerArtifact(
+  blob: Blob,
+  kind: ArtifactKind,
+  label: string,
+  extension: string,
+  autoDownload: boolean
+): void {
+  const fileName = artifactFileName(kind, label, extension);
   const url = URL.createObjectURL(blob);
   state.artifactUrls.push(url);
+  const record: ArtifactRecord = {
+    bytes: blob.size,
+    fileName,
+    kind,
+    label,
+    mimeType: blob.type || "application/octet-stream",
+    sequence: state.artifactSequence,
+    tickSource: "dos-frame",
+    ticcount: state.frameCount
+  };
+  state.artifactSequence += 1;
+  state.artifactRecords.push(record);
 
   const link = document.createElement("a");
   link.href = url;
   link.download = fileName;
+  link.dataset.artifactBytes = String(record.bytes);
+  link.dataset.artifactKind = record.kind;
+  link.dataset.artifactLabel = record.label;
+  link.dataset.artifactSequence = String(record.sequence);
+  link.dataset.artifactTickSource = record.tickSource;
+  link.dataset.artifactTiccount = String(record.ticcount);
   link.textContent = `${fileName} (${formatBytes(blob.size)})`;
   artifactList.prepend(link);
+  renderArtifactStatus();
 
   if (autoDownload) {
     link.click();
@@ -1135,6 +1188,7 @@ function encodePersistedState(
 
   return encodeText(
     JSON.stringify({
+      artifacts: state.artifactRecords.map((artifact) => ({ ...artifact })),
       capturedAt: new Date().toISOString(),
       frameCount: state.frameCount,
       persisted: persisted
@@ -1212,6 +1266,16 @@ function renderCaptureStatus(): void {
   captureStatus.textContent = `${state.frameCount} frames / ${formatDuration(audioDurationSeconds())} audio`;
   buttonExportPng.disabled = state.frameCount === 0;
   buttonExportWav.disabled = state.audioSampleCount === 0;
+  renderArtifactStatus();
+}
+
+function renderArtifactStatus(): void {
+  const latestArtifact = state.artifactRecords[state.artifactRecords.length - 1];
+  artifactStatus.textContent = latestArtifact
+    ? `${state.artifactRecords.length} / ${latestArtifact.fileName} / frame ${latestArtifact.ticcount}`
+    : "0";
+  artifactList.dataset.artifactCount = String(state.artifactRecords.length);
+  artifactList.dataset.latestArtifact = latestArtifact?.fileName ?? "";
 }
 
 function audioDurationSeconds(): number {
