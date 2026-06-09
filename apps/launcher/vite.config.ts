@@ -48,7 +48,9 @@ function launcherStatusPlugin(): Plugin {
             servers: {
               launcher: true,
               steam: await checkPort(5174),
-              source: await checkPort(5175)
+              source: await checkPort(5175),
+              sourceModified: await checkPort(5176),
+              sourceTypescript: await checkPort(5177)
             },
             source: {
               ...sourceCounts,

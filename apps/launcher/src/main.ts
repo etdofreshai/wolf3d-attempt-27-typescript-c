@@ -5,6 +5,8 @@ type LauncherStatus = {
     launcher: boolean;
     steam: boolean;
     source: boolean;
+    sourceModified: boolean;
+    sourceTypescript: boolean;
   };
   steam: {
     ready: boolean;
@@ -24,7 +26,7 @@ type LauncherStatus = {
 };
 
 type Lane = {
-  id: "steam" | "source" | "port";
+  id: "steam" | "source" | "source-modified" | "source-typescript" | "port";
   title: string;
   label: string;
   href?: string;
@@ -47,6 +49,20 @@ const LANES: Lane[] = [
     command: "Launch"
   },
   {
+    id: "source-modified",
+    title: "Modified Source DOS",
+    label: "C/ASM DOS + PNG/WAV/BIN",
+    href: "http://127.0.0.1:5176/",
+    command: "Launch"
+  },
+  {
+    id: "source-typescript",
+    title: "Source TypeScript",
+    label: "original names + demo harness",
+    href: "http://127.0.0.1:5177/",
+    command: "Launch"
+  },
+  {
     id: "port",
     title: "Port",
     label: "Portable browser target",
@@ -64,6 +80,11 @@ const TOOLS = [
     title: "Source Build Status",
     label: "Borland/TASM lane",
     href: "http://127.0.0.1:5175/"
+  },
+  {
+    title: "Artifact Harness",
+    label: "PNG/WAV/BIN parity",
+    href: "http://127.0.0.1:5176/"
   },
   {
     title: "Data Inventory",
@@ -90,6 +111,8 @@ appRoot.innerHTML = `
         <div class="mode-strip">
           <span>Steam DOS</span>
           <span>Source DOS</span>
+          <span>Modified DOS</span>
+          <span>Source TS</span>
           <span>Port</span>
         </div>
       </div>
@@ -181,6 +204,8 @@ function renderTool(tool: (typeof TOOLS)[number]): string {
 function renderStatus(status: LauncherStatus): void {
   setText("#steam-state", status.steam.ready ? "Ready" : "Missing");
   setText("#source-state", status.source.ready ? "Ready" : "Check");
+  setText("#source-modified-state", status.source.ready ? "Ready" : "Check");
+  setText("#source-typescript-state", "Scaffold");
   setText("#port-state", "Future");
 
   setText("#steam-metrics", `${status.steam.filesPresent}/${status.steam.filesTotal} files`);
@@ -188,7 +213,9 @@ function renderStatus(status: LauncherStatus): void {
     "#source-metrics",
     `${status.source.c} C / ${status.source.asm} ASM / ${status.source.h} H`
   );
-  setText("#port-metrics", "Not scaffolded");
+  setText("#source-modified-metrics", "PNG / WAV / BIN");
+  setText("#source-typescript-metrics", "WLMain / WLGame / ID_*");
+  setText("#port-metrics", "Pending after parity");
 
   steamAssets.textContent = `${status.steam.filesPresent}/${status.steam.filesTotal}`;
   sourceTree.textContent = status.source.ready ? `${status.source.mounted} mounted` : "Missing";
@@ -196,7 +223,9 @@ function renderStatus(status: LauncherStatus): void {
 
   const online = [
     status.servers.steam ? "Steam online" : "Steam offline",
-    status.servers.source ? "Source online" : "Source offline"
+    status.servers.source ? "Source online" : "Source offline",
+    status.servers.sourceModified ? "Modified online" : "Modified offline",
+    status.servers.sourceTypescript ? "TypeScript online" : "TypeScript offline"
   ];
   heroStatus.replaceChildren(...online.map(statusPill));
 }

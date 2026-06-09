@@ -4,7 +4,9 @@ const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 const processes = [
   ["launcher", ["--workspace", "@wolf3d/launcher", "run", "dev", "--", "--port", "5173"]],
   ["steam", ["--workspace", "@wolf3d/dos-page", "run", "dev", "--", "--port", "5174"]],
-  ["source", ["--workspace", "@wolf3d/source-dos", "run", "dev", "--", "--port", "5175"]]
+  ["source", ["--workspace", "@wolf3d/source-dos", "run", "dev", "--", "--port", "5175"]],
+  ["source-modified", ["--workspace", "@wolf3d/source-modified-dos", "run", "dev", "--", "--port", "5176"]],
+  ["source-typescript", ["--workspace", "@wolf3d/source-typescript", "run", "dev", "--", "--port", "5177"]]
 ];
 
 let shuttingDown = false;

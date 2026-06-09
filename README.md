@@ -5,7 +5,7 @@ source and retail data boundaries explicit.
 
 ## App tracks
 
-This repo is being split into three intentionally separate browser-facing apps:
+This repo is being split into separate browser-facing lanes:
 
 - `apps/launcher`: front door for the current game lanes and local tools. It
   shows the Steam/source server status, WL6 data inventory, source inventory,
@@ -17,9 +17,15 @@ This repo is being split into three intentionally separate browser-facing apps:
   launches the source tree's `WOLF3D.EXE`. It also checks whether a local
   Borland C++ 3.0/3.1 + TASM/TLINK toolchain is available before enabling a
   rebuild path.
-- Port app: future portable source port lane. This is where browser-native or
-  source-to-WASM work should move after the original DOS/source behavior is
-  proven.
+- `apps/source-modified-dos`: modified original-source DOS lane. It runs the
+  source-built DOS image through the raw js-dos command interface so the browser
+  can emit parity artifacts: PNG screenshots, WAV audio, and BIN state bundles.
+- `apps/source-typescript`: browser-native TypeScript source-port scaffold. It
+  starts with original-source naming (`WLMain`, `WLGame`, `WLPlay`, `WLDraw`,
+  `IDCA`, `IDIN`, `IDSD`, `IDUS`, `IDVL`) and accepts the same demo plans as the
+  modified DOS lane.
+- Port app: future portable/full port lane. This should advance after the
+  original DOS/source and TypeScript artifact outputs are comparable.
 
 `apps/source-dos` is the current second slice. On this machine,
 `C:\Users\etgarcia\Downloads\BCPP31.ZIP` has been extracted into the ignored
@@ -31,6 +37,15 @@ original C/ASM tree in `source/WOLFSRC`, using a browser-mounted Borland
 makefile/config derived from the original `WOLF3D.PRJ`. The generated EXE is
 kept in memory, exposed as a local download, and used by Start for the next
 DOSBox launch.
+
+The modified DOS and TypeScript lanes both understand base64url-encoded demo
+plans in the `?demo=` query parameter. Demo steps can wait, press or hold keys,
+and capture PNG/WAV/BIN artifacts. The helper script prints a ready-to-open URL:
+
+```powershell
+npm run demo:plan -- --target source-modified-dos --name boot --wait 1200 --key Enter:90 --wait 500 --capture menu --state --wav
+npm run demo:plan -- --target source-typescript --name turn-test --wait 300 --key ArrowRight:250 --capture turn --state
+```
 
 Local DOS build dependencies are intentionally private. To let `apps/source-dos`
 load a period compiler into DOSBox, place a licensed Borland C++ 3.0/3.1-style
@@ -70,6 +85,8 @@ Then open the launcher URL. `dev:all` uses these local ports:
 launcher: http://127.0.0.1:5173/
 steam:    http://127.0.0.1:5174/
 source:   http://127.0.0.1:5175/
+modified: http://127.0.0.1:5176/
+typeport: http://127.0.0.1:5177/
 ```
 
 You can also run a single app:
@@ -78,6 +95,8 @@ You can also run a single app:
 npm run dev:launcher
 npm run dev:steam
 npm run dev:source
+npm run dev:source-modified
+npm run dev:source-typescript
 ```
 
 Then open the printed Vite URL for the app you are working on.
