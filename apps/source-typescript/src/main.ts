@@ -1182,6 +1182,7 @@ class WLMain {
 
   ResetGame(): void {
     this.id_sd.SD_StopDigitized();
+    this.wl_game.NewGameState(this.startDifficulty, Math.floor(this.startLevel / 10));
     this.wl_game.SetupGameLevel(this.startLevel, this.id_ca.currentMap);
     this.wl_play.PlayLoop(1000 / 60);
     this.id_us.US_Print("ResetGame");
@@ -1590,7 +1591,7 @@ class WLGame {
   };
 
   constructor(difficulty: SourceDifficulty = "medium") {
-    this.gamestate.difficulty = difficulty;
+    this.NewGameState(difficulty, 0);
   }
 
   get mapMetadata(): string {
@@ -1616,6 +1617,49 @@ class WLGame {
 
   IsStillPlaying(): boolean {
     return this.playstate === "ex_stillplaying";
+  }
+
+  NewGameState(difficulty: SourceDifficulty = this.gamestate.difficulty, episode = 0): void {
+    this.attackButtonHeld = false;
+    this.completedLevelTransitionApplied = false;
+    this.diedTransitionApplied = false;
+    this.lastAttacker = null;
+    this.killer = null;
+    this.madeNoise = false;
+    this.playstate = "ex_stillplaying";
+    this.rndIndex = 0;
+    this.thrustSpeed = 0;
+
+    this.gamestate.ammo = STARTAMMO;
+    this.gamestate.attackcount = 0;
+    this.gamestate.attackframe = 0;
+    this.gamestate.bestweapon = WP_PISTOL;
+    this.gamestate.chosenweapon = WP_PISTOL;
+    this.gamestate.difficulty = difficulty;
+    this.gamestate.episode = episode;
+    this.gamestate.faceframe = 0;
+    this.gamestate.health = MAX_HEALTH;
+    this.gamestate.keys = 0;
+    this.gamestate.killcount = 0;
+    this.gamestate.killtotal = 0;
+    this.gamestate.killx = 0;
+    this.gamestate.killy = 0;
+    this.gamestate.level = episode * 10;
+    this.gamestate.lives = 3;
+    this.gamestate.mapon = 0;
+    this.gamestate.nextextra = EXTRAPOINTS;
+    this.gamestate.oldscore = 0;
+    this.gamestate.playstate = "ex_stillplaying";
+    this.gamestate.score = 0;
+    this.gamestate.secretcount = 0;
+    this.gamestate.secrettotal = 0;
+    this.gamestate.timecount = 0;
+    this.gamestate.ticcount = 0;
+    this.gamestate.treasurecount = 0;
+    this.gamestate.treasuretotal = 0;
+    this.gamestate.victoryflag = false;
+    this.gamestate.weapon = WP_PISTOL;
+    this.gamestate.weaponframe = 0;
   }
 
   SetupGameLevel(level: number, wolfMap: WolfMap | null = null): void {
@@ -1658,7 +1702,6 @@ class WLGame {
     }
 
     this.gamestate.angle = normalizeAngle(spawn.angle);
-    this.gamestate.ammo = STARTAMMO;
     this.gamestate.attackcount = 0;
     this.gamestate.attackframe = 0;
     this.attackButtonHeld = false;
@@ -1668,23 +1711,15 @@ class WLGame {
     this.lastAttacker = null;
     this.killer = null;
     this.rndIndex = 0;
-    this.gamestate.bestweapon = WP_PISTOL;
-    this.gamestate.chosenweapon = WP_PISTOL;
     this.gamestate.episode = Math.floor(level / 10);
     this.gamestate.faceframe = 0;
-    this.gamestate.health = MAX_HEALTH;
-    this.gamestate.keys = 0;
     this.gamestate.killx = 0;
     this.gamestate.killy = 0;
     this.gamestate.killcount = 0;
     this.gamestate.killtotal = this.map.killTotal;
     this.gamestate.level = level;
-    this.gamestate.lives = 3;
     this.gamestate.mapon = level % 10;
-    this.gamestate.nextextra = EXTRAPOINTS;
-    this.gamestate.oldscore = 0;
     this.SetPlayState("ex_stillplaying");
-    this.gamestate.score = 0;
     this.gamestate.secretcount = 0;
     this.gamestate.secrettotal = this.map.secretTotal;
     this.gamestate.timecount = 0;
@@ -1692,7 +1727,6 @@ class WLGame {
     this.gamestate.treasuretotal = this.map.treasureTotal;
     this.gamestate.ticcount = 0;
     this.gamestate.victoryflag = false;
-    this.gamestate.weapon = WP_PISTOL;
     this.gamestate.weaponframe = 0;
     this.gamestate.x = spawn.x;
     this.gamestate.y = spawn.y;
