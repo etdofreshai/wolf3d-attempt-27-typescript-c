@@ -1,14 +1,31 @@
-# wolf3d-template
+# wolf3d-monorepo
 
-A clean repository template for original-source-only Wolfenstein 3D porting work.
+A workspace for Wolfenstein 3D experiments that keeps the original DOS materials available as reference inputs while new implementations live in first-class apps.
 
-This repo intentionally contains **no proprietary game assets** and **no copied engine/source-release files**. It only defines the folder layout expected by downstream Wolfenstein 3D porting projects.
+The first app is a TypeScript browser page at `apps/dos-page`. It emulates the shape of the DOS game loop with fixed-point movement, tic timing, and a small raycasting renderer. It does not decode or embed proprietary art/map/audio assets.
+
+## Commands
+
+```powershell
+npm install
+npm run dev
+npm run check
+npm run build
+```
+
+`npm run dev` starts the TypeScript app through Vite.
 
 ## Folder layout
 
+### `apps/`
+
+Tracked apps and experiments that can grow independently inside the monorepo.
+
+- `apps/dos-page/`: TypeScript canvas page inspired by `source/WOLFSRC`.
+
 ### `steam/`
 
-Private local runtime data copied or installed from the Steam release of **Wolfenstein 3D full version / WL6 data**.
+Local runtime data copied or installed from the Steam release of **Wolfenstein 3D full version / WL6 data**.
 
 Typical files, when present locally, are the retail `*.WL6` data files used by the game runtime, such as map, graphics, audio, and page data. These files are proprietary and must stay local.
 
@@ -47,7 +64,7 @@ Rules:
 
 This template is designed to keep proprietary and license-sensitive material out of git history by default.
 
-Tracked files should remain limited to documentation, placeholder files, build/project scaffolding, and original code written for the downstream port.
+New tracked files should remain limited to documentation, placeholder files, build/project scaffolding, and original code written for the downstream port.
 
 Do **not** commit:
 
