@@ -72,6 +72,8 @@ type PortDoor = {
 type PortStatic = {
   blocking: boolean;
   bonus: boolean;
+  collected: boolean;
+  item: string;
   treasure: boolean;
   type: number;
   x: number;
@@ -407,6 +409,7 @@ class WLMain {
       objects: {
         actors: this.wl_game.map.actors.length,
         blockingStatics: this.wl_game.map.blockingStaticKeys.size,
+        collectedBonuses: this.wl_game.map.statics.filter((stat) => stat.collected).length,
         doors: this.wl_game.map.doors.length,
         statics: this.wl_game.map.statics.length
       },
@@ -492,7 +495,7 @@ class WLMain {
   private RenderUi(): void {
     mapState.textContent = this.wl_game.mapMetadata;
     objectState.textContent = this.wl_game.objectMetadata;
-    runtimeState.textContent = `tic ${this.wl_game.gamestate.ticcount} / ${this.wl_game.gamestate.x.toFixed(2)}, ${this.wl_game.gamestate.y.toFixed(2)}`;
+    runtimeState.textContent = `tic ${this.wl_game.gamestate.ticcount} / ${this.wl_game.gamestate.x.toFixed(2)}, ${this.wl_game.gamestate.y.toFixed(2)} / keys ${this.wl_game.gamestate.keys}`;
     demoState.textContent = this.demoPlan
       ? this.demoRunning
         ? `Running ${this.demoPlan.name}`
@@ -532,6 +535,7 @@ class WLGame {
     angle: 0,
     difficulty: "medium" as "easy" | "medium" | "hard",
     health: 100,
+    keys: 0,
     killcount: 0,
     killtotal: 0,
     level: 0,
@@ -591,6 +595,7 @@ class WLGame {
 
     this.gamestate.angle = normalizeAngle(spawn.angle);
     this.gamestate.health = 100;
+    this.gamestate.keys = 0;
     this.gamestate.killcount = 0;
     this.gamestate.killtotal = this.map.killTotal;
     this.gamestate.level = level;
@@ -639,6 +644,7 @@ class WLGame {
     }
 
     this.gamestate.angle = normalizeAngle(this.gamestate.angle);
+    this.TryPickupBonusAt(Math.floor(this.gamestate.x), Math.floor(this.gamestate.y));
     this.gamestate.ticcount += 1;
     return moved;
   }
@@ -677,7 +683,7 @@ class WLGame {
       return;
     }
 
-    if (door.lock > 0 && door.lock < 5) {
+    if (door.lock > 0 && door.lock < 5 && (this.gamestate.keys & (1 << (door.lock - 1))) === 0) {
       return;
     }
 
@@ -702,6 +708,10 @@ class WLGame {
     }
 
     door.action = "closing";
+  }
+
+  GiveKey(key: number): void {
+    this.gamestate.keys |= 1 << key;
   }
 
   IsWall(x: number, y: number): boolean {
@@ -768,6 +778,37 @@ class WLGame {
 
   private DoorAt(x: number, y: number): PortDoor | null {
     return this.map.doors.find((door) => door.x === x && door.y === y) ?? null;
+  }
+
+  private GetBonus(stat: PortStatic): boolean {
+    if (stat.collected || !stat.bonus) {
+      return false;
+    }
+
+    const keyNumber = keyNumberForBonus(stat.item);
+    if (keyNumber !== null) {
+      this.GiveKey(keyNumber);
+      stat.collected = true;
+      return true;
+    }
+
+    if (stat.treasure) {
+      this.gamestate.treasurecount += 1;
+      this.gamestate.score += treasureScoreForBonus(stat.item);
+      stat.collected = true;
+      return true;
+    }
+
+    return false;
+  }
+
+  private TryPickupBonusAt(tileX: number, tileY: number): void {
+    const stat = this.map.statics.find(
+      (candidate) => candidate.x === tileX && candidate.y === tileY && candidate.bonus && !candidate.collected
+    );
+    if (stat) {
+      this.GetBonus(stat);
+    }
   }
 
   private PlayerIntersectsDoor(door: PortDoor): boolean {
@@ -1326,6 +1367,8 @@ function staticFromInfoTile(tile: number, x: number, y: number): PortStatic {
   return {
     blocking: statType === "block",
     bonus: statType.startsWith("bo_"),
+    collected: false,
+    item: statType,
     treasure: TREASURE_STAT_TYPES.has(statType),
     type,
     x,
@@ -1444,6 +1487,36 @@ function directionalEnemy(
 
 function difficultyRank(difficulty: "easy" | "medium" | "hard"): number {
   return difficulty === "hard" ? 2 : difficulty === "medium" ? 1 : 0;
+}
+
+function keyNumberForBonus(item: string): number | null {
+  switch (item) {
+    case "bo_key1":
+      return 0;
+    case "bo_key2":
+      return 1;
+    case "bo_key3":
+      return 2;
+    case "bo_key4":
+      return 3;
+    default:
+      return null;
+  }
+}
+
+function treasureScoreForBonus(item: string): number {
+  switch (item) {
+    case "bo_cross":
+      return 100;
+    case "bo_chalice":
+      return 500;
+    case "bo_bible":
+      return 1000;
+    case "bo_crown":
+      return 5000;
+    default:
+      return 0;
+  }
 }
 
 function spawnAngleForInfoTile(tile: number): number {
