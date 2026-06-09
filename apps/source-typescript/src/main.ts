@@ -494,6 +494,7 @@ const TILEGLOBAL = 65536;
 const SOURCE_PLAYERSIZE_TILES = SOURCE_MINDIST / TILEGLOBAL;
 const TILE_DISTANCE = 1;
 const MINACTORDIST_TILES = 0x10000 / TILEGLOBAL;
+const SOURCE_OBJECT_SIZE_TILES = 0x2000 / TILEGLOBAL;
 const PROJECTILE_PROBE_TILES = 0x2000 / TILEGLOBAL;
 const PROJECTILESIZE_TILES = 0xc000 / TILEGLOBAL;
 const WL6_PAR_TIMES_SECONDS = [
@@ -2388,7 +2389,6 @@ class WLGame {
     this.gamestate.angle = normalizeAngle(this.gamestate.angle);
     this.ConnectAreas();
     this.CheckVictoryTile();
-    this.TryPickupBonusAt(Math.floor(this.gamestate.x), Math.floor(this.gamestate.y));
     this.gamestate.ticcount += 1;
     return moved;
   }
@@ -4993,7 +4993,7 @@ class WLGame {
     return this.map.areasByPlayer.has(door.vertical ? pair.area2 : pair.area1);
   }
 
-  private GetBonus(stat: PortStatic): boolean {
+  GetBonus(stat: PortStatic): boolean {
     if (stat.collected || !stat.bonus) {
       return false;
     }
@@ -5092,15 +5092,6 @@ class WLGame {
     stat.collected = true;
     this.StartBonusFlash();
     return true;
-  }
-
-  private TryPickupBonusAt(tileX: number, tileY: number): void {
-    const stat = this.map.statics.find(
-      (candidate) => candidate.x === tileX && candidate.y === tileY && candidate.bonus && !candidate.collected
-    );
-    if (stat) {
-      this.GetBonus(stat);
-    }
   }
 
   private PlayerIntersectsDoor(door: PortDoor): boolean {
@@ -5221,6 +5212,28 @@ class WLDraw {
       image.data[index + 1] = green + (target[1] - green) * amount;
       image.data[index + 2] = blue + (target[2] - blue) * amount;
     }
+  }
+
+  private StaticBonusInGetDistance(wl_game: WLGame, stat: PortStatic): boolean {
+    // WL_DRAW.C TransformTile subtracts 0x2000 from forward depth, then grabs bonuses
+    // when nx is within one tile and ny is within half a tile.
+    const worldX = stat.x + 0.5;
+    const worldY = stat.y + 0.5;
+    const dx = worldX - wl_game.gamestate.x;
+    const dy = worldY - wl_game.gamestate.y;
+    const forwardX = Math.cos(wl_game.gamestate.angle);
+    const forwardY = Math.sin(wl_game.gamestate.angle);
+    const rightX = -forwardY;
+    const rightY = forwardX;
+    const sourceDepth = dx * forwardX + dy * forwardY - SOURCE_OBJECT_SIZE_TILES;
+    const sourceSide = dx * rightX + dy * rightY;
+
+    return (
+      sourceDepth >= SOURCE_PLAYERSIZE_TILES &&
+      sourceDepth < TILE_DISTANCE &&
+      sourceSide > -TILE_DISTANCE / 2 &&
+      sourceSide < TILE_DISTANCE / 2
+    );
   }
 
   private CastRay(wl_game: WLGame, angle: number): RayHit {
@@ -5407,6 +5420,11 @@ class WLDraw {
         this.id_pm.PM_GetSpriteBitmap(stat.shapenum)
       );
       if (sprite) {
+        if (stat.bonus && this.StaticBonusInGetDistance(wl_game, stat)) {
+          wl_game.GetBonus(stat);
+          continue;
+        }
+
         sprites.push(sprite);
       }
     }
