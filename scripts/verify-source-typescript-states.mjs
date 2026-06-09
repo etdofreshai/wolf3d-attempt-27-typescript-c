@@ -9,6 +9,7 @@ const sourceHeaderPath = path.join(repoRoot, "source", "WOLFSRC", "WL_DEF.H");
 const sourceAct1Path = path.join(repoRoot, "source", "WOLFSRC", "WL_ACT1.C");
 const sourceAgentPath = path.join(repoRoot, "source", "WOLFSRC", "WL_AGENT.C");
 const sourcePath = path.join(repoRoot, "source", "WOLFSRC", "WL_ACT2.C");
+const sourceStatePath = path.join(repoRoot, "source", "WOLFSRC", "WL_STATE.C");
 const sourceUserAsmPath = path.join(repoRoot, "source", "WOLFSRC", "ID_US_A.ASM");
 const typescriptPath = path.join(repoRoot, "apps", "source-typescript", "src", "main.ts");
 
@@ -71,25 +72,40 @@ const DIGITIZED_BOSS_DEATH_TICS = new Map([
   ["s_schabbdie2", 140]
 ]);
 
-const [sourceHeaderText, sourceAct1Text, sourceAgentText, sourceText, sourceUserAsmText, typescriptText] = await Promise.all([
+const [
+  sourceHeaderText,
+  sourceAct1Text,
+  sourceAgentText,
+  sourceText,
+  sourceStateText,
+  sourceUserAsmText,
+  typescriptText
+] = await Promise.all([
   readFile(sourceHeaderPath, "utf8"),
   readFile(sourceAct1Path, "utf8"),
   readFile(sourceAgentPath, "utf8"),
   readFile(sourcePath, "utf8"),
+  readFile(sourceStatePath, "utf8"),
   readFile(sourceUserAsmPath, "utf8"),
   readFile(typescriptPath, "utf8")
 ]);
 
 const sourceSprites = parseSourceSprites(sourceHeaderText);
+const sourceDirectionIndexes = parseSourceDirectionIndexes(sourceHeaderText);
 const sourceWeaponIndexes = parseSourceWeaponIndexes(sourceHeaderText);
 const sourceEnemyIndexes = parseSourceEnemyIndexes(sourceHeaderText);
 const sourceStaticInfo = parseSourceStaticInfo(sourceAct1Text, sourceSprites);
 const sourceAttackInfo = parseSourceAttackInfo(sourceAgentText);
 const sourceStartHitpoints = parseSourceStartHitpoints(sourceText);
 const sourceRealHitlerHitpoints = parseSourceRealHitlerHitpoints(sourceText);
+const sourceOppositeDirections = parseSourceDirectionList(sourceStateText, "opposite", sourceDirectionIndexes);
+const sourceDiagonalDirections = parseSourceDirectionMatrix(sourceStateText, "diagonal", sourceDirectionIndexes);
 const sourceRndTable = parseSourceRndTable(sourceUserAsmText);
 const sourceStates = parseSourceStates(sourceText, sourceSprites);
 const constants = parseNumericConstants(typescriptText);
+const typescriptDirectionDeltas = parseTypescriptDirectionDeltas(typescriptText);
+const typescriptOppositeDirections = parseTypescriptOppositeDirections(typescriptText, constants);
+const typescriptDiagonalDirections = parseTypescriptDiagonalDirections(typescriptText, constants);
 const typescriptWeaponIndexes = parseTypescriptWeaponIndexes(typescriptText);
 const typescriptEnemyHitpointIndexes = parseTypescriptEnemyHitpointIndexes(typescriptText);
 const typescriptStaticInfo = parseTypescriptStaticInfo(typescriptText);
@@ -133,6 +149,9 @@ compareAttackInfo(sourceAttackInfo, typescriptAttackInfo, problems);
 compareEnemyHitpointIndexes(sourceEnemyIndexes, typescriptEnemyHitpointIndexes, problems);
 compareStartHitpoints(sourceStartHitpoints, typescriptStartHitpoints, problems);
 compareRealHitlerHitpoints(sourceRealHitlerHitpoints, typescriptRealHitlerHitpoints, problems);
+compareDirectionDeltas(sourceDirectionIndexes, typescriptDirectionDeltas, problems);
+compareDirectionList("opposite", sourceOppositeDirections, typescriptOppositeDirections, problems);
+compareDiagonalDirections(sourceDiagonalDirections, typescriptDiagonalDirections, sourceDirectionIndexes, problems);
 compareRndTable(sourceRndTable, typescriptRndTable, problems);
 
 if (problems.length > 0) {
@@ -149,7 +168,7 @@ if (problems.length > 0) {
 }
 
 console.log(
-  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
+  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceOppositeDirections.length} WL_STATE.C direction entries, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
 );
 
 function parseSourceStates(text, sprites) {
@@ -258,6 +277,22 @@ function parseSourceSprites(text) {
   }
 
   return sprites;
+}
+
+function parseSourceDirectionIndexes(text) {
+  const enumMatch = text.match(/typedef\s+enum\s*\{(?<body>[\s\S]*?)\}\s*dirtype;/);
+  if (!enumMatch?.groups?.body) {
+    throw new Error("Could not find dirtype enum in WL_DEF.H");
+  }
+
+  const directions = new Map();
+  let value = 0;
+  for (const match of enumMatch.groups.body.matchAll(/\b(east|northeast|north|northwest|west|southwest|south|southeast|nodir)\b/g)) {
+    directions.set(match[1], value);
+    value += 1;
+  }
+
+  return directions;
 }
 
 function parseSourceStaticInfo(text, sprites) {
@@ -381,6 +416,43 @@ function parseSourceRealHitlerHitpoints(text) {
   return parseNumberList(match[1]);
 }
 
+function parseSourceDirectionList(text, name, directions) {
+  const match = text.match(new RegExp(`dirtype\\s+${name}\\[9\\]\\s*=\\s*\\{(?<body>[\\s\\S]*?)\\};`));
+  if (!match?.groups?.body) {
+    throw new Error(`Could not find ${name}[9] in WL_STATE.C`);
+  }
+
+  return parseDirectionSymbols(match.groups.body, directions);
+}
+
+function parseSourceDirectionMatrix(text, name, directions) {
+  const match = text.match(new RegExp(`dirtype\\s+${name}\\[9\\]\\[9\\]\\s*=\\s*\\{(?<body>[\\s\\S]*?)\\};`));
+  if (!match?.groups?.body) {
+    throw new Error(`Could not find ${name}[9][9] in WL_STATE.C`);
+  }
+
+  const rows = [];
+  const stripped = match.groups.body.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+  for (const rowMatch of stripped.matchAll(/\{([^{}]+)\}/g)) {
+    rows.push(parseDirectionSymbols(rowMatch[1], directions));
+  }
+
+  return rows;
+}
+
+function parseDirectionSymbols(text, directions) {
+  return [...text.matchAll(/\b(east|northeast|north|northwest|west|southwest|south|southeast|nodir)\b/g)].map(
+    (match) => {
+      const value = directions.get(match[1]);
+      if (!Number.isFinite(value)) {
+        throw new Error(`Could not resolve source direction: ${match[1]}`);
+      }
+
+      return value;
+    }
+  );
+}
+
 function parseSourceRndTable(text) {
   const start = text.indexOf("rndtable db");
   const end = text.indexOf("PUBLIC", start);
@@ -389,6 +461,51 @@ function parseSourceRndTable(text) {
   }
 
   return parseNumberList(text.slice(start, end));
+}
+
+function parseTypescriptDirectionDeltas(text) {
+  const objectMatch = text.match(/const DIRECTION_DELTAS:\s*Record<number,\s*\{ dx: number; dy: number \}>\s*=\s*\{(?<body>[\s\S]*?)\};/);
+  if (!objectMatch?.groups?.body) {
+    throw new Error("Could not find DIRECTION_DELTAS in source-typescript main.ts");
+  }
+
+  const deltas = new Map();
+  for (const match of objectMatch.groups.body.matchAll(/\b([0-9]+):\s*\{\s*dx:\s*(-?[0-9]+),\s*dy:\s*(-?[0-9]+)\s*\}/g)) {
+    deltas.set(Number(match[1]), {
+      dx: Number(match[2]),
+      dy: Number(match[3])
+    });
+  }
+
+  return deltas;
+}
+
+function parseTypescriptOppositeDirections(text, constants) {
+  const match = text.match(/const OPPOSITE_DIRECTIONS\s*=\s*\[(?<body>[^\]]+)\]\s*as const;/);
+  if (!match?.groups?.body) {
+    throw new Error("Could not find OPPOSITE_DIRECTIONS in source-typescript main.ts");
+  }
+
+  return match.groups.body.split(",").map((part) => resolveTypescriptNumber(part, constants));
+}
+
+function parseTypescriptDiagonalDirections(text, constants) {
+  const objectMatch = text.match(/const DIAGONAL_DIRECTIONS:\s*Record<number,\s*Partial<Record<number,\s*number>>>\s*=\s*\{(?<body>[\s\S]*?)\};/);
+  if (!objectMatch?.groups?.body) {
+    throw new Error("Could not find DIAGONAL_DIRECTIONS in source-typescript main.ts");
+  }
+
+  const rows = new Map();
+  for (const rowMatch of objectMatch.groups.body.matchAll(/\b([0-9]+):\s*\{([^{}]*)\}/g)) {
+    const row = new Map();
+    for (const valueMatch of rowMatch[2].matchAll(/\b([0-9]+):\s*([A-Z0-9_]+|-?[0-9]+)/g)) {
+      row.set(Number(valueMatch[1]), resolveTypescriptNumber(valueMatch[2], constants));
+    }
+
+    rows.set(Number(rowMatch[1]), row);
+  }
+
+  return rows;
 }
 
 function parseTypescriptWeaponIndexes(text) {
@@ -621,6 +738,62 @@ function compareStartHitpoints(sourceRows, typescriptRows, problems) {
 
 function compareRealHitlerHitpoints(sourceValues, typescriptValues, problems) {
   compareNumberList("A_HitlerMorph.hitpoints", sourceValues, typescriptValues, problems);
+}
+
+function compareDirectionDeltas(sourceDirections, typescriptDeltas, problems) {
+  const expected = new Map([
+    ["east", { dx: 1, dy: 0 }],
+    ["northeast", { dx: 1, dy: -1 }],
+    ["north", { dx: 0, dy: -1 }],
+    ["northwest", { dx: -1, dy: -1 }],
+    ["west", { dx: -1, dy: 0 }],
+    ["southwest", { dx: -1, dy: 1 }],
+    ["south", { dx: 0, dy: 1 }],
+    ["southeast", { dx: 1, dy: 1 }]
+  ]);
+
+  for (const [name, delta] of expected.entries()) {
+    const sourceIndex = sourceDirections.get(name);
+    const current = typescriptDeltas.get(sourceIndex);
+    if (!current) {
+      problems.push(`DIRECTION_DELTAS.${sourceIndex}: missing TypeScript delta for source ${name}`);
+      continue;
+    }
+
+    if (current.dx !== delta.dx || current.dy !== delta.dy) {
+      problems.push(`DIRECTION_DELTAS.${sourceIndex}: (${current.dx},${current.dy}) != source ${name} (${delta.dx},${delta.dy})`);
+    }
+  }
+}
+
+function compareDirectionList(name, sourceValues, typescriptValues, problems) {
+  compareNumberList(name, sourceValues, typescriptValues, problems);
+}
+
+function compareDiagonalDirections(sourceRows, typescriptRows, sourceDirections, problems) {
+  const nodir = sourceDirections.get("nodir");
+  if (!Number.isFinite(nodir)) {
+    problems.push("diagonal: missing source nodir direction");
+    return;
+  }
+
+  if (sourceRows.length !== 9) {
+    problems.push(`diagonal row count ${sourceRows.length} != source 9`);
+  }
+
+  for (let row = 0; row < sourceRows.length; row += 1) {
+    if (sourceRows[row].length !== 9) {
+      problems.push(`diagonal[${row}] length ${sourceRows[row].length} != source 9`);
+    }
+
+    for (let column = 0; column < sourceRows[row].length; column += 1) {
+      const source = sourceRows[row][column];
+      const current = typescriptRows.get(row)?.get(column) ?? nodir;
+      if (current !== source) {
+        problems.push(`diagonal[${row}][${column}] ${current} != source ${source}`);
+      }
+    }
+  }
 }
 
 function compareRndTable(sourceValues, typescriptValues, problems) {
@@ -870,6 +1043,20 @@ function resolveTics(expression, constants) {
   const value = constants.get(normalized);
   if (!Number.isFinite(value)) {
     throw new Error(`Could not resolve tics expression: ${normalized}`);
+  }
+
+  return value;
+}
+
+function resolveTypescriptNumber(expression, constants) {
+  const normalized = expression.trim();
+  if (/^-?[0-9]+$/.test(normalized)) {
+    return Number(normalized);
+  }
+
+  const value = constants.get(normalized);
+  if (!Number.isFinite(value)) {
+    throw new Error(`Could not resolve TypeScript number expression: ${normalized}`);
   }
 
   return value;
