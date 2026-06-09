@@ -287,12 +287,21 @@ type DecodedTexturePage = {
 
 type PageKind = "sound" | "sprite" | "texture";
 type PaletteSource = "fallback" | "GAMEPAL.OBJ";
+type SourceSoundName = "GETGATLINGSND";
 
 type PageInfo = {
   index: number;
   kind: PageKind;
   length: number;
   offset: number;
+};
+
+type SourceSoundCommonInfo = {
+  chunk: number;
+  dataBytes: number;
+  length: number;
+  offset: number;
+  priority: number;
 };
 
 type SpritePageInfo = {
@@ -372,6 +381,7 @@ const SOURCE_PERCENT_100_BONUS = 10000;
 const SOURCE_RUNMOVE = 70;
 const SOURCE_SECRET_FLOOR_BONUS = 15000;
 const SOURCE_TICS_PER_SECOND = 70;
+const SOURCE_PC_SOUND_SERVICE_HZ = SOURCE_TICS_PER_SECOND * 2;
 const PUSHABLETILE = 98;
 const SCREEN_WIDTH = 320;
 const SCREEN_HEIGHT = 200;
@@ -405,6 +415,10 @@ const ATTACK_KEY_CODE = 17;
 const RUN_KEY_CODE = 16;
 const STRAFE_KEY_CODE = 18;
 const USE_KEY_CODE = 32;
+const GETGATLINGSND: SourceSoundName = "GETGATLINGSND";
+const SOURCE_SOUND_CHUNKS: Record<SourceSoundName, number> = {
+  GETGATLINGSND: 38
+};
 const WP_KNIFE = 0;
 const WP_PISTOL = 1;
 const WP_MACHINEGUN = 2;
@@ -1252,7 +1266,7 @@ class WLMain {
     this.id_sd = new IDSD();
     this.id_us = new IDUS();
     this.id_ca = new IDCA();
-    this.wl_game = new WLGame(this.startDifficulty);
+    this.wl_game = new WLGame(this.id_sd, this.startDifficulty);
     this.wl_draw = new WLDraw(this.id_vl, this.id_pm);
     this.wl_play = new WLPlay(this.wl_game, this.wl_draw, this.id_in, this.id_sd);
   }
@@ -1260,6 +1274,17 @@ class WLMain {
   async StartGame(): Promise<void> {
     this.id_us.US_Print("StartGame");
     statusLine.textContent = "Loading ID_CA map";
+    try {
+      const soundStatus = await this.id_sd.SD_Startup();
+      this.id_us.US_Print(
+        `SD_Startup PC sounds ${soundStatus.sounds.length} / ${soundStatus.soundServiceHz}Hz`
+      );
+    } catch (error) {
+      this.id_us.US_Print(
+        error instanceof Error ? `SD_Startup fallback: ${error.message}` : "SD_Startup fallback"
+      );
+    }
+
     try {
       const status = await this.id_ca.CacheStartup();
       renderSourceStatus(status);
@@ -1289,6 +1314,7 @@ class WLMain {
   ResetGame(): void {
     this.transitionInProgress = false;
     this.id_sd.SD_StopDigitized();
+    this.id_sd.SD_StopSound();
     this.wl_game.NewGameState(this.startDifficulty, Math.floor(this.startLevel / 10));
     this.wl_game.SetupGameLevel(this.startLevel, this.id_ca.currentMap);
     this.wl_play.PlayLoop(1000 / 60);
@@ -1580,6 +1606,7 @@ class WLMain {
         }))
       },
       pageManager: this.id_pm.StateSnapshot(),
+      soundManager: this.id_sd.StateSnapshot(),
       playstate: this.wl_game.playstate,
       runner: "source-typescript",
       ticcount: this.wl_game.gamestate.ticcount
@@ -1813,7 +1840,10 @@ class WLGame {
     y: 3.5
   };
 
-  constructor(difficulty: SourceDifficulty = "medium") {
+  constructor(
+    private readonly id_sd: IDSD,
+    difficulty: SourceDifficulty = "medium"
+  ) {
     this.NewGameState(difficulty, 0);
   }
 
@@ -2025,6 +2055,10 @@ class WLGame {
   }
 
   private UpdateFace(tics: number): void {
+    if (this.id_sd.SD_SoundPlaying() === GETGATLINGSND) {
+      return;
+    }
+
     // WL_AGENT.C UpdateFace consumes the table RNG while waiting to change BJ's face frame.
     this.facecount += tics;
     if (this.facecount <= this.US_RndT()) {
@@ -4529,6 +4563,7 @@ class WLGame {
         this.GiveWeapon(WP_MACHINEGUN);
         break;
       case "bo_chaingun":
+        this.id_sd.SD_PlaySound(GETGATLINGSND);
         this.GiveWeapon(WP_CHAINGUN);
         this.facecount = 0;
         this.gotgatgun = true;
@@ -5083,9 +5118,38 @@ class IDSD {
   readonly sampleRate = 44100;
   sampleCount = 0;
   private readonly chunks: Float32Array[] = [];
+  private readonly soundCommon = new Map<SourceSoundName, SourceSoundCommonInfo>();
+  private currentSound: SourceSoundName | null = null;
+  private lastSound: SourceSoundName | null = null;
   private phase = 0;
+  private soundPriority = 0;
+  private soundSampleAccumulator = 0;
+  private soundSamplesRemaining = 0;
+
+  async SD_Startup(): Promise<{
+    soundServiceHz: number;
+    sounds: SourceSoundCommonInfo[];
+  }> {
+    const [audioHead, audioData] = await Promise.all([
+      fetchBytes("/__source-typescript/asset/AUDIOHED.WL6"),
+      fetchBytes("/__source-typescript/asset/AUDIOT.WL6")
+    ]);
+    this.soundCommon.clear();
+    for (const soundName of Object.keys(SOURCE_SOUND_CHUNKS) as SourceSoundName[]) {
+      const common = this.ReadSoundCommon(soundName, audioHead, audioData);
+      if (common) {
+        this.soundCommon.set(soundName, common);
+      }
+    }
+
+    return {
+      soundServiceHz: SOURCE_PC_SOUND_SERVICE_HZ,
+      sounds: [...this.soundCommon.values()]
+    };
+  }
 
   SD_Service(active: boolean, ticMs: number): void {
+    this.ServiceSourceSound(ticMs);
     const count = Math.max(1, Math.floor((this.sampleRate * ticMs) / 1000));
     const samples = new Float32Array(count);
     const frequency = active ? 132 : 0;
@@ -5111,6 +5175,31 @@ class IDSD {
     this.sampleCount = 0;
   }
 
+  SD_PlaySound(sound: SourceSoundName): boolean {
+    const common = this.soundCommon.get(sound);
+    if (!common || common.priority < this.soundPriority) {
+      return false;
+    }
+
+    this.currentSound = sound;
+    this.lastSound = sound;
+    this.soundPriority = common.priority;
+    this.soundSampleAccumulator = 0;
+    this.soundSamplesRemaining = common.length;
+    return false;
+  }
+
+  SD_SoundPlaying(): SourceSoundName | null {
+    return this.currentSound;
+  }
+
+  SD_StopSound(): void {
+    this.currentSound = null;
+    this.soundPriority = 0;
+    this.soundSampleAccumulator = 0;
+    this.soundSamplesRemaining = 0;
+  }
+
   SD_ExportWav(): Uint8Array {
     const samples = new Float32Array(this.sampleCount);
     let offset = 0;
@@ -5120,6 +5209,64 @@ class IDSD {
     }
 
     return encodeWav(samples, this.sampleRate);
+  }
+
+  StateSnapshot(): Record<string, unknown> {
+    return {
+      currentSound: this.currentSound,
+      lastSound: this.lastSound,
+      sampleCount: this.sampleCount,
+      soundPriority: this.soundPriority,
+      soundSamplesRemaining: this.soundSamplesRemaining,
+      sounds: [...this.soundCommon.entries()].map(([name, common]) => ({
+        ...common,
+        name
+      }))
+    };
+  }
+
+  private ReadSoundCommon(
+    sound: SourceSoundName,
+    audioHead: Uint8Array,
+    audioData: Uint8Array
+  ): SourceSoundCommonInfo | null {
+    const chunk = SOURCE_SOUND_CHUNKS[sound];
+    const offset = readUint32LE(audioHead, chunk * 4);
+    const nextOffset = readUint32LE(audioHead, (chunk + 1) * 4);
+    if (
+      offset === 0xffffffff
+      || nextOffset === 0xffffffff
+      || nextOffset <= offset
+      || offset + 6 > audioData.length
+    ) {
+      return null;
+    }
+
+    return {
+      chunk,
+      dataBytes: nextOffset - offset,
+      length: readUint32LE(audioData, offset),
+      offset,
+      priority: readUint16LE(audioData, offset + 4)
+    };
+  }
+
+  private ServiceSourceSound(ticMs: number): void {
+    if (!this.currentSound) {
+      return;
+    }
+
+    this.soundSampleAccumulator += (SOURCE_PC_SOUND_SERVICE_HZ * ticMs) / 1000;
+    const servicedSamples = Math.floor(this.soundSampleAccumulator);
+    if (servicedSamples <= 0) {
+      return;
+    }
+
+    this.soundSampleAccumulator -= servicedSamples;
+    this.soundSamplesRemaining = Math.max(0, this.soundSamplesRemaining - servicedSamples);
+    if (this.soundSamplesRemaining === 0) {
+      this.SD_StopSound();
+    }
   }
 }
 
