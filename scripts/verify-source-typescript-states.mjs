@@ -9,6 +9,7 @@ const sourceHeaderPath = path.join(repoRoot, "source", "WOLFSRC", "WL_DEF.H");
 const sourceAct1Path = path.join(repoRoot, "source", "WOLFSRC", "WL_ACT1.C");
 const sourceAgentPath = path.join(repoRoot, "source", "WOLFSRC", "WL_AGENT.C");
 const sourcePath = path.join(repoRoot, "source", "WOLFSRC", "WL_ACT2.C");
+const sourceUserAsmPath = path.join(repoRoot, "source", "WOLFSRC", "ID_US_A.ASM");
 const typescriptPath = path.join(repoRoot, "apps", "source-typescript", "src", "main.ts");
 
 const THINK_NAMES = new Map([
@@ -70,11 +71,12 @@ const DIGITIZED_BOSS_DEATH_TICS = new Map([
   ["s_schabbdie2", 140]
 ]);
 
-const [sourceHeaderText, sourceAct1Text, sourceAgentText, sourceText, typescriptText] = await Promise.all([
+const [sourceHeaderText, sourceAct1Text, sourceAgentText, sourceText, sourceUserAsmText, typescriptText] = await Promise.all([
   readFile(sourceHeaderPath, "utf8"),
   readFile(sourceAct1Path, "utf8"),
   readFile(sourceAgentPath, "utf8"),
   readFile(sourcePath, "utf8"),
+  readFile(sourceUserAsmPath, "utf8"),
   readFile(typescriptPath, "utf8")
 ]);
 
@@ -85,6 +87,7 @@ const sourceStaticInfo = parseSourceStaticInfo(sourceAct1Text, sourceSprites);
 const sourceAttackInfo = parseSourceAttackInfo(sourceAgentText);
 const sourceStartHitpoints = parseSourceStartHitpoints(sourceText);
 const sourceRealHitlerHitpoints = parseSourceRealHitlerHitpoints(sourceText);
+const sourceRndTable = parseSourceRndTable(sourceUserAsmText);
 const sourceStates = parseSourceStates(sourceText, sourceSprites);
 const constants = parseNumericConstants(typescriptText);
 const typescriptWeaponIndexes = parseTypescriptWeaponIndexes(typescriptText);
@@ -93,6 +96,7 @@ const typescriptStaticInfo = parseTypescriptStaticInfo(typescriptText);
 const typescriptAttackInfo = parseTypescriptAttackInfo(typescriptText);
 const typescriptStartHitpoints = parseTypescriptStartHitpoints(typescriptText);
 const typescriptRealHitlerHitpoints = parseTypescriptRealHitlerHitpoints(typescriptText);
+const typescriptRndTable = parseTypescriptRndTable(typescriptText);
 const typescriptDroppedItemTypes = parseTypescriptDroppedItemTypes(typescriptText);
 const typescriptSprites = parseTypescriptSprites(typescriptText);
 const modeledFrames = parseModeledFrames(typescriptText, constants, typescriptSprites);
@@ -129,6 +133,7 @@ compareAttackInfo(sourceAttackInfo, typescriptAttackInfo, problems);
 compareEnemyHitpointIndexes(sourceEnemyIndexes, typescriptEnemyHitpointIndexes, problems);
 compareStartHitpoints(sourceStartHitpoints, typescriptStartHitpoints, problems);
 compareRealHitlerHitpoints(sourceRealHitlerHitpoints, typescriptRealHitlerHitpoints, problems);
+compareRndTable(sourceRndTable, typescriptRndTable, problems);
 
 if (problems.length > 0) {
   console.error(`source-typescript source verifier failed with ${problems.length} mismatch(es):`);
@@ -144,7 +149,7 @@ if (problems.length > 0) {
 }
 
 console.log(
-  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, and ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows match source.`
+  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
 );
 
 function parseSourceStates(text, sprites) {
@@ -376,6 +381,16 @@ function parseSourceRealHitlerHitpoints(text) {
   return parseNumberList(match[1]);
 }
 
+function parseSourceRndTable(text) {
+  const start = text.indexOf("rndtable db");
+  const end = text.indexOf("PUBLIC", start);
+  if (start < 0 || end < 0) {
+    throw new Error("Could not find rndtable in ID_US_A.ASM");
+  }
+
+  return parseNumberList(text.slice(start, end));
+}
+
 function parseTypescriptWeaponIndexes(text) {
   const weapons = new Map();
   for (const match of text.matchAll(/\bconst\s+(WP_[A-Z0-9_]+)\s*=\s*([0-9]+);/g)) {
@@ -450,6 +465,15 @@ function parseTypescriptRealHitlerHitpoints(text) {
   }
 
   return parseNumberList(match[1]);
+}
+
+function parseTypescriptRndTable(text) {
+  const match = text.match(/const US_RND_TABLE\s*=\s*\[(?<body>[\s\S]*?)\]\s*as const;/);
+  if (!match?.groups?.body) {
+    throw new Error("Could not find US_RND_TABLE in source-typescript main.ts");
+  }
+
+  return parseNumberList(match.groups.body);
 }
 
 function parseTypescriptStaticInfo(text) {
@@ -597,6 +621,10 @@ function compareStartHitpoints(sourceRows, typescriptRows, problems) {
 
 function compareRealHitlerHitpoints(sourceValues, typescriptValues, problems) {
   compareNumberList("A_HitlerMorph.hitpoints", sourceValues, typescriptValues, problems);
+}
+
+function compareRndTable(sourceValues, typescriptValues, problems) {
+  compareNumberList("US_RND_TABLE", sourceValues, typescriptValues, problems);
 }
 
 function parseNumericConstants(text) {
