@@ -155,7 +155,7 @@ type RayHit = {
   side: number;
   texture: number;
   tile: number;
-  type: "door" | "wall";
+  type: "door" | "pushwall" | "wall";
 };
 
 type SpriteBillboard = {
@@ -3462,8 +3462,13 @@ class WLDraw {
     const dirY = Math.sin(angle);
     const originX = wl_game.gamestate.x;
     const originY = wl_game.gamestate.y;
+    const pushWallHit = this.CastPushWallRay(wl_game.map.pushWall, originX, originY, dirX, dirY);
 
     for (let distance = 0; distance < 16; distance += step) {
+      if (pushWallHit && pushWallHit.distance <= distance) {
+        return pushWallHit;
+      }
+
       const x = originX + dirX * distance;
       const y = originY + dirY * distance;
       const tileX = Math.floor(x);
@@ -3475,6 +3480,10 @@ class WLDraw {
           return doorHit;
         }
 
+        continue;
+      }
+
+      if (wl_game.map.pushWall && pushWallRenderTile(wl_game.map.pushWall, tileX, tileY)) {
         continue;
       }
 
@@ -3497,6 +3506,60 @@ class WLDraw {
       texture: 0,
       tile: 1,
       type: "wall"
+    };
+  }
+
+  private CastPushWallRay(
+    pushWall: PortPushWall | null,
+    originX: number,
+    originY: number,
+    dirX: number,
+    dirY: number
+  ): RayHit | null {
+    // WL_DR_A.ASM / WL_DRAW.C HitHorizPWall and HitVertPWall shift the active wall by pwallpos.
+    if (!pushWall) {
+      return null;
+    }
+
+    const progress = pushWallProgress(pushWall);
+    if (pushWall.dir === "east" || pushWall.dir === "west") {
+      if (Math.abs(dirX) < 0.0001) {
+        return null;
+      }
+
+      const planeX = pushWall.dir === "east" ? pushWall.x + progress : pushWall.x + 1 - progress;
+      const distance = (planeX - originX) / dirX;
+      const localY = originY + dirY * distance - pushWall.y;
+      if (distance < 0 || localY < 0 || localY > 1) {
+        return null;
+      }
+
+      return {
+        distance,
+        side: 0,
+        texture: dirX < 0 ? 1 - localY : localY,
+        tile: pushWall.oldTile,
+        type: "pushwall"
+      };
+    }
+
+    if (Math.abs(dirY) < 0.0001) {
+      return null;
+    }
+
+    const planeY = pushWall.dir === "south" ? pushWall.y + progress : pushWall.y + 1 - progress;
+    const distance = (planeY - originY) / dirY;
+    const localX = originX + dirX * distance - pushWall.x;
+    if (distance < 0 || localX < 0 || localX > 1) {
+      return null;
+    }
+
+    return {
+      distance,
+      side: 1,
+      texture: dirY >= 0 ? 1 - localX : localX,
+      tile: pushWall.oldTile,
+      type: "pushwall"
     };
   }
 
@@ -5253,6 +5316,19 @@ function pushWallDelta(dir: PushWallDirection): { dx: number; dy: number } {
     case "west":
       return { dx: -1, dy: 0 };
   }
+}
+
+function pushWallProgress(pushWall: PortPushWall): number {
+  return Math.max(0, Math.min(63, pushWall.pos)) / 64;
+}
+
+function pushWallRenderTile(pushWall: PortPushWall, tileX: number, tileY: number): boolean {
+  if (tileX === pushWall.x && tileY === pushWall.y) {
+    return true;
+  }
+
+  const delta = pushWallDelta(pushWall.dir);
+  return tileX === pushWall.x + delta.dx && tileY === pushWall.y + delta.dy;
 }
 
 function tileKey(x: number, y: number): string {
