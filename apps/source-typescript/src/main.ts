@@ -2229,7 +2229,7 @@ class WLGame {
         source: "wl6",
         statics: scan.statics,
         treasureTotal: scan.treasureTotal,
-        walls: cleanAmbushMarkers(wolfMap.planes[0], wolfMap.header.width, wolfMap.header.height),
+        walls: cleanSourceWallPlane(wolfMap.planes[0], wolfMap.header.width, wolfMap.header.height),
         width: wolfMap.header.width
       };
       spawn = scan.spawn ?? findPlayerSpawn(wolfMap);
@@ -6479,6 +6479,32 @@ function scanWallPlaneForDoors(map: WolfMap): PortDoor[] {
   }
 
   return doors;
+}
+
+function cleanSourceWallPlane(walls: Uint16Array, width: number, height: number): Uint16Array {
+  return cleanAmbushMarkers(cleanDoorAreaTiles(walls, width, height), width, height);
+}
+
+function cleanDoorAreaTiles(walls: Uint16Array, width: number, height: number): Uint16Array {
+  const cleaned = new Uint16Array(walls);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const tile = walls[y * width + x] ?? 0;
+      if (tile < 90 || tile > 101) {
+        continue;
+      }
+
+      // WL_ACT1.C SpawnDoor stores the adjacent area tile in mapsegs[0] for the door cell.
+      const sourceX = tile % 2 === 0 ? x - 1 : x;
+      const sourceY = tile % 2 === 0 ? y : y - 1;
+      cleaned[y * width + x] =
+        sourceX < 0 || sourceY < 0 || sourceX >= width || sourceY >= height
+          ? 0
+          : (walls[sourceY * width + sourceX] ?? 0);
+    }
+  }
+
+  return cleaned;
 }
 
 function cleanAmbushMarkers(walls: Uint16Array, width: number, height: number): Uint16Array {
