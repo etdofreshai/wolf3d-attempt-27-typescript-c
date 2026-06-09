@@ -113,6 +113,11 @@ type SpriteBillboard = {
   y1: number;
 };
 
+type ActorSpriteDescriptor = {
+  rotate: boolean;
+  shapenum: number;
+};
+
 type SpriteBitmap = {
   mask: Uint8Array;
   pixels: Uint8Array;
@@ -272,6 +277,61 @@ const FALLBACK_PALETTE_16: Array<[number, number, number]> = [
   [255, 255, 85],
   [255, 255, 255]
 ];
+const DIR_ANGLE_DEGREES = [0, 45, 90, 135, 180, 225, 270, 315, 360] as const;
+// WL_DEF.H sprite enum values for WL6 with the SPEAR branches disabled.
+const ACTOR_SPRITES = {
+  BLINKY_W1: 288,
+  BOSS_W1: 296,
+  CLYDE_W1: 292,
+  DOG_W1_1: 99,
+  FAKE_W1: 321,
+  FAT_W1: 396,
+  GIFT_W1: 360,
+  GRD_DEAD: 95,
+  GRD_S_1: 50,
+  GRD_W1_1: 58,
+  GRETEL_W1: 385,
+  INKY_W1: 294,
+  MECHA_W1: 334,
+  MUT_S_1: 187,
+  MUT_W1_1: 195,
+  OFC_S_1: 238,
+  OFC_W1_1: 246,
+  PINKY_W1: 290,
+  SCHABB_W1: 307,
+  SS_S_1: 138,
+  SS_W1_1: 146
+} as const;
+const ACTOR_STAND_SPRITES: Record<string, number> = {
+  dog: ACTOR_SPRITES.DOG_W1_1,
+  guard: ACTOR_SPRITES.GRD_S_1,
+  mutant: ACTOR_SPRITES.MUT_S_1,
+  officer: ACTOR_SPRITES.OFC_S_1,
+  ss: ACTOR_SPRITES.SS_S_1
+};
+const ACTOR_PATROL_SPRITES: Record<string, number> = {
+  dog: ACTOR_SPRITES.DOG_W1_1,
+  guard: ACTOR_SPRITES.GRD_W1_1,
+  mutant: ACTOR_SPRITES.MUT_W1_1,
+  officer: ACTOR_SPRITES.OFC_W1_1,
+  ss: ACTOR_SPRITES.SS_W1_1
+};
+const ACTOR_BOSS_SPRITES: Record<string, number> = {
+  boss: ACTOR_SPRITES.BOSS_W1,
+  fake_hitler: ACTOR_SPRITES.FAKE_W1,
+  fat: ACTOR_SPRITES.FAT_W1,
+  gift: ACTOR_SPRITES.GIFT_W1,
+  gretel: ACTOR_SPRITES.GRETEL_W1,
+  // WL_ACT2.C SpawnHitler starts in s_mechastand before morphing to Hitler.
+  hitler: ACTOR_SPRITES.MECHA_W1,
+  schabbs: ACTOR_SPRITES.SCHABB_W1
+};
+const ACTOR_GHOST_SPRITES: Record<string, number> = {
+  blinky: ACTOR_SPRITES.BLINKY_W1,
+  clyde: ACTOR_SPRITES.CLYDE_W1,
+  inky: ACTOR_SPRITES.INKY_W1,
+  pinky: ACTOR_SPRITES.PINKY_W1
+};
 const BOSS_INFO_TILES: Record<number, string> = {
   160: "fake_hitler",
   178: "hitler",
@@ -1218,6 +1278,8 @@ class WLDraw {
     }
 
     for (const actor of wl_game.map.actors) {
+      const actorSprite = actorSpriteDescriptor(actor, wl_game.gamestate.angle);
+      const actorSpriteInfo = actorSprite ? this.id_pm.PM_GetSpritePageInfo(actorSprite.shapenum) : null;
       const sprite = this.TransformSprite(
         wl_game,
         actor.x + 0.5,
@@ -1225,8 +1287,8 @@ class WLDraw {
         fov,
         horizon,
         actorRgb(actor),
-        64,
-        null
+        actorSpriteInfo?.width ?? 64,
+        actorSprite ? this.id_pm.PM_GetSpriteBitmap(actorSprite.shapenum) : null
       );
       if (sprite) {
         sprites.push(sprite);
@@ -2183,6 +2245,55 @@ function actorRgb(actor: PortActor): [number, number, number] {
   }
 }
 
+function actorSpriteDescriptor(actor: PortActor, playerAngle: number): ActorSpriteDescriptor | null {
+  if (actor.mode === "dead") {
+    return {
+      rotate: false,
+      shapenum: ACTOR_SPRITES.GRD_DEAD
+    };
+  }
+
+  if (actor.mode === "ghost") {
+    const shapenum = ACTOR_GHOST_SPRITES[actor.kind];
+    return shapenum === undefined
+      ? null
+      : {
+          rotate: false,
+          shapenum
+        };
+  }
+
+  if (actor.mode === "boss") {
+    const shapenum = ACTOR_BOSS_SPRITES[actor.kind];
+    return shapenum === undefined
+      ? null
+      : {
+          rotate: false,
+          shapenum
+        };
+  }
+
+  const base =
+    actor.mode === "patrol" ? ACTOR_PATROL_SPRITES[actor.kind] : ACTOR_STAND_SPRITES[actor.kind];
+  if (base === undefined) {
+    return null;
+  }
+
+  // WL_DRAW.C DrawScaleds adds CalcRotate() when the actor state has rotate=true.
+  return {
+    rotate: true,
+    shapenum: base + calcActorRotate(actor, playerAngle)
+  };
+}
+
+function calcActorRotate(actor: PortActor, playerAngle: number): number {
+  const playerAngleDegrees = normalizeDegrees((-playerAngle * 180) / Math.PI);
+  const dirType = Math.max(0, Math.min(8, actor.dir * 2));
+  const actorDirection = DIR_ANGLE_DEGREES[dirType] ?? 0;
+  const rotateAngle = normalizeDegrees(playerAngleDegrees - 180 - actorDirection + 360 / 16);
+  return Math.floor(rotateAngle / (360 / 8)) % 8;
+}
+
 function sampleWallPixel(texture: TextureBitmap | null, u: number, v: number): number | null {
   if (!texture || u < 0 || v < 0 || u > 1 || v > 1) {
     return null;
@@ -2542,6 +2653,10 @@ function ticsFromMilliseconds(milliseconds: number): number {
 function normalizeAngle(angle: number): number {
   const tau = Math.PI * 2;
   return ((angle % tau) + tau) % tau;
+}
+
+function normalizeDegrees(angle: number): number {
+  return ((angle % 360) + 360) % 360;
 }
 
 function encodeText(value: string): Uint8Array {
