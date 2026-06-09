@@ -1605,6 +1605,8 @@ class WLGame {
       moved = this.ControlMovement(id_in, ticMs);
       this.T_Attack(tics, attackDown);
     } else {
+      this.CheckWeaponChange(id_in);
+
       if (usePressed) {
         this.Cmd_Use();
       }
@@ -1621,6 +1623,20 @@ class WLGame {
     }
 
     return moved;
+  }
+
+  CheckWeaponChange(id_in: IDIN): void {
+    if (this.gamestate.ammo === 0) {
+      return;
+    }
+
+    for (let weapon = WP_KNIFE; weapon <= this.gamestate.bestweapon; weapon += 1) {
+      if (id_in.IN_KeyDown(49 + weapon)) {
+        this.gamestate.weapon = weapon;
+        this.gamestate.chosenweapon = weapon;
+        return;
+      }
+    }
   }
 
   ControlMovement(id_in: IDIN, ticMs: number): boolean {
