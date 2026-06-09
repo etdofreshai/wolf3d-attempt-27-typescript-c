@@ -180,6 +180,7 @@ type SourceHighScoreCheck = SourceHighScore & {
 };
 
 type PortActor = {
+  active: boolean;
   ambush: boolean;
   attackMode: boolean;
   distance: number;
@@ -1505,6 +1506,7 @@ class WLMain {
       objects: {
         actors: this.wl_game.map.actors.length,
         actorsDetail: this.wl_game.map.actors.map((actor) => ({
+          active: actor.active,
           ambush: actor.ambush,
           area: this.wl_game.ActorAreaNumber(actor),
           attackMode: actor.attackMode,
@@ -2436,6 +2438,11 @@ class WLGame {
 
   MoveActors(tics: number): void {
     for (const actor of this.map.actors) {
+      // WL_PLAY.C DoActor skips inactive actors until their area is connected to the player.
+      if (!actor.active && !this.ActorAreaCanReachPlayer(actor)) {
+        continue;
+      }
+
       this.MoveActorState(actor, tics);
     }
   }
@@ -3836,6 +3843,7 @@ class WLGame {
     }
 
     this.map.actors.push({
+      active: true,
       ambush: false,
       attackMode: true,
       dir: actor.dir,
@@ -3977,6 +3985,7 @@ class WLGame {
     const tileX = Math.floor(this.gamestate.x);
     const tileY = Math.floor(this.gamestate.y) + 1;
     this.map.actors.push({
+      active: false,
       ambush: false,
       attackMode: false,
       dir: 2,
@@ -5761,6 +5770,7 @@ function actorFromInfoTile(
 ): PortActor | null {
   if (tile === 124) {
     return {
+      active: false,
       attackMode: false,
       dir: NODIR,
       hitpoints: 0,
@@ -5789,6 +5799,7 @@ function actorFromInfoTile(
   if (guard) {
     return {
       ...guard,
+      active: guard.mode === "patrol",
       attackMode: false,
       hitpoints: actorHitpoints(guard.kind, difficulty),
       shootable: true,
@@ -5804,6 +5815,7 @@ function actorFromInfoTile(
   if (bossKind) {
     const dir = bossInitialDirection(bossKind);
     return {
+      active: false,
       attackMode: false,
       dir,
       hitpoints: actorHitpoints(bossKind, difficulty),
@@ -5822,6 +5834,7 @@ function actorFromInfoTile(
   const ghostKind = GHOST_INFO_TILES[tile];
   if (ghostKind) {
     return {
+      active: false,
       attackMode: false,
       dir: 0,
       hitpoints: actorHitpoints(ghostKind, difficulty),
