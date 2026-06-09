@@ -74,6 +74,7 @@ type PortStatic = {
   bonus: boolean;
   collected: boolean;
   item: string;
+  shapenum: number;
   treasure: boolean;
   type: number;
   x: number;
@@ -102,12 +103,32 @@ type SpriteBillboard = {
   color: [number, number, number];
   depth: number;
   height: number;
+  sourceWidth: number;
   screenX: number;
   width: number;
   x0: number;
   x1: number;
   y0: number;
   y1: number;
+};
+
+type PageKind = "sound" | "sprite" | "texture";
+
+type PageInfo = {
+  index: number;
+  kind: PageKind;
+  length: number;
+  offset: number;
+};
+
+type SpritePageInfo = {
+  columnOffsetCount: number;
+  height: number;
+  leftpix: number;
+  page: number;
+  rightpix: number;
+  shapenum: number;
+  width: number;
 };
 
 type ScanInfoPlaneResult = {
@@ -310,6 +331,7 @@ const buttonExportState = requireElement<HTMLButtonElement>("#export-state");
 class WLMain {
   readonly id_ca: IDCA;
   readonly id_in: IDIN;
+  readonly id_pm: IDPM;
   readonly id_sd: IDSD;
   readonly id_us: IDUS;
   readonly id_vl: IDVL;
@@ -327,11 +349,12 @@ class WLMain {
     this.demoPlan = demoPlan;
     this.id_vl = new IDVL(screenCanvas);
     this.id_in = new IDIN();
+    this.id_pm = new IDPM();
     this.id_sd = new IDSD();
     this.id_us = new IDUS();
     this.id_ca = new IDCA();
     this.wl_game = new WLGame();
-    this.wl_draw = new WLDraw(this.id_vl);
+    this.wl_draw = new WLDraw(this.id_vl, this.id_pm);
     this.wl_play = new WLPlay(this.wl_game, this.wl_draw, this.id_in, this.id_sd);
   }
 
@@ -341,6 +364,10 @@ class WLMain {
     try {
       const status = await this.id_ca.CacheStartup();
       renderSourceStatus(status);
+      const pageStatus = await this.id_pm.PM_Startup();
+      this.id_us.US_Print(
+        `PM_Startup VSWAP ${pageStatus.chunksInFile} chunks / ${pageStatus.spriteCount} sprites`
+      );
       const wolfMap = await this.id_ca.CA_CacheMap(0);
       this.wl_game.SetupGameLevel(0, wolfMap);
       this.id_us.US_Print(
@@ -434,6 +461,7 @@ class WLMain {
         doors: this.wl_game.map.doors.length,
         statics: this.wl_game.map.statics.length
       },
+      pageManager: this.id_pm.StateSnapshot(),
       runner: "source-typescript",
       ticcount: this.wl_game.gamestate.ticcount
     };
@@ -976,7 +1004,10 @@ class WLGame {
 }
 
 class WLDraw {
-  constructor(private readonly id_vl: IDVL) {}
+  constructor(
+    private readonly id_vl: IDVL,
+    private readonly id_pm: IDPM
+  ) {}
 
   ThreeDRefresh(wl_game: WLGame): void {
     const image = this.id_vl.VL_BeginFrame();
@@ -1131,7 +1162,8 @@ class WLDraw {
         stat.y + 0.5,
         fov,
         horizon,
-        staticRgb(stat)
+        staticRgb(stat),
+        this.id_pm.PM_GetSpritePageInfo(stat.shapenum)?.width ?? 64
       );
       if (sprite) {
         sprites.push(sprite);
@@ -1145,7 +1177,8 @@ class WLDraw {
         actor.y + 0.5,
         fov,
         horizon,
-        actorRgb(actor)
+        actorRgb(actor),
+        64
       );
       if (sprite) {
         sprites.push(sprite);
@@ -1164,7 +1197,8 @@ class WLDraw {
     worldY: number,
     fov: number,
     horizon: number,
-    color: [number, number, number]
+    color: [number, number, number],
+    sourceWidth: number
   ): SpriteBillboard | null {
     const dx = worldX - wl_game.gamestate.x;
     const dy = worldY - wl_game.gamestate.y;
@@ -1181,7 +1215,7 @@ class WLDraw {
     const projectionScale = SCREEN_WIDTH / (2 * Math.tan(fov / 2));
     const screenX = SCREEN_WIDTH / 2 + (side / depth) * projectionScale;
     const height = Math.max(2, Math.min(SCREEN_HEIGHT * 2, Math.floor((SCREEN_HEIGHT * 0.92) / depth)));
-    const width = Math.max(2, Math.floor(height * 0.82));
+    const width = Math.max(2, Math.floor(height * Math.max(0.25, sourceWidth / 64)));
     const x0 = Math.max(0, Math.floor(screenX - width / 2));
     const x1 = Math.min(SCREEN_WIDTH - 1, Math.floor(screenX + width / 2));
     if (x1 < 0 || x0 >= SCREEN_WIDTH) {
@@ -1198,6 +1232,7 @@ class WLDraw {
       color,
       depth,
       height,
+      sourceWidth,
       screenX,
       width,
       x0,
@@ -1330,6 +1365,110 @@ class IDSD {
   }
 }
 
+class IDPM {
+  private chunksInFile = 0;
+  private pageBytes: Uint8Array | null = null;
+  private readonly pages: PageInfo[] = [];
+  private readonly sprites = new Map<number, SpritePageInfo>();
+  private spriteStart = 0;
+  private soundStart = 0;
+
+  async PM_Startup(): Promise<{ chunksInFile: number; soundStart: number; spriteCount: number; spriteStart: number }> {
+    const bytes = await fetchBytes("/__source-typescript/asset/VSWAP.WL6");
+    this.pageBytes = bytes;
+    this.chunksInFile = readUint16LE(bytes, 0);
+    this.spriteStart = readUint16LE(bytes, 2);
+    this.soundStart = readUint16LE(bytes, 4);
+    this.pages.length = 0;
+    this.sprites.clear();
+
+    const offsetsStart = 6;
+    const lengthsStart = offsetsStart + this.chunksInFile * 4;
+    for (let index = 0; index < this.chunksInFile; index += 1) {
+      const offset = readUint32LE(bytes, offsetsStart + index * 4);
+      const length = readUint16LE(bytes, lengthsStart + index * 2);
+      const kind: PageKind =
+        index < this.spriteStart ? "texture" : index < this.soundStart ? "sprite" : "sound";
+      const page = {
+        index,
+        kind,
+        length,
+        offset
+      };
+      this.pages.push(page);
+
+      if (kind === "sprite") {
+        const sprite = this.DecodeSpritePage(index, page);
+        if (sprite) {
+          this.sprites.set(sprite.shapenum, sprite);
+        }
+      }
+    }
+
+    return {
+      chunksInFile: this.chunksInFile,
+      soundStart: this.soundStart,
+      spriteCount: this.sprites.size,
+      spriteStart: this.spriteStart
+    };
+  }
+
+  PM_GetPage(pagenum: number): Uint8Array | null {
+    const page = this.pages[pagenum];
+    if (!page || !this.pageBytes || page.offset === 0 || page.length === 0) {
+      return null;
+    }
+
+    return this.pageBytes.subarray(page.offset, page.offset + page.length);
+  }
+
+  PM_GetSpritePageInfo(shapenum: number): SpritePageInfo | null {
+    return this.sprites.get(shapenum) ?? null;
+  }
+
+  StateSnapshot(): Record<string, unknown> {
+    return {
+      chunksInFile: this.chunksInFile,
+      decodedSprites: this.sprites.size,
+      firstSprite: this.sprites.get(0) ?? null,
+      soundStart: this.soundStart,
+      spriteStart: this.spriteStart,
+      textures: this.pages.filter((page) => page.kind === "texture" && page.length > 0).length
+    };
+  }
+
+  private DecodeSpritePage(pageIndex: number, page: PageInfo): SpritePageInfo | null {
+    const bytes = this.PM_GetPage(pageIndex);
+    if (!bytes || bytes.length < 4 + 64 * 2) {
+      return null;
+    }
+
+    const leftpix = readUint16LE(bytes, 0);
+    const rightpix = readUint16LE(bytes, 2);
+    if (leftpix > rightpix || rightpix >= 64) {
+      return null;
+    }
+
+    let columnOffsetCount = 0;
+    for (let column = leftpix; column <= rightpix; column += 1) {
+      const dataOffset = readUint16LE(bytes, 4 + column * 2);
+      if (dataOffset > 0 && dataOffset < page.length) {
+        columnOffsetCount += 1;
+      }
+    }
+
+    return {
+      columnOffsetCount,
+      height: 64,
+      leftpix,
+      page: pageIndex,
+      rightpix,
+      shapenum: pageIndex - this.spriteStart,
+      width: rightpix - leftpix + 1
+    };
+  }
+}
+
 class IDCA {
   currentMap: WolfMap | null = null;
 
@@ -1447,7 +1586,7 @@ function startSourceTypescriptApp(): void {
   });
 
   classGrid.replaceChildren(
-    ...["WLMain", "WLGame", "WLPlay", "WLDraw", "IDCA", "IDIN", "IDSD", "IDUS", "IDVL"].map((name) => {
+    ...["WLMain", "WLGame", "WLPlay", "WLDraw", "IDCA", "IDIN", "IDPM", "IDSD", "IDUS", "IDVL"].map((name) => {
       const span = document.createElement("span");
       span.textContent = name;
       return span;
@@ -1469,6 +1608,19 @@ async function fetchBytes(url: string): Promise<Uint8Array> {
   }
 
   return new Uint8Array(await response.arrayBuffer());
+}
+
+function readUint16LE(bytes: Uint8Array, offset: number): number {
+  return (bytes[offset] ?? 0) | ((bytes[offset + 1] ?? 0) << 8);
+}
+
+function readUint32LE(bytes: Uint8Array, offset: number): number {
+  return (
+    (bytes[offset] ?? 0)
+    | ((bytes[offset + 1] ?? 0) << 8)
+    | ((bytes[offset + 2] ?? 0) << 16)
+    | ((bytes[offset + 3] ?? 0) << 24)
+  ) >>> 0;
 }
 
 function renderSourceStatus(status: SourceTypescriptStatus): void {
@@ -1617,6 +1769,7 @@ function staticFromInfoTile(tile: number, x: number, y: number): PortStatic {
     bonus: statType.startsWith("bo_"),
     collected: false,
     item: statType,
+    shapenum: statShapenumForType(type, statType),
     treasure: TREASURE_STAT_TYPES.has(statType),
     type,
     x,
@@ -1735,6 +1888,14 @@ function directionalEnemy(
 
 function difficultyRank(difficulty: "easy" | "medium" | "hard"): number {
   return difficulty === "hard" ? 2 : difficulty === "medium" ? 1 : 0;
+}
+
+function statShapenumForType(type: number, item: string): number {
+  if (item === "bo_clip2") {
+    return 28;
+  }
+
+  return type + 2;
 }
 
 function keyNumberForBonus(item: string): number {
