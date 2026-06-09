@@ -212,6 +212,7 @@ type ActorFrameAction =
   | "deathScream"
   | "fakeFire"
   | "hitlerMorph"
+  | "mechaSound"
   | "shoot"
   | "slurpie"
   | "startDeathCam"
@@ -335,6 +336,7 @@ type SourceSoundName =
   | "KEINSND"
   | "LEVELDONESND"
   | "LEBENSND"
+  | "MECHSTEPSND"
   | "MEINGOTTSND"
   | "MEINSND"
   | "MISSILEFIRESND"
@@ -531,6 +533,7 @@ const SOURCE_SOUND_CHUNKS: Record<SourceSoundName, number> = {
   KEINSND: 82,
   LEVELDONESND: 40,
   LEBENSND: 56,
+  MECHSTEPSND: 70,
   MEINGOTTSND: 63,
   MEINSND: 83,
   MISSILEFIRESND: 85,
@@ -1085,7 +1088,7 @@ const ACTOR_CHASE_STATES: Record<string, ActorStateFrame[]> = {
   gift: chaseFrames("gift", [ACTOR_SPRITES.GIFT_W1, ACTOR_SPRITES.GIFT_W2, ACTOR_SPRITES.GIFT_W3, ACTOR_SPRITES.GIFT_W4]),
   gretel: chaseFrames("gretel", [ACTOR_SPRITES.GRETEL_W1, ACTOR_SPRITES.GRETEL_W2, ACTOR_SPRITES.GRETEL_W3, ACTOR_SPRITES.GRETEL_W4]),
   guard: chaseFrames("grd", [ACTOR_SPRITES.GRD_W1_1, ACTOR_SPRITES.GRD_W2_1, ACTOR_SPRITES.GRD_W3_1, ACTOR_SPRITES.GRD_W4_1]),
-  hitler: chaseFrames("mecha", [ACTOR_SPRITES.MECHA_W1, ACTOR_SPRITES.MECHA_W2, ACTOR_SPRITES.MECHA_W3, ACTOR_SPRITES.MECHA_W4], [10, 6, 8, 10, 6, 8]),
+  hitler: mechaChaseFrames(),
   mutant: chaseFrames("mut", [ACTOR_SPRITES.MUT_W1_1, ACTOR_SPRITES.MUT_W2_1, ACTOR_SPRITES.MUT_W3_1, ACTOR_SPRITES.MUT_W4_1]),
   officer: chaseFrames("ofc", [ACTOR_SPRITES.OFC_W1_1, ACTOR_SPRITES.OFC_W2_1, ACTOR_SPRITES.OFC_W3_1, ACTOR_SPRITES.OFC_W4_1]),
   real_hitler: chaseFrames("hitler", [ACTOR_SPRITES.HITLER_W1, ACTOR_SPRITES.HITLER_W2, ACTOR_SPRITES.HITLER_W3, ACTOR_SPRITES.HITLER_W4], [6, 4, 2, 6, 4, 2]),
@@ -2872,6 +2875,12 @@ class WLGame {
 
     actor.stateTics -= tics;
     while (actor.stateTics <= 0) {
+      const currentFrame = sequence[actor.stateIndex];
+      this.RunActorFrameAction(actor, currentFrame);
+      if (actor.mode !== "patrol" && actor.mode !== "chase") {
+        return;
+      }
+
       const nextIndex = (actor.stateIndex + 1) % sequence.length;
       this.SetActorSequenceState(actor, sequence, nextIndex, actor.mode, actor.stateTics);
     }
@@ -4215,6 +4224,12 @@ class WLGame {
     });
   }
 
+  private A_MechaSound(actor: PortActor): void {
+    if (this.ActorAreaCanReachPlayer(actor)) {
+      this.id_sd.SD_PlaySound("MECHSTEPSND");
+    }
+  }
+
   private A_Slurpie(): void {
     this.id_sd.SD_PlaySound("SLURPIESND");
   }
@@ -4690,6 +4705,9 @@ class WLGame {
         break;
       case "hitlerMorph":
         this.A_HitlerMorph(actor);
+        break;
+      case "mechaSound":
+        this.A_MechaSound(actor);
         break;
       case "shoot":
         this.T_Shoot(actor);
@@ -6176,6 +6194,17 @@ function chaseFrames(
   tics: [number, number, number, number, number, number] = [10, 3, 8, 10, 3, 8]
 ): ActorStateFrame[] {
   return walkFrames(prefix, "chase", walkSprites, tics);
+}
+
+function mechaChaseFrames(): ActorStateFrame[] {
+  return [
+    { action: "mechaSound", name: "s_mechachase1", shapenum: ACTOR_SPRITES.MECHA_W1, tics: 10 },
+    { name: "s_mechachase1s", shapenum: ACTOR_SPRITES.MECHA_W1, tics: 6 },
+    { name: "s_mechachase2", shapenum: ACTOR_SPRITES.MECHA_W2, tics: 8 },
+    { action: "mechaSound", name: "s_mechachase3", shapenum: ACTOR_SPRITES.MECHA_W3, tics: 10 },
+    { name: "s_mechachase3s", shapenum: ACTOR_SPRITES.MECHA_W3, tics: 6 },
+    { name: "s_mechachase4", shapenum: ACTOR_SPRITES.MECHA_W4, tics: 8 }
+  ];
 }
 
 function walkFrames(
