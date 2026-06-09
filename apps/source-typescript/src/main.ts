@@ -2229,7 +2229,7 @@ class WLGame {
         source: "wl6",
         statics: scan.statics,
         treasureTotal: scan.treasureTotal,
-        walls: new Uint16Array(wolfMap.planes[0]),
+        walls: cleanAmbushMarkers(wolfMap.planes[0], wolfMap.header.width, wolfMap.header.height),
         width: wolfMap.header.width
       };
       spawn = scan.spawn ?? findPlayerSpawn(wolfMap);
@@ -6479,6 +6479,47 @@ function scanWallPlaneForDoors(map: WolfMap): PortDoor[] {
   }
 
   return doors;
+}
+
+function cleanAmbushMarkers(walls: Uint16Array, width: number, height: number): Uint16Array {
+  const cleaned = new Uint16Array(walls);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      if ((walls[y * width + x] ?? 0) !== AMBUSHTILE) {
+        continue;
+      }
+
+      // WL_GAME.C replaces remaining ambush markers with the last adjacent area tile in this order.
+      cleaned[y * width + x] = sourceAmbushAreaTile(walls, width, height, x, y);
+    }
+  }
+
+  return cleaned;
+}
+
+function sourceAmbushAreaTile(walls: Uint16Array, width: number, height: number, x: number, y: number): number {
+  let tile = 0;
+  const offsets = [
+    { dx: 1, dy: 0 },
+    { dx: 0, dy: -1 },
+    { dx: 0, dy: 1 },
+    { dx: -1, dy: 0 }
+  ];
+
+  for (const offset of offsets) {
+    const neighborX = x + offset.dx;
+    const neighborY = y + offset.dy;
+    if (neighborX < 0 || neighborY < 0 || neighborX >= width || neighborY >= height) {
+      continue;
+    }
+
+    const neighborTile = walls[neighborY * width + neighborX] ?? 0;
+    if (neighborTile >= AREATILE) {
+      tile = neighborTile;
+    }
+  }
+
+  return tile;
 }
 
 type SpawnTicRandomizer = (stateTics: number) => number;
