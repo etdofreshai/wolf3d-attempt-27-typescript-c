@@ -63,6 +63,7 @@ type ArtifactRecord = {
   label: string;
   mimeType: string;
   sequence: number;
+  tickSource: "source-tic";
   ticcount: number;
 };
 
@@ -1936,6 +1937,7 @@ class WLMain {
       label,
       mimeType: blob.type || "application/octet-stream",
       sequence: this.artifactSequence,
+      tickSource: "source-tic",
       ticcount: this.wl_game.gamestate.ticcount
     };
     this.artifactSequence += 1;
@@ -1948,6 +1950,7 @@ class WLMain {
     link.dataset.artifactKind = record.kind;
     link.dataset.artifactLabel = record.label;
     link.dataset.artifactSequence = String(record.sequence);
+    link.dataset.artifactTickSource = record.tickSource;
     link.dataset.artifactTiccount = String(record.ticcount);
     link.textContent = `${fileName} (${formatBytes(blob.size)})`;
     artifactList.prepend(link);
