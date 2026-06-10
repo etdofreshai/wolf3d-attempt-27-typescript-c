@@ -137,6 +137,7 @@ const sourceAttackInfo = parseSourceAttackInfo(sourceAgentText);
 const sourcePlayerAttackContracts = parseSourcePlayerAttackContracts(sourceAgentText);
 const sourcePlayerCommandContracts = parseSourcePlayerCommandContracts(sourceAgentText);
 const sourcePlayerMovementContracts = parseSourcePlayerMovementContracts(sourceAgentText, sourceMovementDefines);
+const sourcePlayerFeedbackContracts = parseSourcePlayerFeedbackContracts(sourceAgentText);
 const sourceAgentHelperContracts = parseSourceAgentHelperContracts(sourceAgentText, sourceDefines);
 const sourceStartHitpoints = parseSourceStartHitpoints(sourceText);
 const sourceRealHitlerHitpoints = parseSourceRealHitlerHitpoints(sourceText);
@@ -168,6 +169,7 @@ const typescriptAttackInfo = parseTypescriptAttackInfo(typescriptText);
 const typescriptPlayerAttackContracts = parseTypescriptPlayerAttackContracts(typescriptText, constants, stringConstants);
 const typescriptPlayerCommandContracts = parseTypescriptPlayerCommandContracts(typescriptText, stringConstants);
 const typescriptPlayerMovementContracts = parseTypescriptPlayerMovementContracts(typescriptText, constants, stringConstants);
+const typescriptPlayerFeedbackContracts = parseTypescriptPlayerFeedbackContracts(typescriptText);
 const typescriptAgentHelperContracts = parseTypescriptAgentHelperContracts(typescriptText, constants, stringConstants);
 const typescriptStartHitpoints = parseTypescriptStartHitpoints(typescriptText);
 const typescriptRealHitlerHitpoints = parseTypescriptRealHitlerHitpoints(typescriptText);
@@ -217,6 +219,7 @@ compareAttackInfo(sourceAttackInfo, typescriptAttackInfo, problems);
 compareContractMap("WL_AGENT.C player attack", sourcePlayerAttackContracts, typescriptPlayerAttackContracts, problems);
 compareContractMap("WL_AGENT.C player command", sourcePlayerCommandContracts, typescriptPlayerCommandContracts, problems);
 compareContractMap("WL_AGENT.C player movement", sourcePlayerMovementContracts, typescriptPlayerMovementContracts, problems);
+compareContractMap("WL_AGENT.C player feedback", sourcePlayerFeedbackContracts, typescriptPlayerFeedbackContracts, problems);
 compareAgentHelperContracts(sourceAgentHelperContracts, typescriptAgentHelperContracts, problems);
 compareEnemyHitpointIndexes(sourceEnemyIndexes, typescriptEnemyHitpointIndexes, problems);
 compareStartHitpoints(sourceStartHitpoints, typescriptStartHitpoints, problems);
@@ -247,7 +250,7 @@ if (problems.length > 0) {
 }
 
 console.log(
-  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceDoorPushwallContracts.size} WL_ACT1.C door/pushwall contracts, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourcePlayerAttackContracts.size} WL_AGENT.C player attack contracts, ${sourcePlayerCommandContracts.size} WL_AGENT.C player command contracts, ${sourcePlayerMovementContracts.size} WL_AGENT.C player movement contracts, ${sourceAgentHelperContracts.size} WL_AGENT.C helper contracts, ${countComparedBonusRewards(sourceBonusRewards)} WL_AGENT.C bonus reward rows, ${sourceTreasureScores.size} WL_AGENT.C treasure score rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceKillActorRewards.size} WL_STATE.C kill reward rows, ${sourceDamagePainStates.size} WL_STATE.C damage pain rows, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
+  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceDoorPushwallContracts.size} WL_ACT1.C door/pushwall contracts, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourcePlayerAttackContracts.size} WL_AGENT.C player attack contracts, ${sourcePlayerCommandContracts.size} WL_AGENT.C player command contracts, ${sourcePlayerMovementContracts.size} WL_AGENT.C player movement contracts, ${sourcePlayerFeedbackContracts.size} WL_AGENT.C player feedback contracts, ${sourceAgentHelperContracts.size} WL_AGENT.C helper contracts, ${countComparedBonusRewards(sourceBonusRewards)} WL_AGENT.C bonus reward rows, ${sourceTreasureScores.size} WL_AGENT.C treasure score rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceKillActorRewards.size} WL_STATE.C kill reward rows, ${sourceDamagePainStates.size} WL_STATE.C damage pain rows, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
 );
 
 function parseSourceStates(text, sprites) {
@@ -784,6 +787,41 @@ function parseSourceTryMoveContract(body, defines) {
     minActorDistanceFixed: resolveSourceDefine("MINACTORDIST", defines),
     playerSizeFixed: resolveSourceDefine("MINDIST", defines),
     usesAxisAlignedActorDistance: /deltax\s*=\s*ob->x\s*-\s*check->x[\s\S]*?deltay\s*=\s*ob->y\s*-\s*check->y/.test(body)
+  };
+}
+
+function parseSourcePlayerFeedbackContracts(text) {
+  const activeText = filterWl6Source(text);
+  const updateFaceBody = extractCFunctionBody(activeText, "UpdateFace");
+  const takeDamageBody = extractCFunctionBody(activeText, "TakeDamage");
+  const contracts = new Map();
+  contracts.set("UpdateFace", parseSourceUpdateFaceContract(updateFaceBody));
+  contracts.set("TakeDamage", parseSourceTakeDamageContract(takeDamageBody));
+  return contracts;
+}
+
+function parseSourceUpdateFaceContract(body) {
+  return {
+    addsTicsToFacecount: /\bfacecount\s*\+=\s*tics/.test(body),
+    faceframeFromRndShift: /gamestate\.faceframe\s*=\s*\(\s*US_RndT\s*\(\s*\)\s*>>\s*6\s*\)/.test(body),
+    gatesOnRndFacecount: /facecount\s*>\s*US_RndT\s*\(\s*\)/.test(body),
+    remapsFaceframe3To1: /gamestate\.faceframe\s*==\s*3[\s\S]*?gamestate\.faceframe\s*=\s*1/.test(body),
+    resetsFacecountOnChange: /\bfacecount\s*=\s*0/.test(body),
+    skipsGatlingSound: /SD_SoundPlaying\s*\(\s*\)\s*==\s*GETGATLINGSND[\s\S]*?return/.test(body)
+  };
+}
+
+function parseSourceTakeDamageContract(body) {
+  return {
+    babyQuarterDamage: /gamestate\.difficulty\s*==\s*gd_baby[\s\S]*?points\s*>>=\s*2/.test(body),
+    clampsHealthToZero: /gamestate\.health\s*<=\s*0[\s\S]*?gamestate\.health\s*=\s*0/.test(body),
+    clearsGotgatgun: /\bgotgatgun\s*=\s*0/.test(body),
+    recordsKiller: /\bkillerobj\s*=\s*attacker/.test(body),
+    recordsLastAttacker: /\bLastAttacker\s*=\s*attacker/.test(body),
+    returnsDuringVictory: /gamestate\.victoryflag[\s\S]*?return/.test(body),
+    setsPlaystateDied: /\bplaystate\s*=\s*ex_died/.test(body),
+    startsDamageFlash: /\bStartDamageFlash\s*\(\s*points\s*\)/.test(body),
+    subtractsDamage: /gamestate\.health\s*-=\s*points/.test(body)
   };
 }
 
@@ -1475,6 +1513,40 @@ function parseTypescriptTryMoveContract(text, body, constants) {
     minActorDistanceFixed: parseTypescriptFixedRangeConstant(text, "MINACTORDIST_TILES", constants),
     playerSizeFixed: parseTypescriptFixedRangeConstant(text, "SOURCE_PLAYERSIZE_TILES", constants),
     usesAxisAlignedActorDistance: /x\s*-\s*actorCenterX[\s\S]*?y\s*-\s*actorCenterY/.test(body)
+  };
+}
+
+function parseTypescriptPlayerFeedbackContracts(text) {
+  const updateFaceBody = extractTypescriptFunctionBody(text, "UpdateFace");
+  const takeDamageBody = extractTypescriptFunctionBody(text, "TakeDamage");
+  const contracts = new Map();
+  contracts.set("UpdateFace", parseTypescriptUpdateFaceContract(updateFaceBody));
+  contracts.set("TakeDamage", parseTypescriptTakeDamageContract(takeDamageBody));
+  return contracts;
+}
+
+function parseTypescriptUpdateFaceContract(body) {
+  return {
+    addsTicsToFacecount: /\bthis\.facecount\s*\+=\s*tics/.test(body),
+    faceframeFromRndShift: /this\.US_RndT\s*\(\s*\)\s*>>\s*6/.test(body),
+    gatesOnRndFacecount: /this\.facecount\s*<=\s*this\.US_RndT\s*\(\s*\)[\s\S]*?return/.test(body),
+    remapsFaceframe3To1: /faceframe\s*===\s*3[\s\S]*?faceframe\s*=\s*1/.test(body),
+    resetsFacecountOnChange: /\bthis\.facecount\s*=\s*0/.test(body),
+    skipsGatlingSound: /this\.id_sd\.SD_SoundPlaying\s*\(\s*\)\s*===\s*GETGATLINGSND[\s\S]*?return/.test(body)
+  };
+}
+
+function parseTypescriptTakeDamageContract(body) {
+  return {
+    babyQuarterDamage: /this\.gamestate\.difficulty\s*===\s*"baby"\s*\?\s*sourcePoints\s*>>\s*2\s*:\s*sourcePoints/.test(body),
+    clampsHealthToZero: /this\.gamestate\.health\s*=\s*Math\.max\s*\(\s*0\s*,/.test(body),
+    clearsGotgatgun: /\bthis\.gotgatgun\s*=\s*false/.test(body),
+    recordsKiller: /\bthis\.killer\s*=\s*this\.lastAttacker/.test(body),
+    recordsLastAttacker: /\bthis\.lastAttacker\s*=/.test(body),
+    returnsDuringVictory: /this\.gamestate\.victoryflag[\s\S]*?return/.test(body),
+    setsPlaystateDied: /this\.SetPlayState\s*\(\s*"ex_died"\s*\)/.test(body),
+    startsDamageFlash: /\bthis\.StartDamageFlash\s*\(\s*actualPoints\s*\)/.test(body),
+    subtractsDamage: /this\.gamestate\.health\s*-\s*actualPoints/.test(body)
   };
 }
 
