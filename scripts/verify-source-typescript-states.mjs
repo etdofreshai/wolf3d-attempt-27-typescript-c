@@ -12,6 +12,7 @@ const sourceAgentPath = path.join(repoRoot, "source", "WOLFSRC", "WL_AGENT.C");
 const sourceDrawPath = path.join(repoRoot, "source", "WOLFSRC", "WL_DRAW.C");
 const sourceGamePath = path.join(repoRoot, "source", "WOLFSRC", "WL_GAME.C");
 const sourceInterPath = path.join(repoRoot, "source", "WOLFSRC", "WL_INTER.C");
+const sourcePlayPath = path.join(repoRoot, "source", "WOLFSRC", "WL_PLAY.C");
 const sourcePath = path.join(repoRoot, "source", "WOLFSRC", "WL_ACT2.C");
 const sourceStatePath = path.join(repoRoot, "source", "WOLFSRC", "WL_STATE.C");
 const sourceUserAsmPath = path.join(repoRoot, "source", "WOLFSRC", "ID_US_A.ASM");
@@ -103,6 +104,7 @@ const [
   sourceDrawText,
   sourceGameText,
   sourceInterText,
+  sourcePlayText,
   sourceText,
   sourceStateText,
   sourceUserAsmText,
@@ -115,6 +117,7 @@ const [
   readFile(sourceDrawPath, "utf8"),
   readFile(sourceGamePath, "utf8"),
   readFile(sourceInterPath, "utf8"),
+  readFile(sourcePlayPath, "utf8"),
   readFile(sourcePath, "utf8"),
   readFile(sourceStatePath, "utf8"),
   readFile(sourceUserAsmPath, "utf8"),
@@ -129,6 +132,7 @@ const sourceEnemyIndexes = parseSourceEnemyIndexes(sourceHeaderText);
 const sourceDefines = parseSourceNumericDefines(sourceHeaderText);
 const sourceAct1Defines = parseSourceNumericDefines(sourceAct1Text);
 const sourceAgentDefines = parseSourceNumericDefines(sourceAgentText);
+const sourcePlayDefines = parseSourceNumericDefines(sourcePlayText);
 const sourceMovementDefines = mergeNumberMaps(sourceDefines, sourceAgentDefines);
 const sourceWeaponReadySprites = parseSourceWeaponReadySprites(sourceDrawText, sourceSprites);
 const sourceStaticInfo = parseSourceStaticInfo(sourceAct1Text, sourceSprites);
@@ -148,6 +152,7 @@ const sourceDiagonalDirections = parseSourceDirectionMatrix(sourceStateText, "di
 const sourceDamageActorContract = parseSourceDamageActorContract(sourceStateText);
 const sourceDamagePainStates = parseSourceDamagePainStates(sourceStateText);
 const sourceKillActorRewards = parseSourceKillActorRewards(sourceStateText);
+const sourcePaletteFlashContracts = parseSourcePaletteFlashContracts(sourcePlayText, sourcePlayDefines);
 const sourceElevatorBackTo = parseSourceElevatorBackTo(sourceGameText);
 const sourceParTimesSeconds = parseSourceParTimesSeconds(sourceInterText);
 const sourceRndTable = parseSourceRndTable(sourceUserAsmText);
@@ -181,6 +186,7 @@ const typescriptBonusRewards = parseTypescriptBonusRewards(typescriptText, types
 const typescriptDroppedItemTypes = parseTypescriptDroppedItemTypes(typescriptText);
 const typescriptDamageActorContract = parseTypescriptDamageActorContract(typescriptText);
 const typescriptDamagePainStates = parseTypescriptDamagePainStates(typescriptText);
+const typescriptPaletteFlashContracts = parseTypescriptPaletteFlashContracts(typescriptText, constants);
 const typescriptSprites = parseTypescriptSprites(typescriptText);
 const modeledFrames = parseModeledFrames(typescriptText, constants, typescriptSprites);
 const problems = [];
@@ -229,6 +235,7 @@ compareTreasureScores(sourceTreasureScores, typescriptTreasureScores, problems);
 compareKillActorRewards(sourceKillActorRewards, typescriptActorKillScores, typescriptKillDrops, problems);
 compareContractObject("WL_STATE.C DamageActor", sourceDamageActorContract, typescriptDamageActorContract, problems);
 comparePainStates(sourceDamagePainStates, typescriptDamagePainStates, problems);
+compareContractMap("WL_PLAY.C palette flash", sourcePaletteFlashContracts, typescriptPaletteFlashContracts, problems);
 compareDirectionDeltas(sourceDirectionIndexes, typescriptDirectionDeltas, problems);
 compareDirectionList("opposite", sourceOppositeDirections, typescriptOppositeDirections, problems);
 compareDiagonalDirections(sourceDiagonalDirections, typescriptDiagonalDirections, sourceDirectionIndexes, problems);
@@ -250,7 +257,7 @@ if (problems.length > 0) {
 }
 
 console.log(
-  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceDoorPushwallContracts.size} WL_ACT1.C door/pushwall contracts, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourcePlayerAttackContracts.size} WL_AGENT.C player attack contracts, ${sourcePlayerCommandContracts.size} WL_AGENT.C player command contracts, ${sourcePlayerMovementContracts.size} WL_AGENT.C player movement contracts, ${sourcePlayerFeedbackContracts.size} WL_AGENT.C player feedback contracts, ${sourceAgentHelperContracts.size} WL_AGENT.C helper contracts, ${countComparedBonusRewards(sourceBonusRewards)} WL_AGENT.C bonus reward rows, ${sourceTreasureScores.size} WL_AGENT.C treasure score rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceKillActorRewards.size} WL_STATE.C kill reward rows, ${sourceDamagePainStates.size} WL_STATE.C damage pain rows, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
+  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceDoorPushwallContracts.size} WL_ACT1.C door/pushwall contracts, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourcePlayerAttackContracts.size} WL_AGENT.C player attack contracts, ${sourcePlayerCommandContracts.size} WL_AGENT.C player command contracts, ${sourcePlayerMovementContracts.size} WL_AGENT.C player movement contracts, ${sourcePlayerFeedbackContracts.size} WL_AGENT.C player feedback contracts, ${sourceAgentHelperContracts.size} WL_AGENT.C helper contracts, ${countComparedBonusRewards(sourceBonusRewards)} WL_AGENT.C bonus reward rows, ${sourceTreasureScores.size} WL_AGENT.C treasure score rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceKillActorRewards.size} WL_STATE.C kill reward rows, ${sourceDamagePainStates.size} WL_STATE.C damage pain rows, ${sourcePaletteFlashContracts.size} WL_PLAY.C palette flash contracts, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
 );
 
 function parseSourceStates(text, sprites) {
@@ -822,6 +829,57 @@ function parseSourceTakeDamageContract(body) {
     setsPlaystateDied: /\bplaystate\s*=\s*ex_died/.test(body),
     startsDamageFlash: /\bStartDamageFlash\s*\(\s*points\s*\)/.test(body),
     subtractsDamage: /gamestate\.health\s*-=\s*points/.test(body)
+  };
+}
+
+function parseSourcePaletteFlashContracts(text, defines) {
+  const activeText = filterWl6Source(text);
+  const clearBody = extractCFunctionBody(activeText, "ClearPaletteShifts");
+  const bonusBody = extractCFunctionBody(activeText, "StartBonusFlash");
+  const damageBody = extractCFunctionBody(activeText, "StartDamageFlash");
+  const updateBody = extractCFunctionBody(activeText, "UpdatePaletteShifts");
+  const contracts = new Map();
+  contracts.set("ClearPaletteShifts", parseSourceClearPaletteShiftsContract(clearBody));
+  contracts.set("StartBonusFlash", parseSourceStartBonusFlashContract(bonusBody, defines));
+  contracts.set("StartDamageFlash", parseSourceStartDamageFlashContract(damageBody));
+  contracts.set("UpdatePaletteShifts", parseSourceUpdatePaletteShiftsContract(updateBody, defines));
+  return contracts;
+}
+
+function parseSourceClearPaletteShiftsContract(body) {
+  return {
+    clearsBonuscount: /bonuscount\s*=\s*damagecount\s*=\s*0/.test(body),
+    clearsDamagecount: /bonuscount\s*=\s*damagecount\s*=\s*0/.test(body)
+  };
+}
+
+function parseSourceStartBonusFlashContract(body, defines) {
+  return {
+    whiteShiftCount: resolveSourceDefine("NUMWHITESHIFTS", defines),
+    whiteTics: resolveSourceDefine("WHITETICS", defines),
+    setsBonuscount: /bonuscount\s*=\s*NUMWHITESHIFTS\s*\*\s*WHITETICS/.test(body)
+  };
+}
+
+function parseSourceStartDamageFlashContract(body) {
+  return {
+    incrementsDamagecountByDamage: /damagecount\s*\+=\s*damage/.test(body)
+  };
+}
+
+function parseSourceUpdatePaletteShiftsContract(body, defines) {
+  return {
+    bonusClampToZero: /bonuscount\s*<\s*0[\s\S]*?bonuscount\s*=\s*0/.test(body),
+    bonusDecrementsByTics: /bonuscount\s*-=\s*tics/.test(body),
+    damageClampToZero: /damagecount\s*<\s*0[\s\S]*?damagecount\s*=\s*0/.test(body),
+    damageDecrementsByTics: /damagecount\s*-=\s*tics/.test(body),
+    redCap: resolveSourceDefine("NUMREDSHIFTS", defines),
+    redDivisor: parseRequiredNumber(body, /red\s*=\s*damagecount\s*\/\s*([0-9]+)\s*\+\s*1/, "UpdatePaletteShifts red divisor"),
+    redPriority: /if\s*\(\s*red\s*\)[\s\S]*?VL_SetPalette\s*\(\s*redshifts\s*\[\s*red\s*-\s*1\s*\]\s*\)[\s\S]*?else\s+if\s*\(\s*white\s*\)/.test(body),
+    resetsPaletteWhenShifted: /else\s+if\s*\(\s*palshifted\s*\)[\s\S]*?VL_SetPalette\s*\(\s*&gamepal\s*\)[\s\S]*?palshifted\s*=\s*false/.test(body),
+    whiteCap: resolveSourceDefine("NUMWHITESHIFTS", defines),
+    whiteDivisor: resolveSourceDefine("WHITETICS", defines),
+    whiteLevelFormula: /white\s*=\s*bonuscount\s*\/\s*WHITETICS\s*\+\s*1/.test(body)
   };
 }
 
@@ -1547,6 +1605,56 @@ function parseTypescriptTakeDamageContract(body) {
     setsPlaystateDied: /this\.SetPlayState\s*\(\s*"ex_died"\s*\)/.test(body),
     startsDamageFlash: /\bthis\.StartDamageFlash\s*\(\s*actualPoints\s*\)/.test(body),
     subtractsDamage: /this\.gamestate\.health\s*-\s*actualPoints/.test(body)
+  };
+}
+
+function parseTypescriptPaletteFlashContracts(text, constants) {
+  const clearBody = extractTypescriptFunctionBody(text, "ClearPaletteShifts");
+  const bonusBody = extractTypescriptFunctionBody(text, "StartBonusFlash");
+  const damageBody = extractTypescriptFunctionBody(text, "StartDamageFlash");
+  const updateBody = extractTypescriptFunctionBody(text, "UpdatePaletteShifts");
+  const contracts = new Map();
+  contracts.set("ClearPaletteShifts", parseTypescriptClearPaletteShiftsContract(clearBody));
+  contracts.set("StartBonusFlash", parseTypescriptStartBonusFlashContract(bonusBody, constants));
+  contracts.set("StartDamageFlash", parseTypescriptStartDamageFlashContract(damageBody));
+  contracts.set("UpdatePaletteShifts", parseTypescriptUpdatePaletteShiftsContract(updateBody, constants));
+  return contracts;
+}
+
+function parseTypescriptClearPaletteShiftsContract(body) {
+  return {
+    clearsBonuscount: /this\.bonuscount\s*=\s*0/.test(body),
+    clearsDamagecount: /this\.damagecount\s*=\s*0/.test(body)
+  };
+}
+
+function parseTypescriptStartBonusFlashContract(body, constants) {
+  return {
+    whiteShiftCount: resolveTypescriptNumber("SOURCE_NUM_WHITE_SHIFTS", constants),
+    whiteTics: resolveTypescriptNumber("SOURCE_WHITE_TICS", constants),
+    setsBonuscount: /this\.bonuscount\s*=\s*SOURCE_NUM_WHITE_SHIFTS\s*\*\s*SOURCE_WHITE_TICS/.test(body)
+  };
+}
+
+function parseTypescriptStartDamageFlashContract(body) {
+  return {
+    incrementsDamagecountByDamage: /this\.damagecount\s*\+=\s*Math\.trunc\s*\(\s*damage\s*\)/.test(body)
+  };
+}
+
+function parseTypescriptUpdatePaletteShiftsContract(body, constants) {
+  return {
+    bonusClampToZero: /this\.bonuscount\s*=\s*Math\.max\s*\(\s*0\s*,\s*this\.bonuscount\s*-\s*tics\s*\)/.test(body),
+    bonusDecrementsByTics: /this\.bonuscount\s*-\s*tics/.test(body),
+    damageClampToZero: /this\.damagecount\s*=\s*Math\.max\s*\(\s*0\s*,\s*this\.damagecount\s*-\s*tics\s*\)/.test(body),
+    damageDecrementsByTics: /this\.damagecount\s*-\s*tics/.test(body),
+    redCap: resolveTypescriptNumber("SOURCE_NUM_RED_SHIFTS", constants),
+    redDivisor: parseRequiredNumber(body, /red\s*=\s*Math\.floor\s*\(\s*this\.damagecount\s*\/\s*([0-9]+)\s*\)\s*\+\s*1/, "UpdatePaletteShifts red divisor"),
+    redPriority: /if\s*\(\s*red\s*>\s*0\s*\)[\s\S]*?kind:\s*"red"[\s\S]*?else\s+if\s*\(\s*white\s*>\s*0\s*\)/.test(body),
+    resetsPaletteWhenShifted: /else\s*\{[\s\S]*?this\.paletteShift\s*=\s*null/.test(body),
+    whiteCap: resolveTypescriptNumber("SOURCE_NUM_WHITE_SHIFTS", constants),
+    whiteDivisor: resolveTypescriptNumber("SOURCE_WHITE_TICS", constants),
+    whiteLevelFormula: /white\s*=\s*Math\.floor\s*\(\s*this\.bonuscount\s*\/\s*SOURCE_WHITE_TICS\s*\)\s*\+\s*1/.test(body)
   };
 }
 

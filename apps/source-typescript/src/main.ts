@@ -2114,7 +2114,7 @@ class WLGame {
   }
 
   StartDamageFlash(damage: number): void {
-    this.damagecount += Math.max(0, Math.trunc(damage));
+    this.damagecount += Math.trunc(damage);
   }
 
   UpdatePaletteShifts(tics: number): void {
