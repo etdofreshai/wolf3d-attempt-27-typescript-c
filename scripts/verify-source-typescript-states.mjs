@@ -155,6 +155,7 @@ const sourceKillActorRewards = parseSourceKillActorRewards(sourceStateText);
 const sourcePaletteFlashContracts = parseSourcePaletteFlashContracts(sourcePlayText, sourcePlayDefines);
 const sourcePlayLoopContract = parseSourcePlayLoopContract(sourcePlayText);
 const sourceGameLoopTransitionContracts = parseSourceGameLoopTransitionContracts(sourceGameText);
+const sourceIntermissionContracts = parseSourceIntermissionContracts(sourceInterText);
 const sourceElevatorBackTo = parseSourceElevatorBackTo(sourceGameText);
 const sourceParTimesSeconds = parseSourceParTimesSeconds(sourceInterText);
 const sourceRndTable = parseSourceRndTable(sourceUserAsmText);
@@ -191,6 +192,7 @@ const typescriptDamagePainStates = parseTypescriptDamagePainStates(typescriptTex
 const typescriptPaletteFlashContracts = parseTypescriptPaletteFlashContracts(typescriptText, constants);
 const typescriptPlayLoopContract = parseTypescriptPlayLoopContract(typescriptText);
 const typescriptGameLoopTransitionContracts = parseTypescriptGameLoopTransitionContracts(typescriptText);
+const typescriptIntermissionContracts = parseTypescriptIntermissionContracts(typescriptText, constants);
 const typescriptSprites = parseTypescriptSprites(typescriptText);
 const modeledFrames = parseModeledFrames(typescriptText, constants, typescriptSprites);
 const problems = [];
@@ -242,6 +244,7 @@ comparePainStates(sourceDamagePainStates, typescriptDamagePainStates, problems);
 compareContractMap("WL_PLAY.C palette flash", sourcePaletteFlashContracts, typescriptPaletteFlashContracts, problems);
 compareContractObject("WL_PLAY.C PlayLoop", sourcePlayLoopContract, typescriptPlayLoopContract, problems);
 compareContractMap("WL_GAME.C game loop transition", sourceGameLoopTransitionContracts, typescriptGameLoopTransitionContracts, problems);
+compareContractMap("WL_INTER.C intermission", sourceIntermissionContracts, typescriptIntermissionContracts, problems);
 compareDirectionDeltas(sourceDirectionIndexes, typescriptDirectionDeltas, problems);
 compareDirectionList("opposite", sourceOppositeDirections, typescriptOppositeDirections, problems);
 compareDiagonalDirections(sourceDiagonalDirections, typescriptDiagonalDirections, sourceDirectionIndexes, problems);
@@ -263,7 +266,7 @@ if (problems.length > 0) {
 }
 
 console.log(
-  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceDoorPushwallContracts.size} WL_ACT1.C door/pushwall contracts, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourcePlayerAttackContracts.size} WL_AGENT.C player attack contracts, ${sourcePlayerCommandContracts.size} WL_AGENT.C player command contracts, ${sourcePlayerMovementContracts.size} WL_AGENT.C player movement contracts, ${sourcePlayerFeedbackContracts.size} WL_AGENT.C player feedback contracts, ${sourceAgentHelperContracts.size} WL_AGENT.C helper contracts, ${countComparedBonusRewards(sourceBonusRewards)} WL_AGENT.C bonus reward rows, ${sourceTreasureScores.size} WL_AGENT.C treasure score rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceKillActorRewards.size} WL_STATE.C kill reward rows, ${sourceDamagePainStates.size} WL_STATE.C damage pain rows, ${sourcePaletteFlashContracts.size} WL_PLAY.C palette flash contracts, WL_PLAY.C PlayLoop contract, ${sourceGameLoopTransitionContracts.size} WL_GAME.C game-loop transition contracts, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
+  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceDoorPushwallContracts.size} WL_ACT1.C door/pushwall contracts, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourcePlayerAttackContracts.size} WL_AGENT.C player attack contracts, ${sourcePlayerCommandContracts.size} WL_AGENT.C player command contracts, ${sourcePlayerMovementContracts.size} WL_AGENT.C player movement contracts, ${sourcePlayerFeedbackContracts.size} WL_AGENT.C player feedback contracts, ${sourceAgentHelperContracts.size} WL_AGENT.C helper contracts, ${countComparedBonusRewards(sourceBonusRewards)} WL_AGENT.C bonus reward rows, ${sourceTreasureScores.size} WL_AGENT.C treasure score rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceKillActorRewards.size} WL_STATE.C kill reward rows, ${sourceDamagePainStates.size} WL_STATE.C damage pain rows, ${sourcePaletteFlashContracts.size} WL_PLAY.C palette flash contracts, WL_PLAY.C PlayLoop contract, ${sourceGameLoopTransitionContracts.size} WL_GAME.C game-loop transition contracts, ${sourceIntermissionContracts.size} WL_INTER.C intermission contracts, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
 );
 
 function parseSourceStates(text, sprites) {
@@ -952,6 +955,76 @@ function parseSourceGameLoopTransitionContracts(text) {
     takesAwayWeapon: /gamestate\.weapon\s*=\s*-1/.test(diedBody)
   });
   return contracts;
+}
+
+function parseSourceIntermissionContracts(text) {
+  const activeText = filterWl6Source(text);
+  const levelCompletedBody = extractCFunctionBody(activeText, "LevelCompleted");
+  const victoryBody = extractCFunctionBody(activeText, "Victory");
+  const levelRatioCount = parseSourceLevelRatioCount(activeText);
+  const contracts = new Map();
+  contracts.set("LevelCompleted", {
+    bonusFormulaIncludesTimeAndPerfectRatios:
+      /bonus\s*=\s*\(long\)timeleft\s*\*\s*PAR_AMOUNT\s*\+[\s\S]*PERCENT100AMT\s*\*\s*\(\s*kr\s*==\s*100\s*\)[\s\S]*PERCENT100AMT\s*\*\s*\(\s*sr\s*==\s*100\s*\)[\s\S]*PERCENT100AMT\s*\*\s*\(\s*tr\s*==\s*100\s*\)/.test(
+        levelCompletedBody
+      ),
+    clampsTimeAt99Minutes: /if\s*\(\s*sec\s*>\s*99\s*\*\s*60\s*\)[\s\S]*sec\s*=\s*99\s*\*\s*60/.test(
+      levelCompletedBody
+    ),
+    killRatioFromCounts:
+      /gamestate\.killtotal[\s\S]*kr\s*=\s*\(gamestate\.killcount\s*\*\s*100\s*\)\s*\/\s*gamestate\.killtotal/.test(
+        levelCompletedBody
+      ),
+    levelRatioCount,
+    parAmount: parseRequiredNumber(levelCompletedBody, /#define\s+PAR_AMOUNT\s+([0-9]+)/, "LevelCompleted PAR_AMOUNT"),
+    percent100Bonus: parseRequiredNumber(
+      levelCompletedBody,
+      /#define\s+PERCENT100AMT\s+([0-9]+)/,
+      "LevelCompleted PERCENT100AMT"
+    ),
+    regularLevelsUseRatioCount: new RegExp(`mapon\\s*<\\s*${levelRatioCount}`).test(levelCompletedBody),
+    regularGivesBonus: /GivePoints\s*\(\s*bonus\s*\)/.test(levelCompletedBody),
+    secretFloorBonus: parseRequiredNumber(levelCompletedBody, /GivePoints\s*\(\s*([0-9]+)\s*\)/, "secret floor bonus"),
+    secretFloorGivesFixedBonus: /GivePoints\s*\(\s*15000\s*\)/.test(levelCompletedBody),
+    secretRatioFromCounts:
+      /gamestate\.secrettotal[\s\S]*sr\s*=\s*\(gamestate\.secretcount\s*\*\s*100\s*\)\s*\/\s*gamestate\.secrettotal/.test(
+        levelCompletedBody
+      ),
+    storesRegularLevelRatios:
+      /LevelRatios\s*\[\s*mapon\s*\]\.kill\s*=\s*kr[\s\S]*LevelRatios\s*\[\s*mapon\s*\]\.secret\s*=\s*sr[\s\S]*LevelRatios\s*\[\s*mapon\s*\]\.treasure\s*=\s*tr/.test(
+        levelCompletedBody
+      ),
+    storesTimeRatioFromDisplayedTime: /LevelRatios\s*\[\s*mapon\s*\]\.time\s*=\s*min\s*\*\s*60\s*\+\s*sec/.test(
+      levelCompletedBody
+    ),
+    timeLeftUsesParTime:
+      /gamestate\.TimeCount\s*<\s*parTimes\s*\[\s*gamestate\.episode\s*\*\s*10\s*\+\s*mapon\s*\]\.time\s*\*\s*4200[\s\S]*timeleft\s*=\s*\(parTimes\s*\[\s*gamestate\.episode\s*\*\s*10\s*\+\s*mapon\s*\]\.time\s*\*\s*4200\s*\)\s*\/\s*70\s*-\s*sec/.test(
+        levelCompletedBody
+      ),
+    ticksPerSecond: parseRequiredNumber(levelCompletedBody, /sec\s*=\s*gamestate\.TimeCount\s*\/\s*([0-9]+)/, "LevelCompleted tics per second"),
+    treasureRatioFromCounts:
+      /gamestate\.treasuretotal[\s\S]*tr\s*=\s*\(gamestate\.treasurecount\s*\*\s*100\s*\)\s*\/\s*gamestate\.treasuretotal/.test(
+        levelCompletedBody
+      )
+  });
+  contracts.set("Victory", {
+    averagesRatiosByLevelRatioCount:
+      new RegExp(`kr\\s*\\/=\\s*${levelRatioCount}[\\s\\S]*sr\\s*\\/=\\s*${levelRatioCount}[\\s\\S]*tr\\s*\\/=\\s*${levelRatioCount}`).test(
+        victoryBody
+      ),
+    clampsDisplayTimeAt99: /if\s*\(\s*min\s*>\s*99\s*\)[\s\S]*min\s*=\s*sec\s*=\s*99/.test(victoryBody),
+    levelRatioCount,
+    sumsLevelRatioFields:
+      /sec\s*\+=\s*LevelRatios\s*\[\s*i\s*\]\.time[\s\S]*kr\s*\+=\s*LevelRatios\s*\[\s*i\s*\]\.kill[\s\S]*sr\s*\+=\s*LevelRatios\s*\[\s*i\s*\]\.secret[\s\S]*tr\s*\+=\s*LevelRatios\s*\[\s*i\s*\]\.treasure/.test(
+        victoryBody
+      ),
+    totalTimeFromLevelRatios: /min\s*=\s*sec\s*\/\s*60[\s\S]*sec\s*%=\s*60/.test(victoryBody)
+  });
+  return contracts;
+}
+
+function parseSourceLevelRatioCount(text) {
+  return parseRequiredNumber(text, /LRstruct\s+LevelRatios\s*\[\s*([0-9]+)\s*\]/, "LevelRatios count");
 }
 
 function parseSourceAgentHelperContracts(text, defines) {
@@ -1803,6 +1876,71 @@ function parseTypescriptGameLoopTransitionContracts(text) {
       ),
     restoresStartAmmo: /this\.gamestate\.ammo\s*=\s*STARTAMMO/.test(diedBody),
     takesAwayWeapon: /this\.gamestate\.weapon\s*=\s*-1/.test(diedBody)
+  });
+  return contracts;
+}
+
+function parseTypescriptIntermissionContracts(text, constants) {
+  const recordBody = extractTypescriptFunctionBody(text, "RecordLevelCompleted");
+  const ratiosBody = extractTypescriptFunctionBody(text, "CurrentLevelRatios");
+  const victoryBody = extractTypescriptFunctionBody(text, "CalculateVictorySummary");
+  const levelRatioCount = resolveTypescriptNumber("SOURCE_LEVEL_RATIO_COUNT", constants);
+  const contracts = new Map();
+  contracts.set("LevelCompleted", {
+    bonusFormulaIncludesTimeAndPerfectRatios:
+      /timeLeft\s*\*\s*SOURCE_PAR_AMOUNT[\s\S]*ratios\.kill\s*===\s*100\s*\?\s*SOURCE_PERCENT_100_BONUS[\s\S]*ratios\.secret\s*===\s*100\s*\?\s*SOURCE_PERCENT_100_BONUS[\s\S]*ratios\.treasure\s*===\s*100\s*\?\s*SOURCE_PERCENT_100_BONUS/.test(
+        recordBody
+      ),
+    clampsTimeAt99Minutes: /Math\.min\s*\(\s*Math\.trunc\s*\(\s*this\.gamestate\.timecount\s*\/\s*SOURCE_TICS_PER_SECOND\s*\)\s*,\s*99\s*\*\s*60\s*\)/.test(
+      ratiosBody
+    ),
+    killRatioFromCounts:
+      /this\.gamestate\.killtotal\s*\?\s*Math\.trunc\s*\(\s*\(this\.gamestate\.killcount\s*\*\s*100\)\s*\/\s*this\.gamestate\.killtotal\s*\)/.test(
+        ratiosBody
+      ),
+    levelRatioCount,
+    parAmount: resolveTypescriptNumber("SOURCE_PAR_AMOUNT", constants),
+    percent100Bonus: resolveTypescriptNumber("SOURCE_PERCENT_100_BONUS", constants),
+    regularLevelsUseRatioCount: /mapon\s*<\s*SOURCE_LEVEL_RATIO_COUNT/.test(recordBody),
+    regularGivesBonus: /this\.GivePoints\s*\(\s*bonus\s*\)/.test(recordBody),
+    secretFloorBonus: resolveTypescriptNumber("SOURCE_SECRET_FLOOR_BONUS", constants),
+    secretFloorGivesFixedBonus: /this\.GivePoints\s*\(\s*SOURCE_SECRET_FLOOR_BONUS\s*\)/.test(recordBody),
+    secretRatioFromCounts:
+      /this\.gamestate\.secrettotal[\s\S]*Math\.trunc\s*\(\s*\(this\.gamestate\.secretcount\s*\*\s*100\)\s*\/\s*this\.gamestate\.secrettotal\s*\)/.test(
+        ratiosBody
+      ),
+    storesRegularLevelRatios: /this\.levelRatios\s*\[\s*mapon\s*\]\s*=\s*ratios/.test(recordBody),
+    storesTimeRatioFromDisplayedTime:
+      /this\.levelRatios\s*\[\s*mapon\s*\]\s*=\s*ratios/.test(recordBody) &&
+      /\bconst\s+time\s*=\s*Math\.min/.test(ratiosBody),
+    timeLeftUsesParTime:
+      /this\.gamestate\.timecount\s*<\s*parSeconds\s*\*\s*SOURCE_TICS_PER_SECOND[\s\S]*parSeconds\s*-\s*ratios\.time/.test(
+        recordBody
+      ),
+    ticksPerSecond: resolveTypescriptNumber("SOURCE_TICS_PER_SECOND", constants),
+    treasureRatioFromCounts:
+      /this\.gamestate\.treasuretotal[\s\S]*Math\.trunc\s*\(\s*\(this\.gamestate\.treasurecount\s*\*\s*100\)\s*\/\s*this\.gamestate\.treasuretotal\s*\)/.test(
+        ratiosBody
+      )
+  });
+  contracts.set("Victory", {
+    averagesRatiosByLevelRatioCount:
+      /averageKill:\s*Math\.trunc\s*\(\s*totals\.kill\s*\/\s*SOURCE_LEVEL_RATIO_COUNT\s*\)[\s\S]*averageSecret:\s*Math\.trunc\s*\(\s*totals\.secret\s*\/\s*SOURCE_LEVEL_RATIO_COUNT\s*\)[\s\S]*averageTreasure:\s*Math\.trunc\s*\(\s*totals\.treasure\s*\/\s*SOURCE_LEVEL_RATIO_COUNT\s*\)/.test(
+        victoryBody
+      ),
+    clampsDisplayTimeAt99:
+      /if\s*\(\s*displayMinutes\s*>\s*99\s*\)[\s\S]*displayMinutes\s*=\s*99[\s\S]*displaySeconds\s*=\s*99/.test(
+        victoryBody
+      ),
+    levelRatioCount,
+    sumsLevelRatioFields:
+      /kill:\s*sum\.kill\s*\+\s*ratio\.kill[\s\S]*secret:\s*sum\.secret\s*\+\s*ratio\.secret[\s\S]*time:\s*sum\.time\s*\+\s*ratio\.time[\s\S]*treasure:\s*sum\.treasure\s*\+\s*ratio\.treasure/.test(
+        victoryBody
+      ),
+    totalTimeFromLevelRatios:
+      /displayMinutes\s*=\s*Math\.trunc\s*\(\s*totals\.time\s*\/\s*60\s*\)[\s\S]*displaySeconds\s*=\s*totals\.time\s*%\s*60/.test(
+        victoryBody
+      )
   });
   return contracts;
 }
