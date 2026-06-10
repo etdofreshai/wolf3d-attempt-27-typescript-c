@@ -16,6 +16,8 @@ const sourcePlayPath = path.join(repoRoot, "source", "WOLFSRC", "WL_PLAY.C");
 const sourcePath = path.join(repoRoot, "source", "WOLFSRC", "WL_ACT2.C");
 const sourceStatePath = path.join(repoRoot, "source", "WOLFSRC", "WL_STATE.C");
 const sourceUserAsmPath = path.join(repoRoot, "source", "WOLFSRC", "ID_US_A.ASM");
+const sourceUserHeaderPath = path.join(repoRoot, "source", "WOLFSRC", "ID_US.H");
+const sourceUserPath = path.join(repoRoot, "source", "WOLFSRC", "ID_US_1.C");
 const typescriptPath = path.join(repoRoot, "apps", "source-typescript", "src", "main.ts");
 
 const THINK_NAMES = new Map([
@@ -108,6 +110,8 @@ const [
   sourceText,
   sourceStateText,
   sourceUserAsmText,
+  sourceUserHeaderText,
+  sourceUserText,
   typescriptText
 ] = await Promise.all([
   readFile(sourceAudioPath, "utf8"),
@@ -121,6 +125,8 @@ const [
   readFile(sourcePath, "utf8"),
   readFile(sourceStatePath, "utf8"),
   readFile(sourceUserAsmPath, "utf8"),
+  readFile(sourceUserHeaderPath, "utf8"),
+  readFile(sourceUserPath, "utf8"),
   readFile(typescriptPath, "utf8")
 ]);
 
@@ -156,6 +162,9 @@ const sourcePaletteFlashContracts = parseSourcePaletteFlashContracts(sourcePlayT
 const sourcePlayLoopContract = parseSourcePlayLoopContract(sourcePlayText);
 const sourceGameLoopTransitionContracts = parseSourceGameLoopTransitionContracts(sourceGameText);
 const sourceIntermissionContracts = parseSourceIntermissionContracts(sourceInterText);
+const sourceHighScoreConstants = parseSourceHighScoreConstants(sourceUserHeaderText);
+const sourceDefaultHighScores = parseSourceDefaultHighScores(sourceUserText);
+const sourceHighScoreContracts = parseSourceHighScoreContracts(sourceInterText);
 const sourceElevatorBackTo = parseSourceElevatorBackTo(sourceGameText);
 const sourceParTimesSeconds = parseSourceParTimesSeconds(sourceInterText);
 const sourceRndTable = parseSourceRndTable(sourceUserAsmText);
@@ -193,6 +202,9 @@ const typescriptPaletteFlashContracts = parseTypescriptPaletteFlashContracts(typ
 const typescriptPlayLoopContract = parseTypescriptPlayLoopContract(typescriptText);
 const typescriptGameLoopTransitionContracts = parseTypescriptGameLoopTransitionContracts(typescriptText);
 const typescriptIntermissionContracts = parseTypescriptIntermissionContracts(typescriptText, constants);
+const typescriptHighScoreConstants = parseTypescriptHighScoreConstants(constants);
+const typescriptDefaultHighScores = parseTypescriptDefaultHighScores(typescriptText);
+const typescriptHighScoreContracts = parseTypescriptHighScoreContracts(typescriptText);
 const typescriptSprites = parseTypescriptSprites(typescriptText);
 const modeledFrames = parseModeledFrames(typescriptText, constants, typescriptSprites);
 const problems = [];
@@ -245,6 +257,9 @@ compareContractMap("WL_PLAY.C palette flash", sourcePaletteFlashContracts, types
 compareContractObject("WL_PLAY.C PlayLoop", sourcePlayLoopContract, typescriptPlayLoopContract, problems);
 compareContractMap("WL_GAME.C game loop transition", sourceGameLoopTransitionContracts, typescriptGameLoopTransitionContracts, problems);
 compareContractMap("WL_INTER.C intermission", sourceIntermissionContracts, typescriptIntermissionContracts, problems);
+compareContractObject("ID_US.H high score constants", sourceHighScoreConstants, typescriptHighScoreConstants, problems);
+compareHighScoreDefaults(sourceDefaultHighScores, typescriptDefaultHighScores, problems);
+compareContractMap("WL_INTER.C high score", sourceHighScoreContracts, typescriptHighScoreContracts, problems);
 compareDirectionDeltas(sourceDirectionIndexes, typescriptDirectionDeltas, problems);
 compareDirectionList("opposite", sourceOppositeDirections, typescriptOppositeDirections, problems);
 compareDiagonalDirections(sourceDiagonalDirections, typescriptDiagonalDirections, sourceDirectionIndexes, problems);
@@ -266,7 +281,7 @@ if (problems.length > 0) {
 }
 
 console.log(
-  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceDoorPushwallContracts.size} WL_ACT1.C door/pushwall contracts, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourcePlayerAttackContracts.size} WL_AGENT.C player attack contracts, ${sourcePlayerCommandContracts.size} WL_AGENT.C player command contracts, ${sourcePlayerMovementContracts.size} WL_AGENT.C player movement contracts, ${sourcePlayerFeedbackContracts.size} WL_AGENT.C player feedback contracts, ${sourceAgentHelperContracts.size} WL_AGENT.C helper contracts, ${countComparedBonusRewards(sourceBonusRewards)} WL_AGENT.C bonus reward rows, ${sourceTreasureScores.size} WL_AGENT.C treasure score rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceKillActorRewards.size} WL_STATE.C kill reward rows, ${sourceDamagePainStates.size} WL_STATE.C damage pain rows, ${sourcePaletteFlashContracts.size} WL_PLAY.C palette flash contracts, WL_PLAY.C PlayLoop contract, ${sourceGameLoopTransitionContracts.size} WL_GAME.C game-loop transition contracts, ${sourceIntermissionContracts.size} WL_INTER.C intermission contracts, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
+  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceDoorPushwallContracts.size} WL_ACT1.C door/pushwall contracts, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourcePlayerAttackContracts.size} WL_AGENT.C player attack contracts, ${sourcePlayerCommandContracts.size} WL_AGENT.C player command contracts, ${sourcePlayerMovementContracts.size} WL_AGENT.C player movement contracts, ${sourcePlayerFeedbackContracts.size} WL_AGENT.C player feedback contracts, ${sourceAgentHelperContracts.size} WL_AGENT.C helper contracts, ${countComparedBonusRewards(sourceBonusRewards)} WL_AGENT.C bonus reward rows, ${sourceTreasureScores.size} WL_AGENT.C treasure score rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceKillActorRewards.size} WL_STATE.C kill reward rows, ${sourceDamagePainStates.size} WL_STATE.C damage pain rows, ${sourcePaletteFlashContracts.size} WL_PLAY.C palette flash contracts, WL_PLAY.C PlayLoop contract, ${sourceGameLoopTransitionContracts.size} WL_GAME.C game-loop transition contracts, ${sourceIntermissionContracts.size} WL_INTER.C intermission contracts, ${sourceHighScoreContracts.size} WL_INTER.C high-score contracts, ${sourceDefaultHighScores.length} ID_US_1.C default high scores, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
 );
 
 function parseSourceStates(text, sprites) {
@@ -1025,6 +1040,66 @@ function parseSourceIntermissionContracts(text) {
 
 function parseSourceLevelRatioCount(text) {
   return parseRequiredNumber(text, /LRstruct\s+LevelRatios\s*\[\s*([0-9]+)\s*\]/, "LevelRatios count");
+}
+
+function parseSourceHighScoreConstants(text) {
+  return {
+    maxHighName: parseRequiredNumber(text, /#define\s+MaxHighName\s+([0-9]+)/, "MaxHighName"),
+    maxScores: parseRequiredNumber(text, /#define\s+MaxScores\s+([0-9]+)/, "MaxScores")
+  };
+}
+
+function parseSourceDefaultHighScores(text) {
+  const start = text.indexOf("HighScore\tScores[MaxScores]");
+  if (start < 0) {
+    throw new Error("Could not find Scores[MaxScores] in ID_US_1.C");
+  }
+
+  const end = text.indexOf("};", start);
+  if (end < 0) {
+    throw new Error("Could not find Scores[MaxScores] terminator in ID_US_1.C");
+  }
+
+  const entries = [];
+  for (const match of text
+    .slice(start, end)
+    .matchAll(/\{\s*"([^"]+)"\s*,\s*([0-9]+)\s*,\s*([0-9]+)(?:\s*,\s*([0-9]+))?\s*\}/g)) {
+    entries.push({
+      completed: Number(match[3]),
+      episode: match[4] ? Number(match[4]) : 0,
+      name: match[1],
+      score: Number(match[2])
+    });
+  }
+
+  if (entries.length === 0) {
+    throw new Error("Could not parse default high scores from ID_US_1.C");
+  }
+
+  return entries;
+}
+
+function parseSourceHighScoreContracts(text) {
+  const body = extractCFunctionBody(filterWl6Source(text), "CheckHighScore");
+  const contracts = new Map();
+  contracts.set("CheckHighScore", {
+    blankName: /strcpy\s*\(\s*myscore\.name\s*,\s*""\s*\)/.test(body),
+    completedFromArgument: /myscore\.completed\s*=\s*other/.test(body),
+    episodeFromGamestate: /myscore\.episode\s*=\s*gamestate\.episode/.test(body),
+    insertsAtMatchedRank: /Scores\s*\[\s*i\s*\]\s*=\s*myscore[\s\S]*n\s*=\s*i/.test(body),
+    loopsMaxScores: /i\s*<\s*MaxScores/.test(body),
+    rankStartsMissing: /n\s*=\s*-1/.test(body),
+    scoreFromArgument: /myscore\.score\s*=\s*score/.test(body),
+    shiftsRowsDown: /for\s*\(\s*j\s*=\s*MaxScores\s*;\s*--j\s*>\s*i\s*;\s*\)[\s\S]*Scores\s*\[\s*j\s*\]\s*=\s*Scores\s*\[\s*j\s*-\s*1\s*\]/.test(
+      body
+    ),
+    tieBreaksCompleted:
+      /myscore\.score\s*==\s*Scores\s*\[\s*i\s*\]\.score[\s\S]*myscore\.completed\s*>\s*Scores\s*\[\s*i\s*\]\.completed/.test(
+        body
+      ),
+    usesStrictScoreGreater: /myscore\.score\s*>\s*Scores\s*\[\s*i\s*\]\.score/.test(body)
+  });
+  return contracts;
 }
 
 function parseSourceAgentHelperContracts(text, defines) {
@@ -1945,6 +2020,62 @@ function parseTypescriptIntermissionContracts(text, constants) {
   return contracts;
 }
 
+function parseTypescriptHighScoreConstants(constants) {
+  return {
+    maxHighName: resolveTypescriptNumber("MAX_HIGH_NAME", constants),
+    maxScores: resolveTypescriptNumber("MAX_SCORES", constants)
+  };
+}
+
+function parseTypescriptDefaultHighScores(text) {
+  const match = text.match(/const\s+DEFAULT_HIGH_SCORES:\s*SourceHighScore\[\]\s*=\s*\[(?<body>[\s\S]*?)\]\s*as const;/);
+  if (!match?.groups?.body) {
+    throw new Error("Could not find DEFAULT_HIGH_SCORES in source-typescript main.ts");
+  }
+
+  const entries = [];
+  for (const scoreMatch of match.groups.body.matchAll(
+    /\{\s*completed:\s*([0-9]+)\s*,\s*episode:\s*([0-9]+)\s*,\s*name:\s*"([^"]+)"\s*,\s*score:\s*([0-9]+)\s*\}/g
+  )) {
+    entries.push({
+      completed: Number(scoreMatch[1]),
+      episode: Number(scoreMatch[2]),
+      name: scoreMatch[3],
+      score: Number(scoreMatch[4])
+    });
+  }
+
+  if (entries.length === 0) {
+    throw new Error("Could not parse DEFAULT_HIGH_SCORES in source-typescript main.ts");
+  }
+
+  return entries;
+}
+
+function parseTypescriptHighScoreContracts(text) {
+  const body = extractTypescriptFunctionBody(text, "CheckHighScore");
+  const contracts = new Map();
+  contracts.set("CheckHighScore", {
+    blankName: /name:\s*""/.test(body),
+    completedFromArgument: /completed\s*,/.test(body),
+    episodeFromGamestate: /episode:\s*this\.gamestate\.episode/.test(body),
+    insertsAtMatchedRank: /this\.highScores\.splice\s*\(\s*index\s*,\s*0\s*,\s*myScore\s*\)[\s\S]*rank\s*=\s*index/.test(
+      body
+    ),
+    loopsMaxScores: /index\s*<\s*MAX_SCORES/.test(body),
+    rankStartsMissing: /rank:\s*number\s*\|\s*null\s*=\s*null/.test(body),
+    scoreFromArgument: /score\s*\n?\s*\}/.test(body),
+    shiftsRowsDown:
+      /this\.highScores\.splice\s*\(\s*index\s*,\s*0\s*,\s*myScore\s*\)[\s\S]*this\.highScores\s*=\s*this\.highScores\.slice\s*\(\s*0\s*,\s*MAX_SCORES\s*\)/.test(
+        body
+      ),
+    tieBreaksCompleted:
+      /myScore\.score\s*===\s*existing\.score[\s\S]*myScore\.completed\s*>\s*existing\.completed/.test(body),
+    usesStrictScoreGreater: /myScore\.score\s*>\s*existing\.score/.test(body)
+  });
+  return contracts;
+}
+
 function parseTypescriptAgentHelperContracts(text, constants, stringConstants) {
   const helpers = new Map();
   helpers.set("GiveAmmo", parseTypescriptGiveAmmoContract(extractTypescriptFunctionBody(text, "GiveAmmo"), constants));
@@ -2513,6 +2644,27 @@ function compareContractObject(name, sourceContract, typescriptContract, problem
     const currentValue = typescriptContract[field];
     if (currentValue !== sourceValue) {
       problems.push(`${name}.${field}: ${formatNullable(currentValue)} != source ${formatNullable(sourceValue)}`);
+    }
+  }
+}
+
+function compareHighScoreDefaults(sourceEntries, typescriptEntries, problems) {
+  if (typescriptEntries.length !== sourceEntries.length) {
+    problems.push(`DEFAULT_HIGH_SCORES length ${typescriptEntries.length} != source ${sourceEntries.length}`);
+  }
+
+  for (let index = 0; index < sourceEntries.length; index += 1) {
+    const source = sourceEntries[index];
+    const current = typescriptEntries[index];
+    if (!current) {
+      problems.push(`DEFAULT_HIGH_SCORES[${index}]: missing TypeScript entry`);
+      continue;
+    }
+
+    for (const field of ["name", "score", "completed", "episode"]) {
+      if (current[field] !== source[field]) {
+        problems.push(`DEFAULT_HIGH_SCORES[${index}].${field}: ${formatNullable(current[field])} != source ${formatNullable(source[field])}`);
+      }
     }
   }
 }
