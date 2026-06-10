@@ -16,6 +16,140 @@ const DOS_ASSET_FILES = [
 ] as const;
 
 const BUILD_SOURCE_ROOT = "SOURCE/WOLF";
+const MODIFIED_STATE_FILE = "WOLFSTAT.BIN";
+
+const SOURCE_DIFFICULTY_NAMES = ["baby", "easy", "medium", "hard"] as const;
+const SOURCE_PLAYSTATE_NAMES = [
+  "ex_stillplaying",
+  "ex_completed",
+  "ex_died",
+  "ex_warped",
+  "ex_resetgame",
+  "ex_loadedgame",
+  "ex_victorious",
+  "ex_abort",
+  "ex_demodone",
+  "ex_secretlevel"
+] as const;
+const SOURCE_BUTTON_NAMES = [
+  "attack",
+  "strafe",
+  "run",
+  "use",
+  "readyknife",
+  "readypistol",
+  "readymachinegun",
+  "readychaingun"
+] as const;
+
+const WL_PLAY_STATE_WRITER = `
+/* CODEX_SOURCE_MODIFIED_STATE_WRITER_BEGIN */
+typedef struct
+{
+	char magic[4];
+	unsigned version;
+	unsigned size;
+	long frameon;
+	long timecount;
+	unsigned tics;
+	int playstate;
+	int difficulty;
+	int episode;
+	int mapon;
+	long score;
+	long nextextra;
+	int lives;
+	int health;
+	int ammo;
+	int keys;
+	int bestweapon;
+	int weapon;
+	int chosenweapon;
+	int faceframe;
+	int attackframe;
+	int attackcount;
+	int weaponframe;
+	int secretcount;
+	int treasurecount;
+	int killcount;
+	int secrettotal;
+	int treasuretotal;
+	int killtotal;
+	long killx;
+	long killy;
+	unsigned victoryflag;
+	long playerx;
+	long playery;
+	int playerangle;
+	unsigned playertilex;
+	unsigned playertiley;
+	int controlx;
+	int controly;
+	unsigned buttons;
+} wolfport_state_t;
+
+static void WolfPort_WriteState (void)
+{
+	wolfport_state_t snapshot;
+	int handle,i;
+
+	snapshot.magic[0] = 'W';
+	snapshot.magic[1] = '3';
+	snapshot.magic[2] = 'S';
+	snapshot.magic[3] = 'T';
+	snapshot.version = 1;
+	snapshot.size = sizeof(snapshot);
+	snapshot.frameon = frameon;
+	snapshot.timecount = gamestate.TimeCount;
+	snapshot.tics = tics;
+	snapshot.playstate = playstate;
+	snapshot.difficulty = gamestate.difficulty;
+	snapshot.episode = gamestate.episode;
+	snapshot.mapon = gamestate.mapon;
+	snapshot.score = gamestate.score;
+	snapshot.nextextra = gamestate.nextextra;
+	snapshot.lives = gamestate.lives;
+	snapshot.health = gamestate.health;
+	snapshot.ammo = gamestate.ammo;
+	snapshot.keys = gamestate.keys;
+	snapshot.bestweapon = gamestate.bestweapon;
+	snapshot.weapon = gamestate.weapon;
+	snapshot.chosenweapon = gamestate.chosenweapon;
+	snapshot.faceframe = gamestate.faceframe;
+	snapshot.attackframe = gamestate.attackframe;
+	snapshot.attackcount = gamestate.attackcount;
+	snapshot.weaponframe = gamestate.weaponframe;
+	snapshot.secretcount = gamestate.secretcount;
+	snapshot.treasurecount = gamestate.treasurecount;
+	snapshot.killcount = gamestate.killcount;
+	snapshot.secrettotal = gamestate.secrettotal;
+	snapshot.treasuretotal = gamestate.treasuretotal;
+	snapshot.killtotal = gamestate.killtotal;
+	snapshot.killx = gamestate.killx;
+	snapshot.killy = gamestate.killy;
+	snapshot.victoryflag = gamestate.victoryflag;
+	snapshot.playerx = player ? player->x : 0;
+	snapshot.playery = player ? player->y : 0;
+	snapshot.playerangle = player ? player->angle : 0;
+	snapshot.playertilex = player ? player->tilex : 0;
+	snapshot.playertiley = player ? player->tiley : 0;
+	snapshot.controlx = controlx;
+	snapshot.controly = controly;
+	snapshot.buttons = 0;
+
+	for (i=0;i<NUMBUTTONS;i++)
+		if (buttonstate[i])
+			snapshot.buttons |= (1<<i);
+
+	handle = open("${MODIFIED_STATE_FILE}",O_CREAT | O_TRUNC | O_WRONLY | O_BINARY,S_IREAD | S_IWRITE);
+	if (handle != -1)
+	{
+		write(handle,&snapshot,sizeof(snapshot));
+		close(handle);
+	}
+}
+/* CODEX_SOURCE_MODIFIED_STATE_WRITER_END */
+`;
 
 const DOSBOX_CONF = `
 [sdl]
@@ -1083,7 +1217,8 @@ async function exportStateBin(label: string, autoDownload = true): Promise<void>
   }
 
   const persisted = await commandInterface.persist(false);
-  const bytes = encodePersistedState(persisted);
+  const wolfStateBytes = await readOptionalFile(commandInterface, runtimeStateFilePaths(), 500);
+  const bytes = await encodePersistedState(persisted, wolfStateBytes);
   registerArtifact(
     new Blob([new Uint8Array(bytes)], {
       type: "application/octet-stream"
@@ -1179,29 +1314,199 @@ function artifactFileName(kind: string, label: string, extension: string): strin
   return `wolf3d-source-modified-${kind}${suffix}.${extension}`;
 }
 
-function encodePersistedState(
-  persisted: Uint8Array | { drives: { url: string; persist: Uint8Array }[] } | null
-): Uint8Array {
-  if (persisted instanceof Uint8Array) {
-    return persisted;
-  }
-
+async function encodePersistedState(
+  persisted: Uint8Array | { drives: { url: string; persist: Uint8Array }[] } | null,
+  wolfStateBytes: Uint8Array | null
+): Promise<Uint8Array> {
   return encodeText(
     JSON.stringify({
       artifacts: state.artifactRecords.map((artifact) => ({ ...artifact })),
+      audioSamples: state.audioSampleCount,
       capturedAt: new Date().toISOString(),
       frameCount: state.frameCount,
-      persisted: persisted
+      persisted: await summarizePersistedState(persisted),
+      runner: "source-modified-dos",
+      wolfState: wolfStateBytes
         ? {
-            drives: persisted.drives.map((drive) => ({
-              bytes: Array.from(drive.persist),
-              url: drive.url
-            }))
+            base64: bytesToBase64(wolfStateBytes),
+            bytes: wolfStateBytes.byteLength,
+            decoded: decodeWolfPortState(wolfStateBytes),
+            fileName: MODIFIED_STATE_FILE,
+            present: true,
+            sha256: await sha256Hex(wolfStateBytes)
           }
-        : null,
-      runner: "source-modified-dos"
+        : {
+            fileName: MODIFIED_STATE_FILE,
+            present: false
+          }
     })
   );
+}
+
+async function summarizePersistedState(
+  persisted: Uint8Array | { drives: { url: string; persist: Uint8Array }[] } | null
+): Promise<Record<string, unknown> | null> {
+  if (!persisted) {
+    return null;
+  }
+
+  if (persisted instanceof Uint8Array) {
+    return {
+      base64: bytesToBase64(persisted),
+      bytes: persisted.byteLength,
+      kind: "bundle",
+      sha256: await sha256Hex(persisted)
+    };
+  }
+
+  return {
+    drives: await Promise.all(
+      persisted.drives.map(async (drive) => ({
+        base64: bytesToBase64(drive.persist),
+        bytes: drive.persist.byteLength,
+        sha256: await sha256Hex(drive.persist),
+        url: drive.url
+      }))
+    ),
+    kind: "sockdrives"
+  };
+}
+
+function decodeWolfPortState(bytes: Uint8Array): Record<string, unknown> | null {
+  if (bytes.byteLength < 98) {
+    return null;
+  }
+
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const magic = String.fromCharCode(view.getUint8(0), view.getUint8(1), view.getUint8(2), view.getUint8(3));
+  if (magic !== "W3ST") {
+    return null;
+  }
+
+  let offset = 4;
+  const readUint16 = () => {
+    const value = view.getUint16(offset, true);
+    offset += 2;
+    return value;
+  };
+  const readInt16 = () => {
+    const value = view.getInt16(offset, true);
+    offset += 2;
+    return value;
+  };
+  const readInt32 = () => {
+    const value = view.getInt32(offset, true);
+    offset += 4;
+    return value;
+  };
+
+  const version = readUint16();
+  const size = readUint16();
+  const frameon = readInt32();
+  const timecount = readInt32();
+  const tics = readUint16();
+  const playstate = readInt16();
+  const difficulty = readInt16();
+  const episode = readInt16();
+  const mapon = readInt16();
+  const score = readInt32();
+  const nextextra = readInt32();
+  const lives = readInt16();
+  const health = readInt16();
+  const ammo = readInt16();
+  const keys = readInt16();
+  const bestweapon = readInt16();
+  const weapon = readInt16();
+  const chosenweapon = readInt16();
+  const faceframe = readInt16();
+  const attackframe = readInt16();
+  const attackcount = readInt16();
+  const weaponframe = readInt16();
+  const secretcount = readInt16();
+  const treasurecount = readInt16();
+  const killcount = readInt16();
+  const secrettotal = readInt16();
+  const treasuretotal = readInt16();
+  const killtotal = readInt16();
+  const killx = readInt32();
+  const killy = readInt32();
+  const victoryflag = readUint16();
+  const playerx = readInt32();
+  const playery = readInt32();
+  const playerangle = readInt16();
+  const playertilex = readUint16();
+  const playertiley = readUint16();
+  const controlx = readInt16();
+  const controly = readInt16();
+  const buttons = readUint16();
+
+  return {
+    buttons: Object.fromEntries(SOURCE_BUTTON_NAMES.map((name, index) => [name, (buttons & (1 << index)) !== 0])),
+    control: {
+      x: controlx,
+      y: controly
+    },
+    game: {
+      ammo,
+      attackcount,
+      attackframe,
+      bestweapon,
+      chosenweapon,
+      difficulty: SOURCE_DIFFICULTY_NAMES[difficulty] ?? difficulty,
+      episode,
+      faceframe,
+      health,
+      keys,
+      killcount,
+      killtotal,
+      killx,
+      killy,
+      lives,
+      mapon,
+      nextextra,
+      playstate: SOURCE_PLAYSTATE_NAMES[playstate] ?? playstate,
+      score,
+      secretcount,
+      secrettotal,
+      timecount,
+      treasurecount,
+      treasuretotal,
+      victoryflag: victoryflag !== 0,
+      weapon,
+      weaponframe
+    },
+    magic,
+    player: {
+      angle: playerangle,
+      tilex: playertilex,
+      tiley: playertiley,
+      x: playerx,
+      y: playery
+    },
+    runtime: {
+      frameon,
+      tics
+    },
+    size,
+    version
+  };
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  const chunkSize = 0x8000;
+  let binary = "";
+  for (let offset = 0; offset < bytes.byteLength; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+
+  return window.btoa(binary);
+}
+
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  const digest = await window.crypto.subtle.digest("SHA-256", copy.buffer);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function mergeAudioChunks(): Float32Array {
@@ -1424,9 +1729,10 @@ async function buildSourceBuildFs(status: SourceDosStatus): Promise<JsDosFileEnt
   const sourceEntries: JsDosFileEntry[] = [];
   const buildSourceFiles = status.sourceFiles.filter((entry) => shouldMountForBuild(entry.path));
   for (const [index, entry] of buildSourceFiles.entries()) {
+    const contents = await fetchBytes(`/__source-modified-dos/source/${encodePath(entry.path)}`);
     sourceEntries.push({
       path: `${BUILD_SOURCE_ROOT}/${entry.path}`,
-      contents: await fetchBytes(`/__source-modified-dos/source/${encodePath(entry.path)}`)
+      contents: modifiedBuildSourceContents(entry.path, contents)
     });
 
     if ((index + 1) % 25 === 0) {
@@ -1462,6 +1768,39 @@ async function buildSourceBuildFs(status: SourceDosStatus): Promise<JsDosFileEnt
       contents: encodeText(BORLAND_MAKEFILE)
     }
   ];
+}
+
+function modifiedBuildSourceContents(sourcePath: string, contents: Uint8Array): Uint8Array {
+  const normalizedPath = sourcePath.replaceAll("\\", "/").toUpperCase();
+  if (normalizedPath !== "WL_PLAY.C" && !normalizedPath.endsWith("/WL_PLAY.C")) {
+    return contents;
+  }
+
+  return encodeText(patchWlPlaySource(new TextDecoder().decode(contents)));
+}
+
+function patchWlPlaySource(source: string): string {
+  if (source.includes("CODEX_SOURCE_MODIFIED_STATE_WRITER_BEGIN")) {
+    return source;
+  }
+
+  const withWriter = source.replace(
+    /long funnyticount;\r?\n\r?\n\r?\nvoid PlayLoop \(void\)/,
+    `long funnyticount;\n${WL_PLAY_STATE_WRITER}\n\nvoid PlayLoop (void)`
+  );
+  if (withWriter === source) {
+    throw new Error("Unable to patch WL_PLAY.C with source-modified state writer.");
+  }
+
+  const withWriteCall = withWriter.replace(
+    /gamestate\.TimeCount\+=tics;\r?\n\r?\n\t\tSD_Poll \(\);/,
+    "gamestate.TimeCount+=tics;\n\t\tWolfPort_WriteState ();\n\n\t\tSD_Poll ();"
+  );
+  if (withWriteCall === withWriter) {
+    throw new Error("Unable to patch WL_PLAY.C with source-modified state capture call.");
+  }
+
+  return withWriteCall;
 }
 
 async function fetchBytes(url: string): Promise<Uint8Array> {
@@ -1564,6 +1903,20 @@ function buildFilePaths(fileName: string): string[] {
     `C:/${BUILD_SOURCE_ROOT}/${fileName}`,
     `SRCROOT/${fileName}`,
     `/SRCROOT/${fileName}`,
+    fileName
+  ];
+}
+
+function runtimeStateFilePaths(fileName = MODIFIED_STATE_FILE): string[] {
+  return [
+    `SRCGAME/${fileName}`,
+    `./SRCGAME/${fileName}`,
+    `/SRCGAME/${fileName}`,
+    `SRCGAME\\${fileName}`,
+    `.\\SRCGAME\\${fileName}`,
+    `\\SRCGAME\\${fileName}`,
+    `C:\\SRCGAME\\${fileName}`,
+    `C:/SRCGAME/${fileName}`,
     fileName
   ];
 }

@@ -282,18 +282,69 @@ function readStateMetadata(bytes) {
 
   try {
     const parsed = JSON.parse(text);
+    const game = readComparableStateGame(parsed);
     return {
       artifactCount: Array.isArray(parsed.artifacts) ? parsed.artifacts.length : null,
-      gameKeys: parsed.game && typeof parsed.game === "object" ? Object.keys(parsed.game).sort() : [],
+      game,
       json: true,
       runner: typeof parsed.runner === "string" ? parsed.runner : null,
-      topLevelKeys: Object.keys(parsed).sort()
+      topLevelKeys: Object.keys(parsed).sort(),
+      wolfStatePresent: parsed.wolfState && typeof parsed.wolfState === "object" ? parsed.wolfState.present === true : null
     };
   } catch {
     return {
       json: false
     };
   }
+}
+
+function readComparableStateGame(parsed) {
+  const game =
+    parsed?.wolfState?.decoded?.game && typeof parsed.wolfState.decoded.game === "object"
+      ? parsed.wolfState.decoded.game
+      : parsed?.game && typeof parsed.game === "object"
+        ? parsed.game
+        : null;
+
+  if (!game) {
+    return null;
+  }
+
+  return {
+    ammo: numberOrNull(game.ammo),
+    attackcount: numberOrNull(game.attackcount),
+    attackframe: numberOrNull(game.attackframe),
+    bestweapon: numberOrNull(game.bestweapon),
+    chosenweapon: numberOrNull(game.chosenweapon),
+    difficulty: stringOrNumberOrNull(game.difficulty),
+    episode: numberOrNull(game.episode),
+    health: numberOrNull(game.health),
+    keys: numberOrNull(game.keys),
+    killcount: numberOrNull(game.killcount),
+    killtotal: numberOrNull(game.killtotal),
+    lives: numberOrNull(game.lives),
+    mapon: numberOrNull(game.mapon),
+    playstate: stringOrNumberOrNull(game.playstate),
+    score: numberOrNull(game.score),
+    secretcount: numberOrNull(game.secretcount),
+    secrettotal: numberOrNull(game.secrettotal),
+    timecount: numberOrNull(game.timecount ?? game.TimeCount),
+    treasurecount: numberOrNull(game.treasurecount),
+    treasuretotal: numberOrNull(game.treasuretotal),
+    victoryflag: typeof game.victoryflag === "boolean" ? game.victoryflag : Boolean(game.victoryflag),
+    weapon: numberOrNull(game.weapon),
+    weaponframe: numberOrNull(game.weaponframe)
+  };
+}
+
+function numberOrNull(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function stringOrNumberOrNull(value) {
+  return (typeof value === "string" && value.length > 0) || (typeof value === "number" && Number.isFinite(value))
+    ? value
+    : null;
 }
 
 function compareManifests(left, right) {
@@ -323,7 +374,7 @@ function compareManifests(left, right) {
         differences.push("sha256 differs");
       }
 
-      if (stableJson(leftArtifact.metadata) !== stableJson(rightArtifact.metadata)) {
+      if (stableJson(comparableArtifactMetadata(leftArtifact)) !== stableJson(comparableArtifactMetadata(rightArtifact))) {
         differences.push("metadata differs");
       }
 
@@ -350,6 +401,17 @@ function compareManifests(left, right) {
     right,
     summary
   };
+}
+
+function comparableArtifactMetadata(artifact) {
+  if (artifact.kind === "state" && artifact.metadata?.json) {
+    return {
+      game: artifact.metadata.game,
+      json: true
+    };
+  }
+
+  return artifact.metadata;
 }
 
 function printReport(report, reportPath) {
@@ -380,7 +442,12 @@ function formatMetadata(metadata) {
   }
 
   if (metadata.json) {
-    return metadata.runner ? ` ${metadata.runner}` : " json";
+    const runner = metadata.runner ? ` ${metadata.runner}` : " json";
+    if (metadata.game) {
+      return `${runner} map ${metadata.game.episode}:${metadata.game.mapon} hp ${metadata.game.health} ammo ${metadata.game.ammo}`;
+    }
+
+    return runner;
   }
 
   return "";

@@ -43,6 +43,11 @@ makefile/config derived from the original `WOLF3D.PRJ`. The generated EXE is
 kept in memory, exposed as a local download, and used by Start for the next
 DOSBox launch.
 
+The modified DOS build patches `WL_PLAY.C` in memory before compiling so the
+rebuilt EXE writes a tiny `WOLFSTAT.BIN` snapshot during `PlayLoop`. State
+artifacts include that decoded oracle state when available, alongside the
+DOSBox persistence summary.
+
 The modified DOS and TypeScript lanes both understand base64url-encoded demo
 plans in the `?demo=` query parameter. Demo steps can wait, press or hold keys,
 and capture PNG/WAV/BIN artifacts. The helper script prints a ready-to-open URL:
