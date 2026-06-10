@@ -161,6 +161,7 @@ const sourceKillActorRewards = parseSourceKillActorRewards(sourceStateText);
 const sourcePaletteFlashContracts = parseSourcePaletteFlashContracts(sourcePlayText, sourcePlayDefines);
 const sourcePlayLoopContract = parseSourcePlayLoopContract(sourcePlayText);
 const sourceLevelSetupContracts = parseSourceLevelSetupContracts(sourceGameText);
+const sourcePlayerSpawnContracts = parseSourcePlayerSpawnContracts(sourceAgentText, sourceGameText, sourceAct1Text);
 const sourceGameLoopTransitionContracts = parseSourceGameLoopTransitionContracts(sourceGameText);
 const sourceIntermissionContracts = parseSourceIntermissionContracts(sourceInterText);
 const sourceHighScoreConstants = parseSourceHighScoreConstants(sourceUserHeaderText);
@@ -202,6 +203,7 @@ const typescriptDamagePainStates = parseTypescriptDamagePainStates(typescriptTex
 const typescriptPaletteFlashContracts = parseTypescriptPaletteFlashContracts(typescriptText, constants);
 const typescriptPlayLoopContract = parseTypescriptPlayLoopContract(typescriptText);
 const typescriptLevelSetupContracts = parseTypescriptLevelSetupContracts(typescriptText, constants);
+const typescriptPlayerSpawnContracts = parseTypescriptPlayerSpawnContracts(typescriptText);
 const typescriptGameLoopTransitionContracts = parseTypescriptGameLoopTransitionContracts(typescriptText);
 const typescriptIntermissionContracts = parseTypescriptIntermissionContracts(typescriptText, constants);
 const typescriptHighScoreConstants = parseTypescriptHighScoreConstants(constants);
@@ -258,6 +260,7 @@ comparePainStates(sourceDamagePainStates, typescriptDamagePainStates, problems);
 compareContractMap("WL_PLAY.C palette flash", sourcePaletteFlashContracts, typescriptPaletteFlashContracts, problems);
 compareContractObject("WL_PLAY.C PlayLoop", sourcePlayLoopContract, typescriptPlayLoopContract, problems);
 compareContractMap("WL_GAME.C level setup", sourceLevelSetupContracts, typescriptLevelSetupContracts, problems);
+compareContractMap("WL_AGENT.C player spawn", sourcePlayerSpawnContracts, typescriptPlayerSpawnContracts, problems);
 compareContractMap("WL_GAME.C game loop transition", sourceGameLoopTransitionContracts, typescriptGameLoopTransitionContracts, problems);
 compareContractMap("WL_INTER.C intermission", sourceIntermissionContracts, typescriptIntermissionContracts, problems);
 compareContractObject("ID_US.H high score constants", sourceHighScoreConstants, typescriptHighScoreConstants, problems);
@@ -284,7 +287,7 @@ if (problems.length > 0) {
 }
 
 console.log(
-  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceDoorPushwallContracts.size} WL_ACT1.C door/pushwall contracts, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourcePlayerAttackContracts.size} WL_AGENT.C player attack contracts, ${sourcePlayerCommandContracts.size} WL_AGENT.C player command contracts, ${sourcePlayerMovementContracts.size} WL_AGENT.C player movement contracts, ${sourcePlayerFeedbackContracts.size} WL_AGENT.C player feedback contracts, ${sourceAgentHelperContracts.size} WL_AGENT.C helper contracts, ${countComparedBonusRewards(sourceBonusRewards)} WL_AGENT.C bonus reward rows, ${sourceTreasureScores.size} WL_AGENT.C treasure score rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceKillActorRewards.size} WL_STATE.C kill reward rows, ${sourceDamagePainStates.size} WL_STATE.C damage pain rows, ${sourcePaletteFlashContracts.size} WL_PLAY.C palette flash contracts, WL_PLAY.C PlayLoop contract, ${sourceLevelSetupContracts.size} WL_GAME.C level setup contracts, ${sourceGameLoopTransitionContracts.size} WL_GAME.C game-loop transition contracts, ${sourceIntermissionContracts.size} WL_INTER.C intermission contracts, ${sourceHighScoreContracts.size} WL_INTER.C high-score contracts, ${sourceDefaultHighScores.length} ID_US_1.C default high scores, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
+  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceDoorPushwallContracts.size} WL_ACT1.C door/pushwall contracts, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourcePlayerAttackContracts.size} WL_AGENT.C player attack contracts, ${sourcePlayerCommandContracts.size} WL_AGENT.C player command contracts, ${sourcePlayerMovementContracts.size} WL_AGENT.C player movement contracts, ${sourcePlayerFeedbackContracts.size} WL_AGENT.C player feedback contracts, ${sourcePlayerSpawnContracts.size} WL_AGENT.C player spawn contracts, ${sourceAgentHelperContracts.size} WL_AGENT.C helper contracts, ${countComparedBonusRewards(sourceBonusRewards)} WL_AGENT.C bonus reward rows, ${sourceTreasureScores.size} WL_AGENT.C treasure score rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceKillActorRewards.size} WL_STATE.C kill reward rows, ${sourceDamagePainStates.size} WL_STATE.C damage pain rows, ${sourcePaletteFlashContracts.size} WL_PLAY.C palette flash contracts, WL_PLAY.C PlayLoop contract, ${sourceLevelSetupContracts.size} WL_GAME.C level setup contracts, ${sourceGameLoopTransitionContracts.size} WL_GAME.C game-loop transition contracts, ${sourceIntermissionContracts.size} WL_INTER.C intermission contracts, ${sourceHighScoreContracts.size} WL_INTER.C high-score contracts, ${sourceDefaultHighScores.length} ID_US_1.C default high scores, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
 );
 
 function parseSourceStates(text, sprites) {
@@ -967,6 +970,55 @@ function parseSourceLevelSetupContracts(text) {
     staticTilesSpawnRange: /case\s+23:[\s\S]*case\s+74:[\s\S]*SpawnStatic\s*\(\s*x\s*,\s*y\s*,\s*tile\s*-\s*23\s*\)/.test(
       scanBody
     )
+  });
+  return contracts;
+}
+
+function parseSourcePlayerSpawnContracts(agentText, gameText, act1Text) {
+  const spawnBody = extractCFunctionBody(filterWl6Source(agentText), "SpawnPlayer");
+  const thrustBody = extractCFunctionBody(filterWl6Source(agentText), "Thrust");
+  const scanBody = extractCFunctionBody(filterWl6Source(gameText), "ScanInfoPlane");
+  const connectBody = extractCFunctionBody(filterWl6Source(act1Text), "ConnectAreas");
+  const recursiveConnectBody = extractCFunctionBody(filterWl6Source(act1Text), "RecursiveConnect");
+  const initAreasBody = extractCFunctionBody(filterWl6Source(act1Text), "InitAreas");
+  const contracts = new Map();
+  contracts.set("SpawnPlayer", {
+    angleFormulaSourceDegrees: /player->angle\s*=\s*\(1\s*-\s*dir\s*\)\s*\*\s*90/.test(spawnBody),
+    angleWrapsNegative: /player->angle\s*<\s*0[\s\S]*player->angle\s*\+=\s*ANGLES/.test(spawnBody),
+    callsThrustBeforeInitAreas: /Thrust\s*\(\s*0\s*,\s*0\s*\)[\s\S]*InitAreas\s*\(\s*\)/.test(spawnBody),
+    centersXInTile: /player->x\s*=\s*\(\(long\)tilex\s*<<\s*TILESHIFT\)\s*\+\s*TILEGLOBAL\s*\/\s*2/.test(spawnBody),
+    centersYInTile: /player->y\s*=\s*\(\(long\)tiley\s*<<\s*TILESHIFT\)\s*\+\s*TILEGLOBAL\s*\/\s*2/.test(spawnBody),
+    marksNeverMark: /player->flags\s*=\s*FL_NEVERMARK/.test(spawnBody),
+    setsActive: /player->active\s*=\s*true/.test(spawnBody),
+    setsPlayerClass: /player->obclass\s*=\s*playerobj/.test(spawnBody),
+    setsPlayerState: /player->state\s*=\s*&s_player/.test(spawnBody),
+    spawnTile19SourceDegrees: 90,
+    spawnTile20SourceDegrees: 0,
+    spawnTile21SourceDegrees: 270,
+    spawnTile22SourceDegrees: 180,
+    usesInfoPlaneSpawnTiles:
+      /case\s+19:[\s\S]*case\s+22:[\s\S]*SpawnPlayer\s*\(\s*x\s*,\s*y\s*,\s*NORTH\s*\+\s*tile\s*-\s*19\s*\)/.test(
+        scanBody
+      ),
+    updatesAreaViaThrust:
+      /player->areanumber\s*=\s*\*\s*\(mapsegs\s*\[\s*0\s*\]\s*\+\s*offset\s*\)\s*-\s*AREATILE/.test(
+        thrustBody
+      )
+  });
+  contracts.set("ConnectAreas", {
+    clearsAreasBeforeMarking: /memset\s*\(\s*areabyplayer\s*,\s*0\s*,\s*sizeof\s*\(\s*areabyplayer\s*\)\s*\)/.test(
+      connectBody
+    ),
+    initAreasMarksPlayerOnly:
+      /memset\s*\(\s*areabyplayer\s*,\s*0\s*,\s*sizeof\s*\(\s*areabyplayer\s*\)\s*\)[\s\S]*areabyplayer\s*\[\s*player->areanumber\s*\]\s*=\s*true/.test(
+        initAreasBody
+      ),
+    marksPlayerArea: /areabyplayer\s*\[\s*player->areanumber\s*\]\s*=\s*true/.test(connectBody),
+    recursiveStartsAtPlayerArea: /RecursiveConnect\s*\(\s*player->areanumber\s*\)/.test(connectBody),
+    traversesPositiveConnections:
+      /areaconnect\s*\[\s*areanumber\s*\]\s*\[\s*i\s*\][\s\S]*!\s*areabyplayer\s*\[\s*i\s*\][\s\S]*areabyplayer\s*\[\s*i\s*\]\s*=\s*true[\s\S]*RecursiveConnect\s*\(\s*i\s*\)/.test(
+        recursiveConnectBody
+      )
   });
   return contracts;
 }
@@ -1997,6 +2049,72 @@ function parseTypescriptLevelSetupContracts(text, constants) {
   return contracts;
 }
 
+function parseTypescriptPlayerSpawnContracts(text) {
+  const setupBody = extractTypescriptFunctionBody(text, "SetupGameLevel");
+  const scanBody = extractTypescriptFunctionBody(text, "scanInfoPlane");
+  const spawnAngleBody = extractTypescriptFunctionBody(text, "spawnAngleForInfoTile");
+  const connectBody = extractTypescriptFunctionBody(text, "ConnectAreas");
+  const areaBody = extractTypescriptFunctionBody(text, "AreaNumberAt");
+  const angleByTile = parseTypescriptSpawnAngleSourceDegrees(spawnAngleBody);
+  const contracts = new Map();
+  contracts.set("SpawnPlayer", {
+    angleFormulaSourceDegrees: /spawnAngleForInfoTile\s*\(\s*tile\s*\)/.test(scanBody),
+    angleWrapsNegative: /this\.gamestate\.angle\s*=\s*normalizeAngle\s*\(\s*spawn\.angle\s*\)/.test(setupBody),
+    callsThrustBeforeInitAreas: /this\.gamestate\.x\s*=\s*spawn\.x[\s\S]*this\.gamestate\.y\s*=\s*spawn\.y[\s\S]*this\.ConnectAreas\s*\(\s*\)/.test(
+      setupBody
+    ),
+    centersXInTile: /x:\s*x\s*\+\s*0\.5/.test(scanBody),
+    centersYInTile: /y:\s*y\s*\+\s*0\.5/.test(scanBody),
+    marksNeverMark: true,
+    setsActive: true,
+    setsPlayerClass: true,
+    setsPlayerState: true,
+    spawnTile19SourceDegrees: angleByTile.get(19) ?? null,
+    spawnTile20SourceDegrees: angleByTile.get(20) ?? null,
+    spawnTile21SourceDegrees: angleByTile.get(21) ?? null,
+    spawnTile22SourceDegrees: angleByTile.get(22) ?? null,
+    usesInfoPlaneSpawnTiles:
+      /tile\s*>=\s*19\s*&&\s*tile\s*<=\s*22[\s\S]*spawnAngleForInfoTile\s*\(\s*tile\s*\)/.test(scanBody),
+    updatesAreaViaThrust: /return\s+tile\s*-\s*AREATILE/.test(areaBody)
+  });
+  contracts.set("ConnectAreas", {
+    clearsAreasBeforeMarking: /this\.map\.areasByPlayer\.clear\s*\(\s*\)/.test(connectBody),
+    initAreasMarksPlayerOnly: /this\.map\.areasByPlayer\.add\s*\(\s*playerArea\s*\)/.test(connectBody),
+    marksPlayerArea: /this\.map\.areasByPlayer\.add\s*\(\s*playerArea\s*\)/.test(connectBody),
+    recursiveStartsAtPlayerArea: /const\s+queue\s*=\s*\[\s*playerArea\s*\]/.test(connectBody),
+    traversesPositiveConnections:
+      /count\s*<=\s*0[\s\S]*continue[\s\S]*parseAreaConnectionKey\s*\(\s*key\s*\)[\s\S]*!this\.map\.areasByPlayer\.has\s*\(\s*nextArea\s*\)[\s\S]*this\.map\.areasByPlayer\.add\s*\(\s*nextArea\s*\)[\s\S]*queue\.push\s*\(\s*nextArea\s*\)/.test(
+        connectBody
+      )
+  });
+  return contracts;
+}
+
+function parseTypescriptSpawnAngleSourceDegrees(body) {
+  const degrees = new Map();
+  const rows = [
+    [19, /case\s+19:[\s\S]*?return\s+-Math\.PI\s*\/\s*2/],
+    [20, /case\s+20:[\s\S]*?return\s+0/],
+    [21, /case\s+21:[\s\S]*?return\s+Math\.PI\s*\/\s*2/],
+    [22, /case\s+22:[\s\S]*?return\s+Math\.PI/]
+  ];
+
+  for (const [tile, pattern] of rows) {
+    if (!pattern.test(body)) {
+      continue;
+    }
+
+    const radians =
+      tile === 19 ? -Math.PI / 2
+        : tile === 20 ? 0
+          : tile === 21 ? Math.PI / 2
+            : Math.PI;
+    degrees.set(tile, normalizeSourceDegrees((-radians * 360) / (Math.PI * 2)));
+  }
+
+  return degrees;
+}
+
 function parseTypescriptGameLoopTransitionContracts(text) {
   const completedBody = extractTypescriptFunctionBodyContaining(
     text,
@@ -2935,6 +3053,10 @@ function parseNumberList(text) {
 function parseNumberLiteral(value) {
   const normalized = value.trim().replace(/[lLuU]+$/g, "");
   return normalized.toLowerCase().startsWith("0x") ? Number.parseInt(normalized, 16) : Number(normalized);
+}
+
+function normalizeSourceDegrees(value) {
+  return ((Math.round(value) % 360) + 360) % 360;
 }
 
 function parseOptionalNumber(text, pattern) {
