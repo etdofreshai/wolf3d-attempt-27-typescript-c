@@ -17,5 +17,9 @@ node_modules/
 apps/*/dist/
 deps/borland/*
 !deps/borland/.gitkeep
+artifacts/
+reports/
+*.artifact-manifest.json
+*.parity-report.json
 .DS_Store
 *.log

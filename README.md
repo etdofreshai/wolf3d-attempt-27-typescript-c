@@ -52,6 +52,16 @@ npm run demo:plan -- --target source-modified-dos --name boot --wait 1200 --key 
 npm run demo:plan -- --target source-typescript --name turn-test --map 0 --difficulty hard --wait 300 --key ArrowRight:250 --capture turn --state
 ```
 
+After downloading artifacts from both lanes into local ignored folders, compare
+their frame/audio/state files by kind and capture label:
+
+```powershell
+npm run demo:compare -- --dos artifacts/source-modified --ts artifacts/source-typescript --allow-diff --report artifacts/latest-parity-report.json
+```
+
+Omit `--allow-diff` when using the comparison as a strict parity gate. Generated
+artifact folders and reports are ignored and should stay out of commits.
+
 Local DOS build dependencies are intentionally private. To let `apps/source-dos`
 load a period compiler into DOSBox, place a licensed Borland C++ 3.0/3.1-style
 install under `deps/borland` or set `BORLANDC_ROOT` / `BC_ROOT` to that install
