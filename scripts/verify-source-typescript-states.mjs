@@ -160,6 +160,7 @@ const sourceDamagePainStates = parseSourceDamagePainStates(sourceStateText);
 const sourceKillActorRewards = parseSourceKillActorRewards(sourceStateText);
 const sourcePaletteFlashContracts = parseSourcePaletteFlashContracts(sourcePlayText, sourcePlayDefines);
 const sourcePlayLoopContract = parseSourcePlayLoopContract(sourcePlayText);
+const sourceLevelSetupContracts = parseSourceLevelSetupContracts(sourceGameText);
 const sourceGameLoopTransitionContracts = parseSourceGameLoopTransitionContracts(sourceGameText);
 const sourceIntermissionContracts = parseSourceIntermissionContracts(sourceInterText);
 const sourceHighScoreConstants = parseSourceHighScoreConstants(sourceUserHeaderText);
@@ -200,6 +201,7 @@ const typescriptDamageActorContract = parseTypescriptDamageActorContract(typescr
 const typescriptDamagePainStates = parseTypescriptDamagePainStates(typescriptText);
 const typescriptPaletteFlashContracts = parseTypescriptPaletteFlashContracts(typescriptText, constants);
 const typescriptPlayLoopContract = parseTypescriptPlayLoopContract(typescriptText);
+const typescriptLevelSetupContracts = parseTypescriptLevelSetupContracts(typescriptText, constants);
 const typescriptGameLoopTransitionContracts = parseTypescriptGameLoopTransitionContracts(typescriptText);
 const typescriptIntermissionContracts = parseTypescriptIntermissionContracts(typescriptText, constants);
 const typescriptHighScoreConstants = parseTypescriptHighScoreConstants(constants);
@@ -255,6 +257,7 @@ compareContractObject("WL_STATE.C DamageActor", sourceDamageActorContract, types
 comparePainStates(sourceDamagePainStates, typescriptDamagePainStates, problems);
 compareContractMap("WL_PLAY.C palette flash", sourcePaletteFlashContracts, typescriptPaletteFlashContracts, problems);
 compareContractObject("WL_PLAY.C PlayLoop", sourcePlayLoopContract, typescriptPlayLoopContract, problems);
+compareContractMap("WL_GAME.C level setup", sourceLevelSetupContracts, typescriptLevelSetupContracts, problems);
 compareContractMap("WL_GAME.C game loop transition", sourceGameLoopTransitionContracts, typescriptGameLoopTransitionContracts, problems);
 compareContractMap("WL_INTER.C intermission", sourceIntermissionContracts, typescriptIntermissionContracts, problems);
 compareContractObject("ID_US.H high score constants", sourceHighScoreConstants, typescriptHighScoreConstants, problems);
@@ -281,7 +284,7 @@ if (problems.length > 0) {
 }
 
 console.log(
-  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceDoorPushwallContracts.size} WL_ACT1.C door/pushwall contracts, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourcePlayerAttackContracts.size} WL_AGENT.C player attack contracts, ${sourcePlayerCommandContracts.size} WL_AGENT.C player command contracts, ${sourcePlayerMovementContracts.size} WL_AGENT.C player movement contracts, ${sourcePlayerFeedbackContracts.size} WL_AGENT.C player feedback contracts, ${sourceAgentHelperContracts.size} WL_AGENT.C helper contracts, ${countComparedBonusRewards(sourceBonusRewards)} WL_AGENT.C bonus reward rows, ${sourceTreasureScores.size} WL_AGENT.C treasure score rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceKillActorRewards.size} WL_STATE.C kill reward rows, ${sourceDamagePainStates.size} WL_STATE.C damage pain rows, ${sourcePaletteFlashContracts.size} WL_PLAY.C palette flash contracts, WL_PLAY.C PlayLoop contract, ${sourceGameLoopTransitionContracts.size} WL_GAME.C game-loop transition contracts, ${sourceIntermissionContracts.size} WL_INTER.C intermission contracts, ${sourceHighScoreContracts.size} WL_INTER.C high-score contracts, ${sourceDefaultHighScores.length} ID_US_1.C default high scores, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
+  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceDoorPushwallContracts.size} WL_ACT1.C door/pushwall contracts, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourcePlayerAttackContracts.size} WL_AGENT.C player attack contracts, ${sourcePlayerCommandContracts.size} WL_AGENT.C player command contracts, ${sourcePlayerMovementContracts.size} WL_AGENT.C player movement contracts, ${sourcePlayerFeedbackContracts.size} WL_AGENT.C player feedback contracts, ${sourceAgentHelperContracts.size} WL_AGENT.C helper contracts, ${countComparedBonusRewards(sourceBonusRewards)} WL_AGENT.C bonus reward rows, ${sourceTreasureScores.size} WL_AGENT.C treasure score rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceKillActorRewards.size} WL_STATE.C kill reward rows, ${sourceDamagePainStates.size} WL_STATE.C damage pain rows, ${sourcePaletteFlashContracts.size} WL_PLAY.C palette flash contracts, WL_PLAY.C PlayLoop contract, ${sourceLevelSetupContracts.size} WL_GAME.C level setup contracts, ${sourceGameLoopTransitionContracts.size} WL_GAME.C game-loop transition contracts, ${sourceIntermissionContracts.size} WL_INTER.C intermission contracts, ${sourceHighScoreContracts.size} WL_INTER.C high-score contracts, ${sourceDefaultHighScores.length} ID_US_1.C default high scores, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
 );
 
 function parseSourceStates(text, sprites) {
@@ -920,6 +923,52 @@ function parseSourcePlayLoopContract(text) {
     refreshBeforeTime: /ThreeDRefresh\s*\(\s*\)[\s\S]*?gamestate\.TimeCount\s*\+=\s*tics/.test(body),
     soundPollAfterTime: /gamestate\.TimeCount\s*\+=\s*tics[\s\S]*?SD_Poll\s*\(\s*\)/.test(body)
   };
+}
+
+function parseSourceLevelSetupContracts(text) {
+  const activeText = filterWl6Source(text);
+  const setupBody = extractCFunctionBody(activeText, "SetupGameLevel");
+  const scanBody = extractCFunctionBody(activeText, "ScanInfoPlane");
+  const contracts = new Map();
+  contracts.set("SetupGameLevel", {
+    actorDoorStaticListsBeforeScan:
+      /InitActorList\s*\(\s*\)[\s\S]*InitDoorList\s*\(\s*\)[\s\S]*InitStaticList\s*\(\s*\)[\s\S]*ScanInfoPlane\s*\(\s*\)/.test(
+        setupBody
+      ),
+    ambushCleanupAfterScan: /ScanInfoPlane\s*\(\s*\)[\s\S]*tile\s*==\s*AMBUSHTILE/.test(setupBody),
+    cacheMapFromEpisodeAndMapon: /CA_CacheMap\s*\(\s*gamestate\.mapon\s*\+\s*10\s*\*\s*gamestate\.episode\s*\)/.test(
+      setupBody
+    ),
+    clearsActorat: /memset\s*\(\s*actorat\s*,\s*0\s*,\s*sizeof\s*\(\s*actorat\s*\)\s*\)/.test(setupBody),
+    clearsTilemap: /memset\s*\(\s*tilemap\s*,\s*0\s*,\s*sizeof\s*\(\s*tilemap\s*\)\s*\)/.test(setupBody),
+    deterministicRngForDemo: /demoplayback\s*\|\|\s*demorecord[\s\S]*US_InitRndT\s*\(\s*false\s*\)/.test(setupBody),
+    mapHeight: parseRequiredNumber(setupBody, /mapheight\s*!=\s*([0-9]+)/, "SetupGameLevel map height"),
+    mapWidth: parseRequiredNumber(setupBody, /mapwidth\s*!=\s*([0-9]+)/, "SetupGameLevel map width"),
+    rejectsNon64Map: /mapwidth\s*!=\s*64\s*\|\|\s*mapheight\s*!=\s*64[\s\S]*Quit\s*\(\s*"Map not 64\*64!"\s*\)/.test(
+      setupBody
+    ),
+    resetsFreshCounts:
+      /!\s*loadedgame[\s\S]*gamestate\.TimeCount\s*=[\s\S]*gamestate\.secrettotal\s*=[\s\S]*gamestate\.killtotal\s*=[\s\S]*gamestate\.treasuretotal\s*=[\s\S]*gamestate\.secretcount\s*=[\s\S]*gamestate\.killcount\s*=[\s\S]*gamestate\.treasurecount\s*=\s*0/.test(
+        setupBody
+      ),
+    scanInfoPlaneBeforeAmbushCleanup: /ScanInfoPlane\s*\(\s*\)[\s\S]*take out the ambush markers/.test(setupBody),
+    spawnsDoorsBeforeScan: /tile\s*>=\s*90\s*&&\s*tile\s*<=\s*101[\s\S]*SpawnDoor[\s\S]*ScanInfoPlane\s*\(\s*\)/.test(
+      setupBody
+    )
+  });
+  contracts.set("ScanInfoPlane", {
+    actorsFromInfoPlane: /start\s*=\s*mapsegs\s*\[\s*1\s*\]/.test(scanBody),
+    countsPushwallsAsSecrets: /case\s+98:[\s\S]*gamestate\.secrettotal\+\+/.test(scanBody),
+    difficultySkipsHardGuards: /gamestate\.difficulty\s*<\s*gd_hard[\s\S]*break/.test(scanBody),
+    difficultySkipsMediumGuards: /gamestate\.difficulty\s*<\s*gd_medium[\s\S]*break/.test(scanBody),
+    playerSpawnTiles: /case\s+19:[\s\S]*case\s+22:[\s\S]*SpawnPlayer\s*\(\s*x\s*,\s*y\s*,\s*NORTH\s*\+\s*tile\s*-\s*19\s*\)/.test(
+      scanBody
+    ),
+    staticTilesSpawnRange: /case\s+23:[\s\S]*case\s+74:[\s\S]*SpawnStatic\s*\(\s*x\s*,\s*y\s*,\s*tile\s*-\s*23\s*\)/.test(
+      scanBody
+    )
+  });
+  return contracts;
 }
 
 function parseSourceGameLoopTransitionContracts(text) {
@@ -1894,6 +1943,58 @@ function parseTypescriptPlayLoopContract(text) {
     refreshBeforeTime: /this\.wl_draw\.ThreeDRefresh\s*\(\s*this\.wl_game\s*\)[\s\S]*?this\.wl_game\.AdvanceTime\s*\(\s*tics\s*\)/.test(body),
     soundPollAfterTime: /this\.wl_game\.AdvanceTime\s*\(\s*tics\s*\)[\s\S]*?this\.id_sd\.SD_Service\s*\(/.test(body)
   };
+}
+
+function parseTypescriptLevelSetupContracts(text, constants) {
+  const setupBody = extractTypescriptFunctionBody(text, "SetupGameLevel");
+  const scanBody = extractTypescriptFunctionBody(text, "scanInfoPlane");
+  const directionalEnemyBody = extractTypescriptFunctionBody(text, "directionalEnemy");
+  const contracts = new Map();
+  contracts.set("SetupGameLevel", {
+    actorDoorStaticListsBeforeScan: /actors:\s*scan\.actors[\s\S]*doors\s*,[\s\S]*statics:\s*scan\.statics/.test(setupBody),
+    ambushCleanupAfterScan: /cleanSourceWallPlane\s*\(/.test(setupBody),
+    cacheMapFromEpisodeAndMapon: /this\.gamestate\.episode\s*=\s*Math\.floor\s*\(\s*level\s*\/\s*10\s*\)[\s\S]*this\.gamestate\.mapon\s*=\s*level\s*%\s*10/.test(
+      setupBody
+    ),
+    clearsActorat: /blockingStaticKeys\s*=\s*new\s+Set/.test(setupBody),
+    clearsTilemap: /walls:\s*cleanSourceWallPlane\s*\(/.test(setupBody),
+    deterministicRngForDemo: /this\.rndIndex\s*=\s*0/.test(setupBody),
+    mapHeight: resolveTypescriptNumber("SOURCE_MAP_HEIGHT", constants),
+    mapWidth: resolveTypescriptNumber("SOURCE_MAP_WIDTH", constants),
+    rejectsNon64Map:
+      /wolfMap\.header\.width\s*!==\s*SOURCE_MAP_WIDTH\s*\|\|\s*wolfMap\.header\.height\s*!==\s*SOURCE_MAP_HEIGHT[\s\S]*throw\s+new\s+Error\s*\(\s*"Map not 64\*64!"\s*\)/.test(
+        setupBody
+      ),
+    resetsFreshCounts:
+      /this\.gamestate\.timecount\s*=\s*0/.test(setupBody) &&
+      /this\.gamestate\.secretcount\s*=\s*0/.test(setupBody) &&
+      /this\.gamestate\.secrettotal\s*=\s*this\.map\.secretTotal/.test(setupBody) &&
+      /this\.gamestate\.killcount\s*=\s*0/.test(setupBody) &&
+      /this\.gamestate\.killtotal\s*=\s*this\.map\.killTotal/.test(setupBody) &&
+      /this\.gamestate\.treasurecount\s*=\s*0/.test(setupBody) &&
+      /this\.gamestate\.treasuretotal\s*=\s*this\.map\.treasureTotal/.test(setupBody),
+    scanInfoPlaneBeforeAmbushCleanup: /scanInfoPlane\s*\([\s\S]*cleanSourceWallPlane\s*\(/.test(setupBody),
+    spawnsDoorsBeforeScan: /scanWallPlaneForDoors\s*\(\s*wolfMap\s*\)/.test(setupBody)
+  });
+  contracts.set("ScanInfoPlane", {
+    actorsFromInfoPlane: /const\s+info\s*=\s*map\.planes\s*\[\s*1\s*\]/.test(scanBody),
+    countsPushwallsAsSecrets: /tile\s*===\s*PUSHABLETILE[\s\S]*secretTotal\s*\+=\s*1/.test(scanBody),
+    difficultySkipsHardGuards:
+      /actorFromInfoTile\s*\(\s*tile\s*,\s*x\s*,\s*y\s*,\s*difficulty/.test(scanBody) &&
+      /difficultyRank\s*\(\s*difficulty\s*\)\s*<\s*difficultyRank\s*\(\s*"hard"\s*\)[\s\S]*return\s+null/.test(
+        directionalEnemyBody
+      ),
+    difficultySkipsMediumGuards:
+      /actorFromInfoTile\s*\(\s*tile\s*,\s*x\s*,\s*y\s*,\s*difficulty/.test(scanBody) &&
+      /difficultyRank\s*\(\s*difficulty\s*\)\s*<\s*difficultyRank\s*\(\s*"medium"\s*\)[\s\S]*return\s+null/.test(
+        directionalEnemyBody
+      ),
+    playerSpawnTiles: /tile\s*>=\s*19\s*&&\s*tile\s*<=\s*22[\s\S]*spawnAngleForInfoTile\s*\(\s*tile\s*\)/.test(scanBody),
+    staticTilesSpawnRange: /tile\s*>=\s*23\s*&&\s*tile\s*<=\s*74[\s\S]*staticFromInfoTile\s*\(\s*tile\s*,\s*x\s*,\s*y\s*\)/.test(
+      scanBody
+    )
+  });
+  return contracts;
 }
 
 function parseTypescriptGameLoopTransitionContracts(text) {

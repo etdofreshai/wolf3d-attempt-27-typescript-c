@@ -484,6 +484,8 @@ const SOURCE_BACK_MOVESCALE = 100;
 // WL_ACT2.C mutates the projectile bosses' second death frame when digitized sound is enabled.
 const SOURCE_DIGITIZED_BOSS_DEATH_TICS = 140;
 const SOURCE_LEVEL_RATIO_COUNT = 8;
+const SOURCE_MAP_HEIGHT = 64;
+const SOURCE_MAP_WIDTH = 64;
 const SOURCE_MAX_CONTROL = 100;
 const SOURCE_MAX_STATS = 400;
 const SOURCE_FREE_STAT_SHAPENUM = -1;
@@ -2212,6 +2214,10 @@ class WLGame {
     this.rndIndex = 0;
 
     if (wolfMap) {
+      if (wolfMap.header.width !== SOURCE_MAP_WIDTH || wolfMap.header.height !== SOURCE_MAP_HEIGHT) {
+        throw new Error("Map not 64*64!");
+      }
+
       const scan = scanInfoPlane(wolfMap, this.gamestate.difficulty, (stateTics) => this.US_RndT() % stateTics);
       const doors = scanWallPlaneForDoors(wolfMap);
       const blockingStaticKeys = new Set(
