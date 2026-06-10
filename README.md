@@ -156,7 +156,8 @@ player movement, player feedback, and player spawn/area contract parity against
 bonus parity against `source/WOLFSRC/WL_AGENT.C`, actor kill score/drop parity and
 damage/pain-state parity plus actor direction-table parity against
 `source/WOLFSRC/WL_STATE.C`, palette flash and play-loop contract parity against
-`source/WOLFSRC/WL_PLAY.C`, level setup/scan and game-loop transition contract parity against
+`source/WOLFSRC/WL_PLAY.C`, WL6 map-header and Carmack/RLEW plane expansion contract parity against
+`source/WOLFSRC/ID_CA.C` and `source/WOLFSRC/ID_CA.H`, level setup/scan and game-loop transition contract parity against
 `source/WOLFSRC/WL_GAME.C`, intermission scoring/victory summary, high-score insertion, and level-flow table parity against
 `source/WOLFSRC/WL_INTER.C`, high-score constants/default table parity against
 `source/WOLFSRC/ID_US.H` and `source/WOLFSRC/ID_US_1.C`, RNG table parity against

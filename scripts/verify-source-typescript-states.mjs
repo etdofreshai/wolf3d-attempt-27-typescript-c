@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
 const sourceAudioPath = path.join(repoRoot, "source", "WOLFSRC", "AUDIOWL6.H");
+const sourceCachePath = path.join(repoRoot, "source", "WOLFSRC", "ID_CA.C");
+const sourceCacheHeaderPath = path.join(repoRoot, "source", "WOLFSRC", "ID_CA.H");
 const sourceHeaderPath = path.join(repoRoot, "source", "WOLFSRC", "WL_DEF.H");
 const sourceAct1Path = path.join(repoRoot, "source", "WOLFSRC", "WL_ACT1.C");
 const sourceAgentPath = path.join(repoRoot, "source", "WOLFSRC", "WL_AGENT.C");
@@ -18,6 +20,7 @@ const sourceStatePath = path.join(repoRoot, "source", "WOLFSRC", "WL_STATE.C");
 const sourceUserAsmPath = path.join(repoRoot, "source", "WOLFSRC", "ID_US_A.ASM");
 const sourceUserHeaderPath = path.join(repoRoot, "source", "WOLFSRC", "ID_US.H");
 const sourceUserPath = path.join(repoRoot, "source", "WOLFSRC", "ID_US_1.C");
+const typescriptMapPath = path.join(repoRoot, "apps", "source-typescript", "src", "wl6Map.ts");
 const typescriptPath = path.join(repoRoot, "apps", "source-typescript", "src", "main.ts");
 
 const THINK_NAMES = new Map([
@@ -100,6 +103,8 @@ const DIGITIZED_BOSS_DEATH_TICS = new Map([
 
 const [
   sourceAudioText,
+  sourceCacheText,
+  sourceCacheHeaderText,
   sourceHeaderText,
   sourceAct1Text,
   sourceAgentText,
@@ -112,9 +117,12 @@ const [
   sourceUserAsmText,
   sourceUserHeaderText,
   sourceUserText,
+  typescriptMapText,
   typescriptText
 ] = await Promise.all([
   readFile(sourceAudioPath, "utf8"),
+  readFile(sourceCachePath, "utf8"),
+  readFile(sourceCacheHeaderPath, "utf8"),
   readFile(sourceHeaderPath, "utf8"),
   readFile(sourceAct1Path, "utf8"),
   readFile(sourceAgentPath, "utf8"),
@@ -127,6 +135,7 @@ const [
   readFile(sourceUserAsmPath, "utf8"),
   readFile(sourceUserHeaderPath, "utf8"),
   readFile(sourceUserPath, "utf8"),
+  readFile(typescriptMapPath, "utf8"),
   readFile(typescriptPath, "utf8")
 ]);
 
@@ -160,6 +169,7 @@ const sourceDamagePainStates = parseSourceDamagePainStates(sourceStateText);
 const sourceKillActorRewards = parseSourceKillActorRewards(sourceStateText);
 const sourcePaletteFlashContracts = parseSourcePaletteFlashContracts(sourcePlayText, sourcePlayDefines);
 const sourcePlayLoopContract = parseSourcePlayLoopContract(sourcePlayText);
+const sourceMapParserContracts = parseSourceMapParserContracts(sourceCacheText, sourceCacheHeaderText);
 const sourceLevelSetupContracts = parseSourceLevelSetupContracts(sourceGameText);
 const sourcePlayerSpawnContracts = parseSourcePlayerSpawnContracts(sourceAgentText, sourceGameText, sourceAct1Text);
 const sourceGameLoopTransitionContracts = parseSourceGameLoopTransitionContracts(sourceGameText);
@@ -171,6 +181,7 @@ const sourceElevatorBackTo = parseSourceElevatorBackTo(sourceGameText);
 const sourceParTimesSeconds = parseSourceParTimesSeconds(sourceInterText);
 const sourceRndTable = parseSourceRndTable(sourceUserAsmText);
 const sourceStates = parseSourceStates(sourceText, sourceSprites);
+const mapConstants = parseNumericConstants(typescriptMapText);
 const constants = parseNumericConstants(typescriptText);
 const stringConstants = parseStringConstants(typescriptText);
 const typescriptSoundChunks = parseTypescriptSoundChunks(typescriptText);
@@ -202,6 +213,7 @@ const typescriptDamageActorContract = parseTypescriptDamageActorContract(typescr
 const typescriptDamagePainStates = parseTypescriptDamagePainStates(typescriptText);
 const typescriptPaletteFlashContracts = parseTypescriptPaletteFlashContracts(typescriptText, constants);
 const typescriptPlayLoopContract = parseTypescriptPlayLoopContract(typescriptText);
+const typescriptMapParserContracts = parseTypescriptMapParserContracts(typescriptMapText, mapConstants);
 const typescriptLevelSetupContracts = parseTypescriptLevelSetupContracts(typescriptText, constants);
 const typescriptPlayerSpawnContracts = parseTypescriptPlayerSpawnContracts(typescriptText);
 const typescriptGameLoopTransitionContracts = parseTypescriptGameLoopTransitionContracts(typescriptText);
@@ -259,6 +271,7 @@ compareContractObject("WL_STATE.C DamageActor", sourceDamageActorContract, types
 comparePainStates(sourceDamagePainStates, typescriptDamagePainStates, problems);
 compareContractMap("WL_PLAY.C palette flash", sourcePaletteFlashContracts, typescriptPaletteFlashContracts, problems);
 compareContractObject("WL_PLAY.C PlayLoop", sourcePlayLoopContract, typescriptPlayLoopContract, problems);
+compareContractMap("ID_CA.C map parser", sourceMapParserContracts, typescriptMapParserContracts, problems);
 compareContractMap("WL_GAME.C level setup", sourceLevelSetupContracts, typescriptLevelSetupContracts, problems);
 compareContractMap("WL_AGENT.C player spawn", sourcePlayerSpawnContracts, typescriptPlayerSpawnContracts, problems);
 compareContractMap("WL_GAME.C game loop transition", sourceGameLoopTransitionContracts, typescriptGameLoopTransitionContracts, problems);
@@ -287,7 +300,7 @@ if (problems.length > 0) {
 }
 
 console.log(
-  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceDoorPushwallContracts.size} WL_ACT1.C door/pushwall contracts, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourcePlayerAttackContracts.size} WL_AGENT.C player attack contracts, ${sourcePlayerCommandContracts.size} WL_AGENT.C player command contracts, ${sourcePlayerMovementContracts.size} WL_AGENT.C player movement contracts, ${sourcePlayerFeedbackContracts.size} WL_AGENT.C player feedback contracts, ${sourcePlayerSpawnContracts.size} WL_AGENT.C player spawn contracts, ${sourceAgentHelperContracts.size} WL_AGENT.C helper contracts, ${countComparedBonusRewards(sourceBonusRewards)} WL_AGENT.C bonus reward rows, ${sourceTreasureScores.size} WL_AGENT.C treasure score rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceKillActorRewards.size} WL_STATE.C kill reward rows, ${sourceDamagePainStates.size} WL_STATE.C damage pain rows, ${sourcePaletteFlashContracts.size} WL_PLAY.C palette flash contracts, WL_PLAY.C PlayLoop contract, ${sourceLevelSetupContracts.size} WL_GAME.C level setup contracts, ${sourceGameLoopTransitionContracts.size} WL_GAME.C game-loop transition contracts, ${sourceIntermissionContracts.size} WL_INTER.C intermission contracts, ${sourceHighScoreContracts.size} WL_INTER.C high-score contracts, ${sourceDefaultHighScores.length} ID_US_1.C default high scores, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
+  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceDoorPushwallContracts.size} WL_ACT1.C door/pushwall contracts, ${sourceMapParserContracts.size} ID_CA.C map parser contracts, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourcePlayerAttackContracts.size} WL_AGENT.C player attack contracts, ${sourcePlayerCommandContracts.size} WL_AGENT.C player command contracts, ${sourcePlayerMovementContracts.size} WL_AGENT.C player movement contracts, ${sourcePlayerFeedbackContracts.size} WL_AGENT.C player feedback contracts, ${sourcePlayerSpawnContracts.size} WL_AGENT.C player spawn contracts, ${sourceAgentHelperContracts.size} WL_AGENT.C helper contracts, ${countComparedBonusRewards(sourceBonusRewards)} WL_AGENT.C bonus reward rows, ${sourceTreasureScores.size} WL_AGENT.C treasure score rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceKillActorRewards.size} WL_STATE.C kill reward rows, ${sourceDamagePainStates.size} WL_STATE.C damage pain rows, ${sourcePaletteFlashContracts.size} WL_PLAY.C palette flash contracts, WL_PLAY.C PlayLoop contract, ${sourceLevelSetupContracts.size} WL_GAME.C level setup contracts, ${sourceGameLoopTransitionContracts.size} WL_GAME.C game-loop transition contracts, ${sourceIntermissionContracts.size} WL_INTER.C intermission contracts, ${sourceHighScoreContracts.size} WL_INTER.C high-score contracts, ${sourceDefaultHighScores.length} ID_US_1.C default high scores, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
 );
 
 function parseSourceStates(text, sprites) {
@@ -345,6 +358,204 @@ function filterWl6Source(text) {
   }
 
   return lines.join("\n");
+}
+
+function parseSourceMapParserContracts(sourceText, headerText) {
+  const carmackBody = extractCFunctionBody(sourceText, "CAL_CarmackExpand");
+  const rlewBody = extractCFunctionBody(sourceText, "CA_RLEWexpand");
+  const setupBody = extractCFunctionBody(sourceText, "CAL_SetupMapFile");
+  const cacheBody = extractCFunctionBody(sourceText, "CA_CacheMap");
+  const mapCount = parseRequiredNumber(headerText, /#define\s+NUMMAPS\s+([0-9]+)/, "ID_CA.H NUMMAPS");
+  const decodedPlaneCount = parseRequiredNumber(headerText, /#define\s+MAPPLANES\s+([0-9]+)/, "ID_CA.H MAPPLANES");
+  const storedPlaneCount = parseRequiredNumber(headerText, /\bplanestart\s*\[\s*([0-9]+)\s*\]/, "maptype planestart");
+  const planeLengthCount = parseRequiredNumber(headerText, /\bplanelength\s*\[\s*([0-9]+)\s*\]/, "maptype planelength");
+  const mapNameBytes = parseRequiredNumber(headerText, /\bchar\s+name\s*\[\s*([0-9]+)\s*\]/, "maptype name");
+  const planeLengthByteOffset = storedPlaneCount * 4;
+  const widthByteOffset = planeLengthByteOffset + planeLengthCount * 2;
+  const heightByteOffset = widthByteOffset + 2;
+  const nameByteOffset = heightByteOffset + 2;
+  const contracts = new Map();
+
+  contracts.set("MapHeader", {
+    decodedPlaneCount,
+    heightByteOffset,
+    mapCount,
+    mapHeaderSize: nameByteOffset + mapNameBytes,
+    mapNameBytes,
+    nameByteOffset,
+    planeLengthByteOffset,
+    planeLengthCount,
+    planeStartByteOffset: 0,
+    storedPlaneCount,
+    widthByteOffset
+  });
+
+  contracts.set("MapFile", {
+    headerOffsetByteOffset: 2,
+    headerOffsetsAreSignedLongs: /\blong\s+headeroffsets\s*\[/.test(sourceText),
+    loadsMapHeaderByOffset: /lseek\s*\(\s*maphandle\s*,\s*pos\s*,\s*SEEK_SET\s*\)[\s\S]*CA_FarRead\s*\([^;]*sizeof\s*\(\s*maptype\s*\)/.test(
+      setupBody
+    ),
+    mapCount,
+    offsetCount: parseRequiredNumber(sourceText, /\bheaderoffsets\s*\[\s*([0-9]+)\s*\]/, "mapfiletype headeroffsets"),
+    rlewTagByteOffset: 0,
+    rlewTagIsUnsignedWord: /\bunsigned\s+RLEWtag\s*;/.test(sourceText),
+    usesSignedSparseOffsets: /pos\s*<\s*0[\s\S]*continue\s*;/.test(setupBody)
+  });
+
+  contracts.set("CA_CacheMap", {
+    carmackThenRlew: hasOrderedPatterns(cacheBody, [/CAL_CarmackExpand/, /CA_RLEWexpand/]),
+    decodedPlaneCount,
+    loopsDecodedPlanes: /for\s*\(\s*plane\s*=\s*0\s*;\s*plane\s*<\s*MAPPLANES\s*;\s*plane\+\+\s*\)/.test(cacheBody),
+    passesRlewTag: /CA_RLEWexpand[\s\S]*RLEWtag/.test(cacheBody),
+    readsCompressedPlaneByRange: /lseek\s*\(\s*maphandle\s*,\s*pos\s*,\s*SEEK_SET\s*\)[\s\S]*CA_FarRead\s*\(\s*maphandle\s*,\s*\(byte far \*\)source\s*,\s*compressed\s*\)/.test(
+      cacheBody
+    ),
+    readsExpandedLengthBeforeCarmack: hasOrderedPatterns(cacheBody, [/expanded\s*=\s*\*source/, /source\+\+/, /CAL_CarmackExpand/]),
+    readsPlaneStartLength: /planestart\s*\[\s*plane\s*\][\s\S]*planelength\s*\[\s*plane\s*\]/.test(cacheBody),
+    rlewSkipsCarmackLengthWord: /CA_RLEWexpand\s*\(\s*\(\(unsigned far \*\)buffer2seg\)\s*\+\s*1/.test(cacheBody)
+  });
+
+  contracts.set("CAL_CarmackExpand", {
+    expandedLengthIsBytes: /length\s*\/=\s*2/.test(carmackBody),
+    farCopyUsesAbsoluteWordOffset: /copyptr\s*=\s*dest\s*\+\s*offset/.test(carmackBody),
+    farTag: parseRequiredNumberLiteral(sourceText, /#define\s+FARTAG\s+(0x[0-9a-fA-F]+|[0-9]+)/, "FARTAG"),
+    farZeroCountEmitsTagWord: hasOrderedPatterns(carmackBody, [/chhigh\s*==\s*FARTAG/, /if\s*\(\s*!count\s*\)/, /ch\s*\|=/, /\*outptr\+\+\s*=\s*ch/]),
+    literalWritesWord: /\*outptr\+\+\s*=\s*ch/.test(carmackBody),
+    nearCopyUsesBackwardByteOffset: /copyptr\s*=\s*outptr\s*-\s*offset/.test(carmackBody),
+    nearTag: parseRequiredNumberLiteral(sourceText, /#define\s+NEARTAG\s+(0x[0-9a-fA-F]+|[0-9]+)/, "NEARTAG"),
+    nearZeroCountEmitsTagWord: hasOrderedPatterns(carmackBody, [/chhigh\s*==\s*NEARTAG/, /if\s*\(\s*!count\s*\)/, /ch\s*\|=/, /\*outptr\+\+\s*=\s*ch/]),
+    tagCountLowByte: /count\s*=\s*ch\s*&\s*0xff/.test(carmackBody),
+    tagDiscriminatorHighByte: /chhigh\s*=\s*ch\s*>>\s*8/.test(carmackBody)
+  });
+
+  contracts.set("CA_RLEWexpand", {
+    literalWritesWhenNotTag: /value\s*!=\s*rlewtag[\s\S]*\*dest\+\+\s*=\s*value/.test(rlewBody),
+    stopsAtOutputLength: /end\s*=\s*dest\s*\+\s*\(length\)\s*\/\s*2/.test(rlewBody),
+    tagReadsCountThenValue: /count\s*=\s*\*source\+\+[\s\S]*value\s*=\s*\*source\+\+/.test(rlewBody),
+    tagRepeatsValueCountTimes: /for\s*\(\s*i\s*=\s*1\s*;\s*i\s*<=\s*count\s*;\s*i\+\+\s*\)[\s\S]*\*dest\+\+\s*=\s*value/.test(
+      rlewBody
+    )
+  });
+
+  return contracts;
+}
+
+function parseTypescriptMapParserContracts(text, constants) {
+  const parseMapHeadBody = extractTypescriptFunctionBody(text, "parseMapHead");
+  const parseWolfMapBody = extractTypescriptFunctionBody(text, "parseWolfMap");
+  const parseMapHeaderBody = extractTypescriptFunctionBody(text, "parseMapHeader");
+  const decodePlaneBody = extractTypescriptFunctionBody(text, "decodePlane");
+  const carmackBody = extractTypescriptFunctionBody(text, "carmackExpand");
+  const rlewBody = extractTypescriptFunctionBody(text, "rlewExpand");
+  const decodedPlaneCount = resolveTypescriptNumber("MAP_PLANES_TO_DECODE", constants);
+  const storedPlaneCount = parseRequiredNumber(parseMapHeaderBody, /plane\s*<\s*([0-9]+)/, "parseMapHeader stored plane count");
+  const planeLengthByteOffset = parseRequiredNumber(
+    parseMapHeaderBody,
+    /planeLengthBase\s*=\s*offset\s*\+\s*([0-9]+)/,
+    "parseMapHeader plane length offset"
+  );
+  const widthByteOffset = parseRequiredNumber(
+    parseMapHeaderBody,
+    /const\s+width\s*=\s*view\.getUint16\s*\(\s*offset\s*\+\s*([0-9]+)\s*,\s*true\s*\)/,
+    "parseMapHeader width offset"
+  );
+  const heightByteOffset = parseRequiredNumber(
+    parseMapHeaderBody,
+    /const\s+height\s*=\s*view\.getUint16\s*\(\s*offset\s*\+\s*([0-9]+)\s*,\s*true\s*\)/,
+    "parseMapHeader height offset"
+  );
+  const nameOffsets = parseMapHeaderBody.match(/asciiName\s*\(\s*bytes\.subarray\s*\(\s*offset\s*\+\s*([0-9]+)\s*,\s*offset\s*\+\s*([0-9]+)\s*\)\s*\)/);
+  if (!nameOffsets) {
+    throw new Error("Could not parse parseMapHeader name offsets");
+  }
+
+  const nameByteOffset = Number(nameOffsets[1]);
+  const contracts = new Map();
+
+  contracts.set("MapHeader", {
+    decodedPlaneCount,
+    heightByteOffset,
+    mapCount: resolveTypescriptNumber("DOS_MAP_COUNT", constants),
+    mapHeaderSize: resolveTypescriptNumber("MAP_HEADER_SIZE", constants),
+    mapNameBytes: Number(nameOffsets[2]) - nameByteOffset,
+    nameByteOffset,
+    planeLengthByteOffset,
+    planeLengthCount: storedPlaneCount,
+    planeStartByteOffset: 0,
+    storedPlaneCount,
+    widthByteOffset
+  });
+
+  contracts.set("MapFile", {
+    headerOffsetByteOffset: 2,
+    headerOffsetsAreSignedLongs: /getInt32\s*\(\s*2\s*\+\s*index\s*\*\s*4\s*,\s*true\s*\)/.test(parseMapHeadBody),
+    loadsMapHeaderByOffset: /parseMapHeader\s*\(\s*gameMapsBytes\s*,\s*offset\s*\)/.test(parseWolfMapBody),
+    mapCount: resolveTypescriptNumber("DOS_MAP_COUNT", constants),
+    offsetCount: resolveTypescriptNumber("MAP_OFFSET_COUNT", constants),
+    rlewTagByteOffset: 0,
+    rlewTagIsUnsignedWord: /getUint16\s*\(\s*0\s*,\s*true\s*\)/.test(parseMapHeadBody),
+    usesSignedSparseOffsets: /offset\s*===\s*undefined\s*\|\|\s*offset\s*<\s*0/.test(parseWolfMapBody)
+  });
+
+  contracts.set("CA_CacheMap", {
+    carmackThenRlew: hasOrderedPatterns(decodePlaneBody, [/carmackExpand/, /rlewExpand/]),
+    decodedPlaneCount,
+    loopsDecodedPlanes: /for\s*\(\s*let\s+plane\s*=\s*0\s*;\s*plane\s*<\s*MAP_PLANES_TO_DECODE\s*;\s*plane\s*\+=\s*1\s*\)/.test(
+      parseWolfMapBody
+    ),
+    passesRlewTag: /mapHead\.rlewTag/.test(parseWolfMapBody) && /rlewExpand\s*\([^;]*rlewTag/.test(decodePlaneBody),
+    readsCompressedPlaneByRange: /assertRange\s*\(\s*bytes\s*,\s*start\s*,\s*compressedLength[\s\S]*subarray\s*\(\s*start\s*,\s*start\s*\+\s*compressedLength\s*\)/.test(
+      decodePlaneBody
+    ),
+    readsExpandedLengthBeforeCarmack: hasOrderedPatterns(decodePlaneBody, [
+      /expandedLength\s*=\s*readUint16\s*\(\s*source\s*,\s*0\s*\)/,
+      /carmackExpand\s*\(\s*source\.subarray\s*\(\s*2\s*\)\s*,\s*expandedLength\s*\)/
+    ]),
+    readsPlaneStartLength: /header\.planestart\s*\[\s*plane\s*\][\s\S]*header\.planelength\s*\[\s*plane\s*\]/.test(
+      decodePlaneBody
+    ),
+    rlewSkipsCarmackLengthWord: /rlewExpand\s*\(\s*carmackWords\.subarray\s*\(\s*1\s*\)/.test(decodePlaneBody)
+  });
+
+  contracts.set("CAL_CarmackExpand", {
+    expandedLengthIsBytes: /expandedLength\s*\/\s*2/.test(carmackBody),
+    farCopyUsesAbsoluteWordOffset: /copyCarmackRun\s*\(\s*out\s*,\s*offset\s*,\s*outOffset\s*,\s*count\s*,\s*"far"\s*\)/.test(
+      carmackBody
+    ),
+    farTag: resolveTypescriptNumber("FAR_TAG", constants),
+    farZeroCountEmitsTagWord: hasOrderedPatterns(carmackBody, [
+      /chHigh\s*===\s*FAR_TAG/,
+      /count\s*===\s*0/,
+      /out\s*\[\s*outOffset\s*\]\s*=\s*ch\s*\|\s*readUint8/
+    ]),
+    literalWritesWord: /out\s*\[\s*outOffset\s*\]\s*=\s*ch/.test(carmackBody),
+    nearCopyUsesBackwardByteOffset: /copyCarmackRun\s*\(\s*out\s*,\s*outOffset\s*-\s*offset\s*,\s*outOffset\s*,\s*count\s*,\s*"near"\s*\)/.test(
+      carmackBody
+    ),
+    nearTag: resolveTypescriptNumber("NEAR_TAG", constants),
+    nearZeroCountEmitsTagWord: hasOrderedPatterns(carmackBody, [
+      /chHigh\s*===\s*NEAR_TAG/,
+      /count\s*===\s*0/,
+      /out\s*\[\s*outOffset\s*\]\s*=\s*ch\s*\|\s*readUint8/
+    ]),
+    tagCountLowByte: /const\s+count\s*=\s*ch\s*&\s*0xff/.test(carmackBody),
+    tagDiscriminatorHighByte: /const\s+chHigh\s*=\s*ch\s*>>\s*8/.test(carmackBody)
+  });
+
+  contracts.set("CA_RLEWexpand", {
+    literalWritesWhenNotTag: /value\s*!==\s*rlewTag[\s\S]*out\s*\[\s*outOffset\s*\]\s*=\s*value/.test(rlewBody),
+    stopsAtOutputLength: /while\s*\(\s*outOffset\s*<\s*outputWords\s*\)/.test(rlewBody),
+    tagReadsCountThenValue: hasOrderedPatterns(rlewBody, [
+      /const\s+count\s*=\s*readWord\s*\(\s*source\s*,\s*inOffset\s*\)/,
+      /const\s+repeatedValue\s*=\s*readWord\s*\(\s*source\s*,\s*inOffset\s*\+\s*1\s*\)/
+    ]),
+    tagRepeatsValueCountTimes: /out\.fill\s*\(\s*repeatedValue\s*,\s*outOffset\s*,\s*outOffset\s*\+\s*count\s*\)/.test(
+      rlewBody
+    )
+  });
+
+  return contracts;
 }
 
 function parseSourceSprites(text) {
@@ -3096,6 +3307,25 @@ function parseRequiredTypescriptNumber(text, pattern, constants, label) {
   return resolveTypescriptNumber(match[1], constants);
 }
 
+function hasOrderedPatterns(text, patterns) {
+  let cursor = 0;
+  for (const pattern of patterns) {
+    const section = text.slice(cursor);
+    const match =
+      typeof pattern === "string"
+        ? { index: section.indexOf(pattern), 0: pattern }
+        : new RegExp(pattern.source, pattern.flags.replace(/g/g, "")).exec(section);
+
+    if (!match || match.index < 0) {
+      return false;
+    }
+
+    cursor += match.index + match[0].length;
+  }
+
+  return true;
+}
+
 function parseTypescriptFixedRangeConstant(text, name, constants) {
   const match = text.match(new RegExp(`const\\s+${name}\\s*=\\s*([^;]+);`));
   if (!match) {
@@ -3281,7 +3511,7 @@ function extractCFunctionBody(text, name) {
 }
 
 function extractTypescriptFunctionBody(text, name) {
-  const pattern = new RegExp(`(?:^|\\n)\\s*(?:function\\s+|private\\s+)?${name}\\s*\\([^)]*\\)`);
+  const pattern = new RegExp(`(?:^|\\n)\\s*(?:export\\s+)?(?:function\\s+|private\\s+)?${name}\\s*\\([^)]*\\)`);
   const match = pattern.exec(text);
   if (!match) {
     throw new Error(`Could not find ${name} body`);
@@ -3292,7 +3522,7 @@ function extractTypescriptFunctionBody(text, name) {
 }
 
 function extractTypescriptFunctionBodyContaining(text, name, requiredPattern, label) {
-  const pattern = new RegExp(`(?:^|\\n)\\s*(?:function\\s+|private\\s+)?${name}\\s*\\([^)]*\\)`, "g");
+  const pattern = new RegExp(`(?:^|\\n)\\s*(?:export\\s+)?(?:function\\s+|private\\s+)?${name}\\s*\\([^)]*\\)`, "g");
   for (const match of text.matchAll(pattern)) {
     const openIndex = findTypescriptFunctionOpeningBrace(text, match.index + match[0].length, name);
     const body = extractBraceBody(text, openIndex);
