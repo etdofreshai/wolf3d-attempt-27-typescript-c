@@ -1999,9 +1999,9 @@ class WLPlay {
     }
 
     this.wl_game.BeginActorThinking();
-    const moved = this.wl_game.PlayPlayerInput(this.id_in, ticMs, tics);
     this.wl_game.MoveDoors(tics);
     this.wl_game.MovePushWall(tics);
+    const moved = this.wl_game.PlayPlayerInput(this.id_in, ticMs, tics);
     this.wl_game.MoveActors(tics);
     this.wl_game.MoveProjectiles(tics);
     this.wl_game.UpdatePaletteShifts(tics);

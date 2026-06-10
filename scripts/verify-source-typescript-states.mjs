@@ -153,6 +153,7 @@ const sourceDamageActorContract = parseSourceDamageActorContract(sourceStateText
 const sourceDamagePainStates = parseSourceDamagePainStates(sourceStateText);
 const sourceKillActorRewards = parseSourceKillActorRewards(sourceStateText);
 const sourcePaletteFlashContracts = parseSourcePaletteFlashContracts(sourcePlayText, sourcePlayDefines);
+const sourcePlayLoopContract = parseSourcePlayLoopContract(sourcePlayText);
 const sourceElevatorBackTo = parseSourceElevatorBackTo(sourceGameText);
 const sourceParTimesSeconds = parseSourceParTimesSeconds(sourceInterText);
 const sourceRndTable = parseSourceRndTable(sourceUserAsmText);
@@ -187,6 +188,7 @@ const typescriptDroppedItemTypes = parseTypescriptDroppedItemTypes(typescriptTex
 const typescriptDamageActorContract = parseTypescriptDamageActorContract(typescriptText);
 const typescriptDamagePainStates = parseTypescriptDamagePainStates(typescriptText);
 const typescriptPaletteFlashContracts = parseTypescriptPaletteFlashContracts(typescriptText, constants);
+const typescriptPlayLoopContract = parseTypescriptPlayLoopContract(typescriptText);
 const typescriptSprites = parseTypescriptSprites(typescriptText);
 const modeledFrames = parseModeledFrames(typescriptText, constants, typescriptSprites);
 const problems = [];
@@ -236,6 +238,7 @@ compareKillActorRewards(sourceKillActorRewards, typescriptActorKillScores, types
 compareContractObject("WL_STATE.C DamageActor", sourceDamageActorContract, typescriptDamageActorContract, problems);
 comparePainStates(sourceDamagePainStates, typescriptDamagePainStates, problems);
 compareContractMap("WL_PLAY.C palette flash", sourcePaletteFlashContracts, typescriptPaletteFlashContracts, problems);
+compareContractObject("WL_PLAY.C PlayLoop", sourcePlayLoopContract, typescriptPlayLoopContract, problems);
 compareDirectionDeltas(sourceDirectionIndexes, typescriptDirectionDeltas, problems);
 compareDirectionList("opposite", sourceOppositeDirections, typescriptOppositeDirections, problems);
 compareDiagonalDirections(sourceDiagonalDirections, typescriptDiagonalDirections, sourceDirectionIndexes, problems);
@@ -257,7 +260,7 @@ if (problems.length > 0) {
 }
 
 console.log(
-  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceDoorPushwallContracts.size} WL_ACT1.C door/pushwall contracts, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourcePlayerAttackContracts.size} WL_AGENT.C player attack contracts, ${sourcePlayerCommandContracts.size} WL_AGENT.C player command contracts, ${sourcePlayerMovementContracts.size} WL_AGENT.C player movement contracts, ${sourcePlayerFeedbackContracts.size} WL_AGENT.C player feedback contracts, ${sourceAgentHelperContracts.size} WL_AGENT.C helper contracts, ${countComparedBonusRewards(sourceBonusRewards)} WL_AGENT.C bonus reward rows, ${sourceTreasureScores.size} WL_AGENT.C treasure score rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceKillActorRewards.size} WL_STATE.C kill reward rows, ${sourceDamagePainStates.size} WL_STATE.C damage pain rows, ${sourcePaletteFlashContracts.size} WL_PLAY.C palette flash contracts, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
+  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceDoorPushwallContracts.size} WL_ACT1.C door/pushwall contracts, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourcePlayerAttackContracts.size} WL_AGENT.C player attack contracts, ${sourcePlayerCommandContracts.size} WL_AGENT.C player command contracts, ${sourcePlayerMovementContracts.size} WL_AGENT.C player movement contracts, ${sourcePlayerFeedbackContracts.size} WL_AGENT.C player feedback contracts, ${sourceAgentHelperContracts.size} WL_AGENT.C helper contracts, ${countComparedBonusRewards(sourceBonusRewards)} WL_AGENT.C bonus reward rows, ${sourceTreasureScores.size} WL_AGENT.C treasure score rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceKillActorRewards.size} WL_STATE.C kill reward rows, ${sourceDamagePainStates.size} WL_STATE.C damage pain rows, ${sourcePaletteFlashContracts.size} WL_PLAY.C palette flash contracts, WL_PLAY.C PlayLoop contract, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
 );
 
 function parseSourceStates(text, sprites) {
@@ -880,6 +883,21 @@ function parseSourceUpdatePaletteShiftsContract(body, defines) {
     whiteCap: resolveSourceDefine("NUMWHITESHIFTS", defines),
     whiteDivisor: resolveSourceDefine("WHITETICS", defines),
     whiteLevelFormula: /white\s*=\s*bonuscount\s*\/\s*WHITETICS\s*\+\s*1/.test(body)
+  };
+}
+
+function parseSourcePlayLoopContract(text) {
+  const body = extractCFunctionBody(filterWl6Source(text), "PlayLoop");
+  return {
+    actorThinkingBeforePalette: /DoActor\s*\(\s*obj\s*\)[\s\S]*?UpdatePaletteShifts\s*\(\s*\)/.test(body),
+    advancesTimeByTics: /gamestate\.TimeCount\s*\+=\s*tics/.test(body),
+    clearsNoiseBeforeDoors: /\bmadenoise\s*=\s*false[\s\S]*?MoveDoors\s*\(\s*\)/.test(body),
+    movesDoorsBeforePushwalls: /MoveDoors\s*\(\s*\)[\s\S]*?MovePWalls\s*\(\s*\)/.test(body),
+    paletteBeforeRefresh: /UpdatePaletteShifts\s*\(\s*\)[\s\S]*?ThreeDRefresh\s*\(\s*\)/.test(body),
+    playerBeforeActors: /for\s*\(\s*obj\s*=\s*player\s*;\s*obj\s*;\s*obj\s*=\s*obj->next\s*\)[\s\S]*?DoActor\s*\(\s*obj\s*\)/.test(body),
+    pushwallsBeforePlayer: /MovePWalls\s*\(\s*\)[\s\S]*?for\s*\(\s*obj\s*=\s*player/.test(body),
+    refreshBeforeTime: /ThreeDRefresh\s*\(\s*\)[\s\S]*?gamestate\.TimeCount\s*\+=\s*tics/.test(body),
+    soundPollAfterTime: /gamestate\.TimeCount\s*\+=\s*tics[\s\S]*?SD_Poll\s*\(\s*\)/.test(body)
   };
 }
 
@@ -1655,6 +1673,25 @@ function parseTypescriptUpdatePaletteShiftsContract(body, constants) {
     whiteCap: resolveTypescriptNumber("SOURCE_NUM_WHITE_SHIFTS", constants),
     whiteDivisor: resolveTypescriptNumber("SOURCE_WHITE_TICS", constants),
     whiteLevelFormula: /white\s*=\s*Math\.floor\s*\(\s*this\.bonuscount\s*\/\s*SOURCE_WHITE_TICS\s*\)\s*\+\s*1/.test(body)
+  };
+}
+
+function parseTypescriptPlayLoopContract(text) {
+  const body = extractTypescriptFunctionBody(text, "PlayLoop");
+  const beginBody = extractTypescriptFunctionBody(text, "BeginActorThinking");
+  const advanceTimeBody = extractTypescriptFunctionBody(text, "AdvanceTime");
+  return {
+    actorThinkingBeforePalette: /this\.wl_game\.MoveActors\s*\(\s*tics\s*\)[\s\S]*?this\.wl_game\.MoveProjectiles\s*\(\s*tics\s*\)[\s\S]*?this\.wl_game\.UpdatePaletteShifts\s*\(\s*tics\s*\)/.test(body),
+    advancesTimeByTics: /this\.gamestate\.timecount\s*\+=\s*tics/.test(advanceTimeBody),
+    clearsNoiseBeforeDoors:
+      /this\.madeNoise\s*=\s*false/.test(beginBody) &&
+      /this\.wl_game\.BeginActorThinking\s*\(\s*\)[\s\S]*?this\.wl_game\.MoveDoors\s*\(\s*tics\s*\)/.test(body),
+    movesDoorsBeforePushwalls: /this\.wl_game\.MoveDoors\s*\(\s*tics\s*\)[\s\S]*?this\.wl_game\.MovePushWall\s*\(\s*tics\s*\)/.test(body),
+    paletteBeforeRefresh: /this\.wl_game\.UpdatePaletteShifts\s*\(\s*tics\s*\)[\s\S]*?this\.wl_draw\.ThreeDRefresh\s*\(\s*this\.wl_game\s*\)/.test(body),
+    playerBeforeActors: /this\.wl_game\.PlayPlayerInput\s*\([\s\S]*?\)[\s\S]*?this\.wl_game\.MoveActors\s*\(\s*tics\s*\)/.test(body),
+    pushwallsBeforePlayer: /this\.wl_game\.MovePushWall\s*\(\s*tics\s*\)[\s\S]*?this\.wl_game\.PlayPlayerInput\s*\(/.test(body),
+    refreshBeforeTime: /this\.wl_draw\.ThreeDRefresh\s*\(\s*this\.wl_game\s*\)[\s\S]*?this\.wl_game\.AdvanceTime\s*\(\s*tics\s*\)/.test(body),
+    soundPollAfterTime: /this\.wl_game\.AdvanceTime\s*\(\s*tics\s*\)[\s\S]*?this\.id_sd\.SD_Service\s*\(/.test(body)
   };
 }
 
