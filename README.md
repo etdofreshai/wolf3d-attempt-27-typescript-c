@@ -46,7 +46,9 @@ DOSBox launch.
 The modified DOS build patches `WL_PLAY.C` in memory before compiling so the
 rebuilt EXE writes a tiny `WOLFSTAT.BIN` snapshot during `PlayLoop`. State
 artifacts include that decoded oracle state when available, alongside the
-DOSBox persistence summary.
+DOSBox persistence summary. The TypeScript lane also embeds a matching `W3ST`
+state mirror in its BIN artifacts so `demo:compare` can inspect the same core
+game/player/control fields from both runners.
 
 The modified DOS and TypeScript lanes both understand base64url-encoded demo
 plans in the `?demo=` query parameter. Demo steps can wait, press or hold keys,

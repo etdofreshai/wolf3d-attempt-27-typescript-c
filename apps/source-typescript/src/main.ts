@@ -67,6 +67,57 @@ type ArtifactRecord = {
   ticcount: number;
 };
 
+type WolfStateDecoded = {
+  buttons: Record<string, boolean>;
+  control: {
+    x: number;
+    y: number;
+  };
+  game: {
+    ammo: number;
+    attackcount: number;
+    attackframe: number;
+    bestweapon: number;
+    chosenweapon: number;
+    difficulty: SourceDifficulty;
+    episode: number;
+    faceframe: number;
+    health: number;
+    keys: number;
+    killcount: number;
+    killtotal: number;
+    killx: number;
+    killy: number;
+    lives: number;
+    mapon: number;
+    nextextra: number;
+    playstate: SourcePlayState;
+    score: number;
+    secretcount: number;
+    secrettotal: number;
+    timecount: number;
+    treasurecount: number;
+    treasuretotal: number;
+    victoryflag: boolean;
+    weapon: number;
+    weaponframe: number;
+  };
+  magic: string;
+  player: {
+    angle: number;
+    tilex: number;
+    tiley: number;
+    x: number;
+    y: number;
+  };
+  runtime: {
+    frameon: number;
+    tics: number;
+  };
+  size: number;
+  version: number;
+};
+
 type SourcePaletteShift = {
   kind: "red" | "white";
   level: number;
@@ -456,6 +507,23 @@ const KEY_CODES: Record<string, number> = {
 };
 
 const DEMO_DEFAULT_HOLD_MS = 90;
+const WOLF_STATE_FILE = "WOLFSTAT.BIN";
+const WOLF_STATE_MAGIC = "W3ST";
+const WOLF_STATE_VERSION = 1;
+const WOLF_STATE_BINARY_SIZE = 98;
+const SOURCE_DIFFICULTY_NAMES = ["baby", "easy", "medium", "hard"] as const;
+const SOURCE_PLAYSTATE_NAMES: SourcePlayState[] = [
+  "ex_stillplaying",
+  "ex_completed",
+  "ex_died",
+  "ex_warped",
+  "ex_resetgame",
+  "ex_loadedgame",
+  "ex_victorious",
+  "ex_abort",
+  "ex_demodone",
+  "ex_secretlevel"
+];
 const ALTELEVATORTILE = 107;
 const AMBUSHTILE = 106;
 const AREATILE = 107;
@@ -536,6 +604,16 @@ const ATTACK_KEY_CODE = 17;
 const RUN_KEY_CODE = 16;
 const STRAFE_KEY_CODE = 18;
 const USE_KEY_CODE = 32;
+const SOURCE_BUTTONS = [
+  { keyCode: ATTACK_KEY_CODE, name: "attack" },
+  { keyCode: STRAFE_KEY_CODE, name: "strafe" },
+  { keyCode: RUN_KEY_CODE, name: "run" },
+  { keyCode: USE_KEY_CODE, name: "use" },
+  { keyCode: 49, name: "readyknife" },
+  { keyCode: 50, name: "readypistol" },
+  { keyCode: 51, name: "readymachinegun" },
+  { keyCode: 52, name: "readychaingun" }
+] as const;
 const SOURCE_DEATH_CAM_DONE_TICS = 20;
 const SOURCE_DEATH_CAM_START_DISTANCE = 0x14000 / TILEGLOBAL;
 const SOURCE_DEATH_CAM_DISTANCE_STEP = 0x1000 / TILEGLOBAL;
@@ -1707,6 +1785,7 @@ class WLMain {
   }
 
   StateSnapshot(): Record<string, unknown> {
+    const wolfState = this.WolfStateSnapshot();
     return {
       artifacts: this.artifactRecords.map((artifact) => ({ ...artifact })),
       audioSamples: this.id_sd.sampleCount,
@@ -1838,7 +1917,77 @@ class WLMain {
       soundManager: this.id_sd.StateSnapshot(),
       playstate: this.wl_game.playstate,
       runner: "source-typescript",
-      ticcount: this.wl_game.gamestate.ticcount
+      ticcount: this.wl_game.gamestate.ticcount,
+      wolfState
+    };
+  }
+
+  private WolfStateSnapshot(): Record<string, unknown> {
+    const decoded = this.BuildWolfStateDecoded();
+    const bytes = encodeWolfStateBinary(decoded);
+
+    return {
+      base64: bytesToBase64(bytes),
+      bytes: bytes.byteLength,
+      decoded,
+      fileName: WOLF_STATE_FILE,
+      present: true
+    };
+  }
+
+  private BuildWolfStateDecoded(): WolfStateDecoded {
+    const { gamestate } = this.wl_game;
+    const buttonMask = this.id_in.SourceButtonMask();
+
+    return {
+      buttons: Object.fromEntries(SOURCE_BUTTONS.map((button, index) => [button.name, (buttonMask & (1 << index)) !== 0])),
+      control: {
+        x: this.wl_game.lastControlX,
+        y: this.wl_game.lastControlY
+      },
+      game: {
+        ammo: gamestate.ammo,
+        attackcount: gamestate.attackcount,
+        attackframe: gamestate.attackframe,
+        bestweapon: gamestate.bestweapon,
+        chosenweapon: gamestate.chosenweapon,
+        difficulty: gamestate.difficulty,
+        episode: gamestate.episode,
+        faceframe: gamestate.faceframe,
+        health: gamestate.health,
+        keys: gamestate.keys,
+        killcount: gamestate.killcount,
+        killtotal: gamestate.killtotal,
+        killx: gamestate.killx,
+        killy: gamestate.killy,
+        lives: gamestate.lives,
+        mapon: gamestate.mapon,
+        nextextra: gamestate.nextextra,
+        playstate: this.wl_game.playstate,
+        score: gamestate.score,
+        secretcount: gamestate.secretcount,
+        secrettotal: gamestate.secrettotal,
+        timecount: gamestate.timecount,
+        treasurecount: gamestate.treasurecount,
+        treasuretotal: gamestate.treasuretotal,
+        victoryflag: gamestate.victoryflag,
+        weapon: gamestate.weapon,
+        weaponframe: gamestate.weaponframe
+      },
+      magic: WOLF_STATE_MAGIC,
+      player: {
+        angle: Math.round(gameAngleToSourceDegrees(gamestate.angle)),
+        tilex: Math.floor(gamestate.x),
+        tiley: Math.floor(gamestate.y),
+        x: sourceFixedFromTile(gamestate.x),
+        y: sourceFixedFromTile(gamestate.y)
+      },
+      runtime: {
+        frameon: gamestate.ticcount,
+        tics: this.wl_game.lastTics
+      },
+      size: WOLF_STATE_BINARY_SIZE,
+      version: WOLF_STATE_VERSION
     };
   }
 
@@ -1994,6 +2143,7 @@ class WLPlay {
 
   PlayLoop(ticMs: number): void {
     const tics = ticsFromMilliseconds(ticMs);
+    this.wl_game.lastTics = tics;
     if (!this.wl_game.IsStillPlaying()) {
       this.wl_draw.ThreeDRefresh(this.wl_game);
       this.id_sd.SD_Service(false, ticMs);
@@ -2023,6 +2173,9 @@ class WLGame {
   madeNoise = false;
   paletteShift: SourcePaletteShift | null = null;
   thrustSpeed = 0;
+  lastControlX = 0;
+  lastControlY = 0;
+  lastTics = 0;
   highScores: SourceHighScore[] = createDefaultHighScores();
   lastHighScoreCheck: SourceHighScoreCheck | null = null;
   lastLevelCompletion: SourceLevelCompletionSummary | null = null;
@@ -2166,6 +2319,9 @@ class WLGame {
     this.playstate = "ex_stillplaying";
     this.rndIndex = 0;
     this.thrustSpeed = 0;
+    this.lastControlX = 0;
+    this.lastControlY = 0;
+    this.lastTics = 0;
     this.useButtonHeld = false;
     this.victoriousTransitionApplied = false;
     this.victorySummary = null;
@@ -2286,6 +2442,10 @@ class WLGame {
   }
 
   PlayPlayerInput(id_in: IDIN, ticMs: number, tics: number): boolean {
+    void ticMs;
+    this.lastTics = tics;
+    this.lastControlX = 0;
+    this.lastControlY = 0;
     const attackDown = id_in.IN_AttackDown();
     const useDown = id_in.IN_KeyDown(USE_KEY_CODE);
     const wasAttacking = this.gamestate.attackcount > 0;
@@ -2391,6 +2551,8 @@ class WLGame {
       tics
     );
     let moved = false;
+    this.lastControlX = controlX;
+    this.lastControlY = controlY;
     this.thrustSpeed = 0;
 
     const strafeDown = id_in.IN_KeyDown(STRAFE_KEY_CODE);
@@ -6319,6 +6481,13 @@ class IDIN {
     return this.IN_KeyDown(ATTACK_KEY_CODE);
   }
 
+  SourceButtonMask(): number {
+    return SOURCE_BUTTONS.reduce(
+      (mask, button, index) => mask | (this.IN_KeyDown(button.keyCode) ? 1 << index : 0),
+      0
+    );
+  }
+
   KeyDown(keyCode: number): void {
     this.keys.add(keyCode);
   }
@@ -7873,6 +8042,118 @@ function normalizeAngle(angle: number): number {
 
 function normalizeDegrees(angle: number): number {
   return ((angle % 360) + 360) % 360;
+}
+
+function encodeWolfStateBinary(state: WolfStateDecoded): Uint8Array {
+  const bytes = new Uint8Array(WOLF_STATE_BINARY_SIZE);
+  const view = new DataView(bytes.buffer);
+  let offset = 0;
+  const writeUint8 = (value: number) => {
+    view.setUint8(offset, value);
+    offset += 1;
+  };
+  const writeUint16 = (value: number) => {
+    view.setUint16(offset, clampUint16(value), true);
+    offset += 2;
+  };
+  const writeInt16 = (value: number) => {
+    view.setInt16(offset, clampInt16(value), true);
+    offset += 2;
+  };
+  const writeInt32 = (value: number) => {
+    view.setInt32(offset, clampInt32(value), true);
+    offset += 4;
+  };
+
+  for (const character of WOLF_STATE_MAGIC) {
+    writeUint8(character.charCodeAt(0));
+  }
+
+  writeUint16(WOLF_STATE_VERSION);
+  writeUint16(WOLF_STATE_BINARY_SIZE);
+  writeInt32(state.runtime.frameon);
+  writeInt32(state.game.timecount);
+  writeUint16(state.runtime.tics);
+  writeInt16(sourcePlaystateIndex(state.game.playstate));
+  writeInt16(sourceDifficultyIndex(state.game.difficulty));
+  writeInt16(state.game.episode);
+  writeInt16(state.game.mapon);
+  writeInt32(state.game.score);
+  writeInt32(state.game.nextextra);
+  writeInt16(state.game.lives);
+  writeInt16(state.game.health);
+  writeInt16(state.game.ammo);
+  writeInt16(state.game.keys);
+  writeInt16(state.game.bestweapon);
+  writeInt16(state.game.weapon);
+  writeInt16(state.game.chosenweapon);
+  writeInt16(state.game.faceframe);
+  writeInt16(state.game.attackframe);
+  writeInt16(state.game.attackcount);
+  writeInt16(state.game.weaponframe);
+  writeInt16(state.game.secretcount);
+  writeInt16(state.game.treasurecount);
+  writeInt16(state.game.killcount);
+  writeInt16(state.game.secrettotal);
+  writeInt16(state.game.treasuretotal);
+  writeInt16(state.game.killtotal);
+  writeInt32(state.game.killx);
+  writeInt32(state.game.killy);
+  writeUint16(state.game.victoryflag ? 1 : 0);
+  writeInt32(state.player.x);
+  writeInt32(state.player.y);
+  writeInt16(state.player.angle);
+  writeUint16(state.player.tilex);
+  writeUint16(state.player.tiley);
+  writeInt16(state.control.x);
+  writeInt16(state.control.y);
+  writeUint16(sourceButtonMask(state.buttons));
+
+  if (offset !== WOLF_STATE_BINARY_SIZE) {
+    throw new Error(`Wolf state binary wrote ${offset} bytes, expected ${WOLF_STATE_BINARY_SIZE}.`);
+  }
+
+  return bytes;
+}
+
+function sourceFixedFromTile(value: number): number {
+  return clampInt32(Math.round(value * TILEGLOBAL));
+}
+
+function sourceDifficultyIndex(difficulty: SourceDifficulty): number {
+  const index = SOURCE_DIFFICULTY_NAMES.indexOf(difficulty);
+  return index >= 0 ? index : 0;
+}
+
+function sourcePlaystateIndex(playstate: SourcePlayState): number {
+  const index = SOURCE_PLAYSTATE_NAMES.indexOf(playstate);
+  return index >= 0 ? index : 0;
+}
+
+function sourceButtonMask(buttons: Record<string, boolean>): number {
+  return SOURCE_BUTTONS.reduce((mask, button, index) => mask | (buttons[button.name] ? 1 << index : 0), 0);
+}
+
+function clampInt16(value: number): number {
+  return Math.max(-0x8000, Math.min(0x7fff, Math.trunc(value)));
+}
+
+function clampUint16(value: number): number {
+  return Math.max(0, Math.min(0xffff, Math.trunc(value)));
+}
+
+function clampInt32(value: number): number {
+  return Math.max(-0x80000000, Math.min(0x7fffffff, Math.trunc(value)));
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  const chunkSize = 0x8000;
+  let binary = "";
+  for (let offset = 0; offset < bytes.byteLength; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+
+  return window.btoa(binary);
 }
 
 function encodeText(value: string): Uint8Array {
