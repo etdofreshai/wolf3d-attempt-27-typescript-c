@@ -156,7 +156,7 @@ player movement, and player feedback contract parity against
 bonus parity against `source/WOLFSRC/WL_AGENT.C`, actor kill score/drop parity and
 damage/pain-state parity plus actor direction-table parity against
 `source/WOLFSRC/WL_STATE.C`, palette flash and play-loop contract parity against
-`source/WOLFSRC/WL_PLAY.C`, level-flow table parity against
+`source/WOLFSRC/WL_PLAY.C`, game-loop transition contract and level-flow table parity against
 `source/WOLFSRC/WL_GAME.C` and `source/WOLFSRC/WL_INTER.C`, RNG table parity against
 `source/WOLFSRC/ID_US_A.ASM`, and the sprite/weapon/enemy/direction enums in
 `source/WOLFSRC/WL_DEF.H`.

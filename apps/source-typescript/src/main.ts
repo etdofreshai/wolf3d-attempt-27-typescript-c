@@ -2546,8 +2546,8 @@ class WLGame {
       return false;
     }
 
-    this.RecordLevelCompleted();
     this.gamestate.keys = 0;
+    this.RecordLevelCompleted();
     this.gamestate.oldscore = this.gamestate.score;
 
     if (this.gamestate.mapon === 9) {

@@ -154,6 +154,7 @@ const sourceDamagePainStates = parseSourceDamagePainStates(sourceStateText);
 const sourceKillActorRewards = parseSourceKillActorRewards(sourceStateText);
 const sourcePaletteFlashContracts = parseSourcePaletteFlashContracts(sourcePlayText, sourcePlayDefines);
 const sourcePlayLoopContract = parseSourcePlayLoopContract(sourcePlayText);
+const sourceGameLoopTransitionContracts = parseSourceGameLoopTransitionContracts(sourceGameText);
 const sourceElevatorBackTo = parseSourceElevatorBackTo(sourceGameText);
 const sourceParTimesSeconds = parseSourceParTimesSeconds(sourceInterText);
 const sourceRndTable = parseSourceRndTable(sourceUserAsmText);
@@ -189,6 +190,7 @@ const typescriptDamageActorContract = parseTypescriptDamageActorContract(typescr
 const typescriptDamagePainStates = parseTypescriptDamagePainStates(typescriptText);
 const typescriptPaletteFlashContracts = parseTypescriptPaletteFlashContracts(typescriptText, constants);
 const typescriptPlayLoopContract = parseTypescriptPlayLoopContract(typescriptText);
+const typescriptGameLoopTransitionContracts = parseTypescriptGameLoopTransitionContracts(typescriptText);
 const typescriptSprites = parseTypescriptSprites(typescriptText);
 const modeledFrames = parseModeledFrames(typescriptText, constants, typescriptSprites);
 const problems = [];
@@ -239,6 +241,7 @@ compareContractObject("WL_STATE.C DamageActor", sourceDamageActorContract, types
 comparePainStates(sourceDamagePainStates, typescriptDamagePainStates, problems);
 compareContractMap("WL_PLAY.C palette flash", sourcePaletteFlashContracts, typescriptPaletteFlashContracts, problems);
 compareContractObject("WL_PLAY.C PlayLoop", sourcePlayLoopContract, typescriptPlayLoopContract, problems);
+compareContractMap("WL_GAME.C game loop transition", sourceGameLoopTransitionContracts, typescriptGameLoopTransitionContracts, problems);
 compareDirectionDeltas(sourceDirectionIndexes, typescriptDirectionDeltas, problems);
 compareDirectionList("opposite", sourceOppositeDirections, typescriptOppositeDirections, problems);
 compareDiagonalDirections(sourceDiagonalDirections, typescriptDiagonalDirections, sourceDirectionIndexes, problems);
@@ -260,7 +263,7 @@ if (problems.length > 0) {
 }
 
 console.log(
-  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceDoorPushwallContracts.size} WL_ACT1.C door/pushwall contracts, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourcePlayerAttackContracts.size} WL_AGENT.C player attack contracts, ${sourcePlayerCommandContracts.size} WL_AGENT.C player command contracts, ${sourcePlayerMovementContracts.size} WL_AGENT.C player movement contracts, ${sourcePlayerFeedbackContracts.size} WL_AGENT.C player feedback contracts, ${sourceAgentHelperContracts.size} WL_AGENT.C helper contracts, ${countComparedBonusRewards(sourceBonusRewards)} WL_AGENT.C bonus reward rows, ${sourceTreasureScores.size} WL_AGENT.C treasure score rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceKillActorRewards.size} WL_STATE.C kill reward rows, ${sourceDamagePainStates.size} WL_STATE.C damage pain rows, ${sourcePaletteFlashContracts.size} WL_PLAY.C palette flash contracts, WL_PLAY.C PlayLoop contract, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
+  `source-typescript source verifier: ${modeledFrames.size} modeled WL_ACT2.C frames, ${sourceStaticInfo.length} WL_ACT1.C statinfo entries, ${sourceDoorPushwallContracts.size} WL_ACT1.C door/pushwall contracts, ${sourceSoundIndexes.size} AUDIOWL6.H sounds, ${sourceWeaponReadySprites.length} WL_DRAW.C weapon sprites, ${sourceAttackInfo.length} WL_AGENT.C attackinfo rows, ${sourcePlayerAttackContracts.size} WL_AGENT.C player attack contracts, ${sourcePlayerCommandContracts.size} WL_AGENT.C player command contracts, ${sourcePlayerMovementContracts.size} WL_AGENT.C player movement contracts, ${sourcePlayerFeedbackContracts.size} WL_AGENT.C player feedback contracts, ${sourceAgentHelperContracts.size} WL_AGENT.C helper contracts, ${countComparedBonusRewards(sourceBonusRewards)} WL_AGENT.C bonus reward rows, ${sourceTreasureScores.size} WL_AGENT.C treasure score rows, ${sourceStartHitpoints.length} WL_ACT2.C hitpoint rows, ${sourceKillActorRewards.size} WL_STATE.C kill reward rows, ${sourceDamagePainStates.size} WL_STATE.C damage pain rows, ${sourcePaletteFlashContracts.size} WL_PLAY.C palette flash contracts, WL_PLAY.C PlayLoop contract, ${sourceGameLoopTransitionContracts.size} WL_GAME.C game-loop transition contracts, ${sourceOppositeDirections.length} WL_STATE.C direction entries, ${sourceParTimesSeconds.length} WL_INTER.C par times, and ${sourceRndTable.length} ID_US_A.ASM rndtable bytes match source.`
 );
 
 function parseSourceStates(text, sprites) {
@@ -899,6 +902,56 @@ function parseSourcePlayLoopContract(text) {
     refreshBeforeTime: /ThreeDRefresh\s*\(\s*\)[\s\S]*?gamestate\.TimeCount\s*\+=\s*tics/.test(body),
     soundPollAfterTime: /gamestate\.TimeCount\s*\+=\s*tics[\s\S]*?SD_Poll\s*\(\s*\)/.test(body)
   };
+}
+
+function parseSourceGameLoopTransitionContracts(text) {
+  const activeText = filterWl6Source(text);
+  const gameLoopBody = extractCFunctionBody(activeText, "GameLoop");
+  const diedBody = extractCFunctionBody(activeText, "Died");
+  const completedBody = extractSectionBetween(
+    gameLoopBody,
+    /case\s+ex_completed\s*:/,
+    /case\s+ex_died\s*:/,
+    "GameLoop completed transition"
+  );
+  const diedCaseBody = extractSectionBetween(
+    gameLoopBody,
+    /case\s+ex_died\s*:/,
+    /case\s+ex_victorious\s*:/,
+    "GameLoop died transition"
+  );
+  const contracts = new Map();
+  contracts.set("CompletedOrSecret", {
+    callsLevelCompleted: /LevelCompleted\s*\(\s*\)/.test(completedBody),
+    clearsKeysBeforeLevelCompleted: /gamestate\.keys\s*=\s*0[\s\S]*LevelCompleted\s*\(\s*\)/.test(completedBody),
+    completedIncrementsMapon: /gamestate\.mapon\+\+/.test(completedBody),
+    handlesCompletedAndSecretTogether: /case\s+ex_completed\s*:[\s\S]*case\s+ex_secretlevel\s*:/.test(completedBody),
+    savesOldScoreAfterCompletion: /LevelCompleted\s*\(\s*\)[\s\S]*gamestate\.oldscore\s*=\s*gamestate\.score/.test(completedBody),
+    secretLevelGoesToMap9: /playstate\s*==\s*ex_secretlevel[\s\S]*gamestate\.mapon\s*=\s*9/.test(completedBody),
+    usesElevatorBackToForMap9:
+      /gamestate\.mapon\s*==\s*9[\s\S]*gamestate\.mapon\s*=\s*ElevatorBackTo\s*\[\s*gamestate\.episode\s*\]/.test(
+        completedBody
+      )
+  });
+  contracts.set("Died", {
+    checksHighScoreWhenNoLives:
+      /gamestate\.lives\s*>\s*-1[\s\S]*break[\s\S]*CheckHighScore\s*\(\s*gamestate\.score\s*,\s*gamestate\.mapon\s*\+\s*1\s*\)/.test(
+        diedCaseBody
+      ),
+    clearsAttackCounters:
+      /gamestate\.attackframe\s*=\s*gamestate\.attackcount\s*=[\s\S]*gamestate\.weaponframe\s*=\s*0/.test(diedBody),
+    clearsKeys: /gamestate\.keys\s*=\s*0/.test(diedBody),
+    decrementsLives: /gamestate\.lives--/.test(diedBody),
+    playsDeathSound: /SD_PlaySound\s*\(\s*PLAYERDEATHSND\s*\)/.test(diedBody),
+    restartsWhenLivesRemain: /gamestate\.lives\s*>\s*-1[\s\S]*break/.test(diedCaseBody),
+    restoresHealth100: /gamestate\.health\s*=\s*100/.test(diedBody),
+    restoresOldScore: /!\s*loadedgame[\s\S]*gamestate\.score\s*=\s*gamestate\.oldscore/.test(gameLoopBody),
+    restoresPistolWeaponSet:
+      /gamestate\.weapon\s*=\s*gamestate\.bestweapon[\s\S]*=\s*gamestate\.chosenweapon\s*=\s*wp_pistol/.test(diedBody),
+    restoresStartAmmo: /gamestate\.ammo\s*=\s*STARTAMMO/.test(diedBody),
+    takesAwayWeapon: /gamestate\.weapon\s*=\s*-1/.test(diedBody)
+  });
+  return contracts;
 }
 
 function parseSourceAgentHelperContracts(text, defines) {
@@ -1693,6 +1746,65 @@ function parseTypescriptPlayLoopContract(text) {
     refreshBeforeTime: /this\.wl_draw\.ThreeDRefresh\s*\(\s*this\.wl_game\s*\)[\s\S]*?this\.wl_game\.AdvanceTime\s*\(\s*tics\s*\)/.test(body),
     soundPollAfterTime: /this\.wl_game\.AdvanceTime\s*\(\s*tics\s*\)[\s\S]*?this\.id_sd\.SD_Service\s*\(/.test(body)
   };
+}
+
+function parseTypescriptGameLoopTransitionContracts(text) {
+  const completedBody = extractTypescriptFunctionBodyContaining(
+    text,
+    "ApplyCompletedLevelTransition",
+    /completedLevelTransitionApplied[\s\S]*RecordLevelCompleted/,
+    "WLGame ApplyCompletedLevelTransition"
+  );
+  const diedBody = extractTypescriptFunctionBodyContaining(
+    text,
+    "ApplyDiedTransition",
+    /diedTransitionApplied[\s\S]*PLAYERDEATHSND/,
+    "WLGame ApplyDiedTransition"
+  );
+  const contracts = new Map();
+  contracts.set("CompletedOrSecret", {
+    callsLevelCompleted: /this\.RecordLevelCompleted\s*\(\s*\)/.test(completedBody),
+    clearsKeysBeforeLevelCompleted:
+      /this\.gamestate\.keys\s*=\s*0[\s\S]*this\.RecordLevelCompleted\s*\(\s*\)/.test(completedBody),
+    completedIncrementsMapon: /this\.gamestate\.mapon\s*\+=\s*1/.test(completedBody),
+    handlesCompletedAndSecretTogether:
+      /this\.playstate\s*!==\s*"ex_completed"[\s\S]*this\.playstate\s*!==\s*"ex_secretlevel"/.test(
+        completedBody
+      ),
+    savesOldScoreAfterCompletion:
+      /this\.RecordLevelCompleted\s*\(\s*\)[\s\S]*this\.gamestate\.oldscore\s*=\s*this\.gamestate\.score/.test(
+        completedBody
+      ),
+    secretLevelGoesToMap9:
+      /this\.playstate\s*===\s*"ex_secretlevel"[\s\S]*this\.gamestate\.mapon\s*=\s*9/.test(completedBody),
+    usesElevatorBackToForMap9:
+      /this\.gamestate\.mapon\s*===\s*9[\s\S]*this\.gamestate\.mapon\s*=\s*ELEVATOR_BACK_TO\s*\[\s*this\.gamestate\.episode\s*\]/.test(
+        completedBody
+      )
+  });
+  contracts.set("Died", {
+    checksHighScoreWhenNoLives:
+      /else\s*\{[\s\S]*this\.CheckHighScore\s*\(\s*this\.gamestate\.score\s*,\s*this\.gamestate\.mapon\s*\+\s*1\s*\)/.test(
+        diedBody
+      ),
+    clearsAttackCounters:
+      /this\.gamestate\.attackframe\s*=\s*0[\s\S]*this\.gamestate\.attackcount\s*=\s*0[\s\S]*this\.gamestate\.weaponframe\s*=\s*0/.test(
+        diedBody
+      ),
+    clearsKeys: /this\.gamestate\.keys\s*=\s*0/.test(diedBody),
+    decrementsLives: /this\.gamestate\.lives\s*-=\s*1/.test(diedBody),
+    playsDeathSound: /this\.id_sd\.SD_PlaySound\s*\(\s*"PLAYERDEATHSND"\s*\)/.test(diedBody),
+    restartsWhenLivesRemain: /this\.gamestate\.lives\s*>\s*-1/.test(diedBody),
+    restoresHealth100: /this\.gamestate\.health\s*=\s*MAX_HEALTH/.test(diedBody),
+    restoresOldScore: /this\.gamestate\.score\s*=\s*this\.gamestate\.oldscore/.test(diedBody),
+    restoresPistolWeaponSet:
+      /this\.gamestate\.weapon\s*=\s*WP_PISTOL[\s\S]*this\.gamestate\.bestweapon\s*=\s*WP_PISTOL[\s\S]*this\.gamestate\.chosenweapon\s*=\s*WP_PISTOL/.test(
+        diedBody
+      ),
+    restoresStartAmmo: /this\.gamestate\.ammo\s*=\s*STARTAMMO/.test(diedBody),
+    takesAwayWeapon: /this\.gamestate\.weapon\s*=\s*-1/.test(diedBody)
+  });
+  return contracts;
 }
 
 function parseTypescriptAgentHelperContracts(text, constants, stringConstants) {
@@ -2634,6 +2746,22 @@ function parseTypescriptSwitchStringReturns(switchBody) {
   return values;
 }
 
+function extractSectionBetween(text, startPattern, endPattern, label) {
+  const startMatch = startPattern.exec(text);
+  if (!startMatch) {
+    throw new Error(`Could not find ${label} start`);
+  }
+
+  const sectionStart = startMatch.index;
+  const afterStart = text.slice(sectionStart + startMatch[0].length);
+  const endMatch = endPattern.exec(afterStart);
+  if (!endMatch) {
+    throw new Error(`Could not find ${label} end`);
+  }
+
+  return text.slice(sectionStart, sectionStart + startMatch[0].length + endMatch.index);
+}
+
 function extractCFunctionBody(text, name) {
   const pattern = new RegExp(`\\b[A-Za-z_][A-Za-z0-9_\\s\\*]*\\s+${name}\\s*\\([^;]*?\\)\\s*\\{`);
   return extractBodyAfterPattern(text, pattern, name);
@@ -2648,6 +2776,19 @@ function extractTypescriptFunctionBody(text, name) {
 
   const openIndex = findTypescriptFunctionOpeningBrace(text, match.index + match[0].length, name);
   return extractBraceBody(text, openIndex);
+}
+
+function extractTypescriptFunctionBodyContaining(text, name, requiredPattern, label) {
+  const pattern = new RegExp(`(?:^|\\n)\\s*(?:function\\s+|private\\s+)?${name}\\s*\\([^)]*\\)`, "g");
+  for (const match of text.matchAll(pattern)) {
+    const openIndex = findTypescriptFunctionOpeningBrace(text, match.index + match[0].length, name);
+    const body = extractBraceBody(text, openIndex);
+    if (requiredPattern.test(body)) {
+      return body;
+    }
+  }
+
+  throw new Error(`Could not find ${label} body`);
 }
 
 function findTypescriptFunctionOpeningBrace(text, startIndex, label) {
