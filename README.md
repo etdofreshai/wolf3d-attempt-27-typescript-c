@@ -116,6 +116,22 @@ Run from the repo root:
 | `npm run build` | Type-check and production-build every app. |
 | `npm run check` | Type-check every app (`tsc --noEmit`). |
 | `npm run preview` | Serve the production builds locally. |
+| `npm run finish-worktree -- <branch>` | Merge a worktree branch into `main`, remove the worktree and branch, then prune. Stops on the first problem. |
 
 Each app exposes the same `dev` / `build` / `check` / `preview` scripts, runnable
 directly with `npm run <script> --workspace @wolf3d/<app>`.
+
+### Finishing a worktree
+
+If you develop in a git worktree, `finish-worktree` merges it back and cleans up
+in one step:
+
+```bash
+npm run finish-worktree                 # finish the worktree you're standing in
+npm run finish-worktree -- <branch>     # finish the worktree for a named branch
+```
+
+It merges the branch into `main`, removes the worktree, deletes the merged
+branch, and prunes — halting and reporting if any step fails (e.g. a dirty tree
+or a merge conflict). Run it from the main repo (or any directory **outside** the
+worktree being removed), since the OS won't delete a directory that's in use.

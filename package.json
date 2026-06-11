@@ -19,7 +19,8 @@
     "preview:home": "npm run preview --workspace @wolf3d/home",
     "preview:dos-page": "npm run preview --workspace @wolf3d/dos-page",
     "preview:source-dos": "npm run preview --workspace @wolf3d/source-dos",
-    "preview:source-modified-dos": "npm run preview --workspace @wolf3d/source-modified-dos"
+    "preview:source-modified-dos": "npm run preview --workspace @wolf3d/source-modified-dos",
+    "finish-worktree": "node scripts/finish-worktree.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
