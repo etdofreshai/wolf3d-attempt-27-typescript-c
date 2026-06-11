@@ -1,0 +1,22 @@
+{
+  "name": "@wolf3d/source-typescript-3",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "check": "node typecheck.mjs",
+    "build": "node typecheck.mjs && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "test": "vitest run",
+    "test:saveload": "vitest run tests/saveload.test.ts",
+    "test:demo": "vitest run tests/demo.test.ts",
+    "test:parity": "vitest run tests/parity.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.2",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.7",
+    "vitest": "^3.2.6"
+  }
+}

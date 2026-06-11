@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "allowImportingTsExtensions": true,
+    "forceConsistentCasingInFileNames": false,
+    "noEmit": true,
+    "types": ["vite/client", "node", "vitest/globals"]
+  },
+  "include": ["src", "tests", "vite.config.ts"]
+}
