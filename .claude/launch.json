@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "source-typescript",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:source-typescript"],
+      "port": 5174
+    }
+  ]
+}

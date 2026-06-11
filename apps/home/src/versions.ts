@@ -53,5 +53,15 @@ export const VERSIONS: GameVersion[] = [
     devPort: 5173,
     status: "experimental",
     tags: ["source", "capture", "harness"]
+  },
+  {
+    id: "source-typescript",
+    name: "Source TypeScript",
+    tagline: "A from-scratch TypeScript port — native in the browser, no DOSBox.",
+    description:
+      "Reimplements the Wolfenstein 3D engine in TypeScript, rendering to a canvas natively instead of running the DOS binary under js-dos. Currently a scaffold: a 320×200 framebuffer driven by a fixed-timestep loop with input wired up, ready for the raycaster, asset loader, and game logic to grow into.",
+    devPort: 5174,
+    status: "experimental",
+    tags: ["TypeScript", "native", "scaffold"]
   }
 ];

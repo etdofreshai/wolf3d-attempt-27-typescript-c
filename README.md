@@ -13,6 +13,7 @@ patched source tree — all running on the same data files.
 │  Home (5170) │ ───────────────► │  Retail DOS         (5171)   │
 │   launcher   │ ───────────────► │  Source DOS Build   (5172)   │
 │              │ ───────────────► │  Modified Source    (5173)   │
+│              │ ───────────────► │  Source TypeScript  (5174)   │
 └──────────────┘                  └──────────────────────────────┘
 ```
 
@@ -28,12 +29,12 @@ npm run dev        # starts the launcher + all game apps concurrently
 Then open the launcher: **http://localhost:5170**
 
 Each card on the launcher opens one game build in a new tab and shows whether its
-dev server is currently up. `npm run dev` starts all four servers, so they will be.
+dev server is currently up. `npm run dev` starts all five servers, so they will be.
 
 To run just one build:
 
 ```bash
-npm run dev:dos-page              # or dev:source-dos, dev:source-modified-dos, dev:home
+npm run dev:dos-page              # or dev:source-dos, dev:source-modified-dos, dev:source-typescript, dev:home
 ```
 
 ## The builds
@@ -44,6 +45,7 @@ npm run dev:dos-page              # or dev:source-dos, dev:source-modified-dos, 
 | **Retail DOS**         | `@wolf3d/dos-page`          | 5171 | The original retail `WOLF3D.EXE` + WL6 data, unmodified. The reference build. |
 | **Source DOS Build**   | `@wolf3d/source-dos`        | 5172 | `WOLF3D.EXE` built from id Software's released source (`source/WOLFSRC`). Can recompile in-browser when a Borland C++ toolchain is present. |
 | **Modified Source DOS**| `@wolf3d/source-modified-dos` | 5173 | The same source pipeline tracking our patches, plus frame/audio/state capture and a URL-driven demo harness. |
+| **Source TypeScript**  | `@wolf3d/source-typescript` | 5174 | A from-scratch TypeScript port that renders natively to a canvas (no js-dos). Currently a scaffold: a 320×200 framebuffer, fixed-timestep loop, and input — ready for the raycaster and game logic. |
 
 The launcher's catalog lives in
 [`apps/home/src/versions.ts`](apps/home/src/versions.ts) — it is the single source
@@ -57,7 +59,8 @@ of truth for what appears on the homepage.
 │   ├── home/                 # launcher homepage (@wolf3d/home)
 │   ├── dos-page/             # retail build (@wolf3d/dos-page)
 │   ├── source-dos/           # source-compiled build (@wolf3d/source-dos)
-│   └── source-modified-dos/  # modified source build (@wolf3d/source-modified-dos)
+│   ├── source-modified-dos/  # modified source build (@wolf3d/source-modified-dos)
+│   └── source-typescript/    # native TypeScript port (@wolf3d/source-typescript)
 ├── source/                   # id Software Wolfenstein 3D source release (WOLFSRC)
 ├── steam/                    # shipped game data (WL6 assets, retail EXE, DOSBox)
 ├── deps/                     # vendored DOS toolchain (Borland C++) for rebuilds
@@ -94,7 +97,7 @@ The launcher is data-driven, so adding a build is mechanical:
    point) with its own `package.json`, `vite.config.ts`, and `index.html`.
 2. **Pin a fixed port** in its `vite.config.ts`:
    ```ts
-   server: { port: 5174, strictPort: true }
+   server: { port: 5175, strictPort: true }
    ```
 3. **Wire it into the root scripts** in [`package.json`](package.json): add a
    `dev:<id>` script and reference it from the `dev` (and `preview`) `concurrently`
@@ -112,7 +115,7 @@ Run from the repo root:
 | Command | Description |
 | ------- | ----------- |
 | `npm run dev` | Start the launcher and all game apps concurrently. |
-| `npm run dev:<app>` | Start a single app (`home`, `dos-page`, `source-dos`, `source-modified-dos`). |
+| `npm run dev:<app>` | Start a single app (`home`, `dos-page`, `source-dos`, `source-modified-dos`, `source-typescript`). |
 | `npm run build` | Type-check and production-build every app. |
 | `npm run check` | Type-check every app (`tsc --noEmit`). |
 | `npm run preview` | Serve the production builds locally. |

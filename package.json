@@ -8,18 +8,20 @@
     "apps/*"
   ],
   "scripts": {
-    "dev": "concurrently --names home,retail,source,modified --prefix-colors green,yellow,cyan,magenta npm:dev:home npm:dev:dos-page npm:dev:source-dos npm:dev:source-modified-dos",
+    "dev": "concurrently --names home,retail,source,modified,ts --prefix-colors green,yellow,cyan,magenta,blue npm:dev:home npm:dev:dos-page npm:dev:source-dos npm:dev:source-modified-dos npm:dev:source-typescript",
     "dev:home": "npm run dev --workspace @wolf3d/home",
     "dev:dos-page": "npm run dev --workspace @wolf3d/dos-page",
     "dev:source-dos": "npm run dev --workspace @wolf3d/source-dos",
     "dev:source-modified-dos": "npm run dev --workspace @wolf3d/source-modified-dos",
+    "dev:source-typescript": "npm run dev --workspace @wolf3d/source-typescript",
     "build": "npm run build --workspaces --if-present",
     "check": "npm run check --workspaces --if-present",
-    "preview": "concurrently --names home,retail,source,modified --prefix-colors green,yellow,cyan,magenta npm:preview:home npm:preview:dos-page npm:preview:source-dos npm:preview:source-modified-dos",
+    "preview": "concurrently --names home,retail,source,modified,ts --prefix-colors green,yellow,cyan,magenta,blue npm:preview:home npm:preview:dos-page npm:preview:source-dos npm:preview:source-modified-dos npm:preview:source-typescript",
     "preview:home": "npm run preview --workspace @wolf3d/home",
     "preview:dos-page": "npm run preview --workspace @wolf3d/dos-page",
     "preview:source-dos": "npm run preview --workspace @wolf3d/source-dos",
     "preview:source-modified-dos": "npm run preview --workspace @wolf3d/source-modified-dos",
+    "preview:source-typescript": "npm run preview --workspace @wolf3d/source-typescript",
     "finish-worktree": "node scripts/finish-worktree.mjs"
   },
   "devDependencies": {
