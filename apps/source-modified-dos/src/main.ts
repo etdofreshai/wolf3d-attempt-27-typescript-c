@@ -529,7 +529,6 @@ const missingList = requireElement<HTMLElement>("#missing-list");
 const downloadBuilt = requireElement<HTMLAnchorElement>("#download-built");
 const artifactList = requireElement<HTMLElement>("#artifact-list");
 const buildLog = requireElement<HTMLPreElement>("#build-log");
-const mount = requireElement<HTMLElement>("#dos-mount");
 const dosCanvas = requireElement<HTMLCanvasElement>("#dos-canvas");
 const dosContext = dosCanvas.getContext("2d");
 

@@ -1,0 +1,27 @@
+{
+  "name": "wolf3d-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A collection of Wolfenstein 3D builds — retail, source-compiled, and modified — each playable in the browser via js-dos, with a launcher homepage.",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently --names home,retail,source,modified --prefix-colors green,yellow,cyan,magenta npm:dev:home npm:dev:dos-page npm:dev:source-dos npm:dev:source-modified-dos",
+    "dev:home": "npm run dev --workspace @wolf3d/home",
+    "dev:dos-page": "npm run dev --workspace @wolf3d/dos-page",
+    "dev:source-dos": "npm run dev --workspace @wolf3d/source-dos",
+    "dev:source-modified-dos": "npm run dev --workspace @wolf3d/source-modified-dos",
+    "build": "npm run build --workspaces --if-present",
+    "check": "npm run check --workspaces --if-present",
+    "preview": "concurrently --names home,retail,source,modified --prefix-colors green,yellow,cyan,magenta npm:preview:home npm:preview:dos-page npm:preview:source-dos npm:preview:source-modified-dos",
+    "preview:home": "npm run preview --workspace @wolf3d/home",
+    "preview:dos-page": "npm run preview --workspace @wolf3d/dos-page",
+    "preview:source-dos": "npm run preview --workspace @wolf3d/source-dos",
+    "preview:source-modified-dos": "npm run preview --workspace @wolf3d/source-modified-dos"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

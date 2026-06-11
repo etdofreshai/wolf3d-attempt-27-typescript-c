@@ -27,6 +27,11 @@ type ToolchainEntry = {
 };
 
 export default defineConfig({
+  // Fixed port so the launcher (apps/home) can link here reliably.
+  server: {
+    port: 5172,
+    strictPort: true
+  },
   plugins: [sourceDosPlugin()]
 });
 

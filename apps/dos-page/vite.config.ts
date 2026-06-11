@@ -22,6 +22,11 @@ const LOCAL_DOS_FILES = [
 ] as const;
 
 export default defineConfig({
+  // Fixed port so the launcher (apps/home) can link here reliably.
+  server: {
+    port: 5171,
+    strictPort: true
+  },
   plugins: [localWolfDataPlugin()]
 });
 
