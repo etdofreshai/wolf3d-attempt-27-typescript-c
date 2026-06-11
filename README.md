@@ -45,7 +45,7 @@ npm run dev:dos-page              # or dev:source-dos, dev:source-modified-dos, 
 | **Retail DOS**         | `@wolf3d/dos-page`          | 5171 | The original retail `WOLF3D.EXE` + WL6 data, unmodified. The reference build. |
 | **Source DOS Build**   | `@wolf3d/source-dos`        | 5172 | `WOLF3D.EXE` built from id Software's released source (`source/WOLFSRC`). Can recompile in-browser when a Borland C++ toolchain is present. |
 | **Modified Source DOS**| `@wolf3d/source-modified-dos` | 5173 | The same source pipeline tracking our patches, plus frame/audio/state capture and a URL-driven demo harness. |
-| **Source TypeScript**  | `@wolf3d/source-typescript` | 5174 | A from-scratch TypeScript port that renders natively to a canvas (no js-dos). Currently a scaffold: a 320×200 framebuffer, fixed-timestep loop, and input — ready for the raycaster and game logic. |
+| **Source TypeScript**  | `@wolf3d/source-typescript` | 5174 | A **faithful 1:1 TypeScript port** of `source/WOLFSRC` — one `.C.ts`/`.H.ts` module per C file, behavior-exact down to the bugs — rendering natively to a canvas (no js-dos). See **[PORTING.md](PORTING.md)** for conventions and the definition of done. Currently a prepared scaffold: `src/WOLFSRC/` (the port mirror) + `src/platform/` (browser hardware layer). |
 
 The launcher's catalog lives in
 [`apps/home/src/versions.ts`](apps/home/src/versions.ts) — it is the single source
@@ -64,9 +64,16 @@ of truth for what appears on the homepage.
 ├── source/                   # id Software Wolfenstein 3D source release (WOLFSRC)
 ├── steam/                    # shipped game data (WL6 assets, retail EXE, DOSBox)
 ├── deps/                     # vendored DOS toolchain (Borland C++) for rebuilds
+├── oracle/                   # reference-oracle tooling: Borland build recipe + LZEXE decompressor
+├── PORTING.md                # faithful-port spec: conventions + definition of done
 ├── tsconfig.base.json        # shared TypeScript config, extended by every app
 └── package.json              # npm workspaces + orchestration scripts
 ```
+
+The TypeScript port follows **[PORTING.md](PORTING.md)** (goal, naming/formatting,
+C-semantics fidelity rules, the reference oracle, and the tiered "done"
+definition). The [oracle/](oracle/) directory documents how the original DOS
+binary is rebuilt and decompressed to serve as ground truth.
 
 This is an [npm workspaces](https://docs.npmjs.com/cli/using-npm/workspaces)
 monorepo. A single `npm install` at the root installs every app and hoists shared

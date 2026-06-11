@@ -305,15 +305,35 @@ level** (hooks that dump the per-tic state hash, framebuffer, and OPL
 register stream to disk), so extraction needs no DOSBox debugger scripting.
 The Borland linker `.MAP` yields the data-segment layout map (§10) for free.
 
-**Step 1 (gate):** confirm whether the Borland rebuild reproduces
-`steam/base/wolf3d.exe` byte-for-byte. If yes, behavior *and* the save-layout
-addresses unify in one artifact. If not, behavior is taken from the
-instrumented rebuild, but the **save-layout addresses are taken from the
-shipped binary** (via its map / memory inspection), because that is the binary
-your saves must interoperate with (§2, §10).
+**Step 1 (gate) — DONE.** The authentic source builds and links cleanly with
+Borland C++ 3.1 under DOSBox (all 33 modules, 0 errors). Result: the rebuild is
+**not** byte-identical to the shipped binary, for two structural reasons:
 
-Build order: **the oracle is the first concrete deliverable after this spec is
-signed off.** Until it exists, "matches the original" is an opinion, not a test.
+- The shipped `wolf3d.exe` is **LZEXE 0.91-compressed** (`"LZ91"` at file offset
+  `0x1C`): 108,779 compressed bytes wrapping a ~254 KB real-mode image. Any byte
+  comparison must be done image-vs-image (decompress first).
+- The released `WOLF3D.PRJ` is the **developer debug** config (`-v`, TLINK `/v`);
+  a release build (`-v-`, no `/v`) yields a **254,046-byte** load image.
+
+After decompressing the shipped EXE, the retail load image is **254,014 bytes**
+vs our build's **254,046** — a **32-byte (0.01%) difference**, the rest diverging
+only on segment-relocation words. So our `WOLFSRC` is *extremely close to but not
+exactly* the retail source revision.
+
+**Consequence (now confirmed, not hypothetical):** behavior comes from our
+rebuild; the **byte-identical save layout is taken from the (decompressed)
+shipped binary** — its DGROUP is the authority, since our rebuild may differ by
+that 32-byte margin (§10). Verifying the DGROUP offsets match (or extracting
+retail's) is the next oracle task.
+
+The full reproducible recipe, the two required build fixes (drop the auto-added
+stock `c0m.obj` — id's `C0.ASM` is a full custom startup; repoint the dev's
+stale absolute paths), and the validated **LZEXE decompressor** live in
+[oracle/](oracle/) — see [oracle/README.md](oracle/README.md).
+
+Build order: the oracle build + LZEXE decompressor now exist under
+[oracle/](oracle/). Remaining: per-tic instrumentation (state hash / framebuffer
+/ OPL stream) in `apps/source-modified-dos`, and the DGROUP layout map (§10).
 
 ---
 
@@ -414,15 +434,16 @@ original code and runtime.
 |---|------|---------------------------|
 | 1 | **Global/`extern` mechanism** (§6.4) | Each global is **defined in the `.ts` mirror of the `.c` that defines it** — never a catch-all globals module (that would destroy the 1:1 structure). Serialized / pointer-addressed globals are **views into the DOS-memory buffer** (§6.3); remaining plain scalars are mutable module exports. Residual cosmetic tax: ESM has no writable cross-module bindings, so an importer that *writes* a scalar global goes through its module namespace (`IN.tics`) rather than bare `tics`. |
 | 2 | **OPL core** (§9 T4) | **Nuked-OPL** (OPL2 mode) — reverse-engineered from the real YM3812/YMF262 silicon, the closest to actual AdLib/SB hardware. Primary test is **register-write equality at the same tics** (hardware-independent, exact); the Nuked-rendered buffer is the secondary tolerance check. |
-| 3 | **Oracle build path** (§8) | **Original source built with the vendored Borland C++ 3.1, run under DOSBox/js-dos, instrumented at the source level.** Pure OG = `apps/source-dos` (the authority, untouched); the instrumented build + eval tools = `apps/source-modified-dos`, validated to track the OG demo-for-demo. A modern recompile is rejected (wrong `int` width, padding, and FP → diverges and breaks save layout). Step-1 gate: confirm the Borland rebuild reproduces `wolf3d.exe` byte-for-byte; if not, behavior comes from the rebuild and save-layout addresses from the shipped binary. |
+| 3 | **Oracle build path** (§8) | **Original source built with the vendored Borland C++ 3.1, run under DOSBox/js-dos, instrumented at the source level.** Pure OG = `apps/source-dos` (the authority, untouched); the instrumented build + eval tools = `apps/source-modified-dos`, validated to track the OG demo-for-demo. A modern recompile is rejected (wrong `int` width, padding, and FP → diverges and breaks save layout). **Step-1 gate: DONE** — rebuild is *not* byte-identical (shipped EXE is LZEXE-compressed; decompressed retail 254,014 B vs our release build 254,046 B, Δ32). So behavior = rebuild, save-layout = shipped binary (§10). Reproducible recipe + validated LZEXE decompressor in [oracle/](oracle/). |
 | 4 | **DOS-memory model scope** (§6.3) | Model exactly what the original gives a **stable address**: the **data segment** (statically-allocated globals) + **ID_MM's contiguous managed heap** (already a buffer in the original) as backing `ArrayBuffer`s at the original offsets. **Stack locals stay ordinary TS variables** — no fixed address in the original, so zero fidelity lost and the code stays readable. This is also the minimum that makes byte-identical saves correct. |
-| 5 | **Existing scaffold** | **Replace** the generic raycaster (`engine.ts`/`input.ts`/`main.ts`) with the `WOLFSRC`-mirrored tree; git history preserves it. Keep only a **thin browser "platform" shim** (canvas / keyboard / audio) — the moral equivalent of the original DOS hardware layer — backing the `ID_VL` / `ID_IN` / `ID_SD` ports. *(Pending an explicit go-ahead before deletion.)* |
+| 5 | **Existing scaffold** | **Replace** the generic raycaster (`engine.ts`/`input.ts`/`main.ts`) with the `WOLFSRC`-mirrored tree; git history preserves it. Keep only a **thin browser "platform" shim** (canvas / keyboard / audio) — the moral equivalent of the original DOS hardware layer — backing the `ID_VL` / `ID_IN` / `ID_SD` ports. *(Done — scaffold cleared; `src/WOLFSRC/` + `src/platform/` prepared with READMEs.)* |
 
 **Residual risks to watch:**
 
 - **Save layout is binary-coupled** (§10): valid only for the locked binary in
-  §2. If the Borland rebuild doesn't match it byte-for-byte, the layout map
-  must come from the shipped binary, not the rebuild.
+  §2. **Confirmed** — the rebuild is 32 bytes off retail, so the layout map must
+  come from the (decompressed) shipped binary, not the rebuild. Verifying
+  DGROUP-offset equality (or extracting retail's) is the next oracle task.
 - **Per-tic dumps under DOSBox are slow** (writing the 64 KB framebuffer +
   hashes every tic). Acceptable for offline fixture generation; not realtime.
 - **FM-audio tolerance** (§9 T4) is a defined band, not bit-equality, once past
