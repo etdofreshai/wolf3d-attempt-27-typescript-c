@@ -42,7 +42,15 @@ memory manager keys blocks on it, like the original's `useptr`).
 | Module | State |
 |---|---|
 | `ID_CA.C/.H` | **Ported** — full caching manager; T1 extraction verified against `steam/base/*.WL6` (see `test/id_ca.test.ts` + fixture) |
+| `ID_PM.C/.H` | **Ported** (cache tiers modeled per the ID_MM policy); all 663 VSWAP pages fixture-pinned |
+| `ID_VL.C/.H` | **Ported** — drives the VGA card model in `platform/vga.ts` through the real port map; signon/title/credits render verified |
+| `ID_US_A.ASM` | **Ported** (US_RndT/rndtable, asm preserved in header) |
 | `ID_MM.C/.H` | Behavioral model (API-faithful, pressure-free heap); full transliteration scheduled with the save milestone |
+| `GAMEPAL.OBJ`, `SIGNON.OBJ` | Extracted to data modules via `oracle/extract-omf.mjs` |
 | `GFXV_WL6.H`, `AUDIOWL6.H`, `MAPSWL6.H`, `VERSION.H`, `ID_HEADS.H` | Ported |
-| `ID_VL`, `ID_VH`, `ID_SD`, `WL_MAIN` | Partial stubs (only what ID_CA touches) — full ports queued |
+| `WL_MAIN.C` | Partial: Quit, SignonScreen, BuildTables, CalcProjection, projection globals |
+| `WL_DEF.H`, `WL_DRAW.C`, `WL_PLAY.C`, `ID_VH.C/.H`, `ID_SD.C/.H` | Partial (tables/update-block/pictable layers) |
 | everything else | not started |
+
+The browser boot (`platform/worker.ts`) runs the ported code synchronously in
+a worker (Atomics-paced 70 Hz VBL) — `npm run dev`, port 5174.

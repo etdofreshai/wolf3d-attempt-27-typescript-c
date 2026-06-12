@@ -5,6 +5,7 @@
 // SignonScreen, ...) lands with the game-loop milestone.
 
 import { idiv, i16, mul32 } from "../runtime/ctypes";
+import { memwrite } from "../runtime/dosmem";
 import {
   PI,
   GLOBAL1,
@@ -15,6 +16,16 @@ import {
   MINDIST,
 } from "./WL_DEF.H";
 import { sintable, finetangent, pixelangle } from "./WL_DRAW.C";
+import {
+  VL_SetVGAPlaneMode,
+  VL_TestPaletteSet,
+  VL_SetPalette,
+  VL_SetScreen,
+  VL_MemToScreen,
+} from "./ID_VL.C";
+import { VL_MungePic } from "./ID_VH.C";
+import { gamepal } from "./GAMEPAL.OBJ";
+import { signon } from "./SIGNON.OBJ";
 
 /*
 =============================================================================
@@ -58,7 +69,21 @@ export const wm = {
   minheightdiv: 0,
   // fixed focallength;
   focallength: 0,
+
+  // boolean startgame,loadedgame,virtualreality;
+  startgame: false,
+  loadedgame: false,
+  virtualreality: false,
 };
+
+/**
+ * extern char far signon;  (ID_HEADS.H — the linked-in SIGNON.OBJ screen)
+ *
+ * The original links the 64000-byte signon screen into the EXE's data; the
+ * port places those identical bytes (extracted from SIGNON.OBJ) into DOS
+ * memory at a fixed address below the heap on first use.
+ */
+const introscn = 0x60000; // &introscn — modeled static-data placement
 
 /** Error thrown by Quit — the port's stand-in for exit(1) with a message. */
 export class DosQuit extends Error {
@@ -80,6 +105,36 @@ export function Quit(error: string | null): never {
   // Full original body (shutdown of all managers, error/ordering screen,
   // exit) lands with the game-loop milestone.
   throw new DosQuit(error ?? "");
+}
+
+//===========================================================================
+
+/*
+==========================
+=
+= SignonScreen
+=
+==========================
+*/
+
+export function SignonScreen(): void {
+  // VGA version
+  VL_SetVGAPlaneMode();
+  VL_TestPaletteSet();
+  VL_SetPalette(gamepal);
+
+  if (!wm.virtualreality) {
+    memwrite(introscn, signon); // (port: place the linked-in screen bytes)
+    VL_SetScreen(0x8000, 0); // VW_SetScreen(0x8000,0);
+    VL_MungePic(introscn, 320, 200);
+    VL_MemToScreen(introscn, 320, 200, 0, 0);
+    VL_SetScreen(0, 0); // VW_SetScreen(0,0);
+  }
+
+  //
+  // reclaim the memory from the linked in signon screen
+  //
+  // MML_UseSpace — the modeled heap needs no reclamation (see ID_MM.C.ts)
 }
 
 //===========================================================================

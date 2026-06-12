@@ -1,21 +1,29 @@
 import "./styles.css";
 
 /**
- * Entry point for the faithful Wolfenstein 3D → TypeScript port.
+ * Host side of the faithful Wolfenstein 3D → TypeScript port.
  *
- * This is intentionally near-empty. The port follows PORTING.md (repo root):
- *   - WOLFSRC/   one .C.ts / .H.ts module per original C file (1:1 mirror)
- *   - platform/  the browser hardware layer (canvas / keyboard / audio) that
- *                backs the ID_VL / ID_IN / ID_SD ports — the modern stand-in
- *                for the original's DOS hardware layer.
- *
- * For now this just mounts the 320x200 VGA surface so the build boots to a
- * black screen. The ported entry point (the equivalent of WL_MAIN's `main`)
- * will take over rendering into this canvas.
+ * The game itself runs synchronously (like the original DOS program) in a
+ * Web Worker — see platform/worker.ts. This thread:
+ *   - fetches and mounts the WL6 data files,
+ *   - drives the 70 Hz vertical-blank tick the game blocks on,
+ *   - blits each presented frame from shared memory onto the canvas.
  */
 
 const SCREEN_WIDTH = 320;
 const SCREEN_HEIGHT = 200;
+
+const WL6_FILES = [
+  "MAPHEAD.WL6",
+  "GAMEMAPS.WL6",
+  "VGADICT.WL6",
+  "VGAHEAD.WL6",
+  "VGAGRAPH.WL6",
+  "AUDIOHED.WL6",
+  "AUDIOT.WL6",
+  "VSWAP.WL6",
+  "CONFIG.WL6",
+];
 
 const root = document.querySelector<HTMLElement>("#app");
 if (!root) {
@@ -36,4 +44,60 @@ ctx.imageSmoothingEnabled = false; // keep the chunky DOS pixels crisp
 ctx.fillStyle = "#000";
 ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
 
-// Porting starts here: wire up platform/ then call into WOLFSRC/.
+function fatal(message: string): never {
+  const pre = document.createElement("pre");
+  pre.textContent = message;
+  pre.style.color = "#f55";
+  root!.appendChild(pre);
+  throw new Error(message);
+}
+
+async function start(): Promise<void> {
+  if (!crossOriginIsolated)
+    fatal(
+      "SharedArrayBuffer unavailable: the server must send COOP/COEP headers\n" +
+        "(vite dev/preview are configured to — is something else serving this?)",
+    );
+
+  // fetch + mount the WL6 data
+  const files: Record<string, ArrayBuffer> = {};
+  for (const name of WL6_FILES) {
+    const res = await fetch(`/wl6data/${name}`);
+    if (!res.ok) fatal(`Missing game data: ${name} (${res.status})`);
+    files[name] = await res.arrayBuffer();
+  }
+
+  // shared memory: VBL counter + frame-dirty flag, and the RGBA framebuffer
+  const ctlSab = new SharedArrayBuffer(8);
+  const fbSab = new SharedArrayBuffer(SCREEN_WIDTH * SCREEN_HEIGHT * 4);
+  const ctl = new Int32Array(ctlSab);
+  const fb = new Uint8Array(fbSab);
+
+  const worker = new Worker(new URL("./platform/worker.ts", import.meta.url), {
+    type: "module",
+  });
+  worker.onmessage = (e) => {
+    if (e.data?.quit !== undefined) fatal(`Quit: ${e.data.quit}`);
+  };
+  worker.onerror = (e) => fatal(`Game thread error: ${e.message}`);
+  worker.postMessage({ files, ctl: ctlSab, fb: fbSab });
+
+  // blit dirty frames — the game worker self-paces at 70 Hz; we just paint.
+  // rAF for smooth foreground updates, plus a timer fallback so hidden tabs
+  // (where rAF is paused) still get frames for screenshots/automation.
+  const image = ctx!.createImageData(SCREEN_WIDTH, SCREEN_HEIGHT);
+  const blit = () => {
+    if (Atomics.compareExchange(ctl, 1, 1, 0) === 1) {
+      image.data.set(fb);
+      ctx!.putImageData(image, 0, 0);
+    }
+  };
+  const rafLoop = () => {
+    blit();
+    requestAnimationFrame(rafLoop);
+  };
+  requestAnimationFrame(rafLoop);
+  setInterval(blit, 100);
+}
+
+void start();
