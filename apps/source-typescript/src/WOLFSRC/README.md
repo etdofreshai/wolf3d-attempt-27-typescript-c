@@ -28,4 +28,21 @@ preserving names, casing, comments, and structure. See [PORTING.md](../../../../
 - The 10 `.asm` files are reimplemented from semantics into `*.ASM.ts`, with the
   original assembly preserved in a header comment.
 
-This directory is empty until porting begins.
+## Mutable globals (PORTING.md §11#1, locked)
+
+Every mutable C global lives on its defining module's exported state record,
+named after the file stem (`ID_CA.C.ts` → `export const ca = {...}`), because
+ESM namespace objects are frozen and can't model writable externs. `&global`
+out-params (e.g. `MM_GetPtr(&grstarts, ...)`) become `ref(ca, "grstarts")` —
+a `PtrCell` whose `(owner, key)` identity models the pointer's address (the
+memory manager keys blocks on it, like the original's `useptr`).
+
+## Status
+
+| Module | State |
+|---|---|
+| `ID_CA.C/.H` | **Ported** — full caching manager; T1 extraction verified against `steam/base/*.WL6` (see `test/id_ca.test.ts` + fixture) |
+| `ID_MM.C/.H` | Behavioral model (API-faithful, pressure-free heap); full transliteration scheduled with the save milestone |
+| `GFXV_WL6.H`, `AUDIOWL6.H`, `MAPSWL6.H`, `VERSION.H`, `ID_HEADS.H` | Ported |
+| `ID_VL`, `ID_VH`, `ID_SD`, `WL_MAIN` | Partial stubs (only what ID_CA touches) — full ports queued |
+| everything else | not started |

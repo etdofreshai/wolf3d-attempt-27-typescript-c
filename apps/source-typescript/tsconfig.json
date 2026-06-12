@@ -1,7 +1,11 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "types": ["vite/client"]
+    "types": ["vite/client", "node"],
+    // The 1:1 C port preserves the original's declarations (PORTING.md §5.3)
+    // even where a local or parameter ends up unused in a given function.
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
   },
-  "include": ["src", "vite.config.ts"]
+  "include": ["src", "test", "vite.config.ts"]
 }
