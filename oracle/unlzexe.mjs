@@ -16,6 +16,7 @@
 // stream the moment a literal/match byte read lands on a word boundary.
 
 import fs from 'fs';
+import { pathToFileURL } from 'url';
 
 const u16 = (b, o) => b[o] | (b[o + 1] << 8);
 
@@ -58,10 +59,13 @@ export function unlzexe(buf) {
 }
 
 // CLI
-const [, , inPath, outPath] = process.argv;
-if (!inPath) { console.error('usage: node oracle/unlzexe.mjs <packed.exe> [out.bin]'); process.exit(2); }
-const img = unlzexe(fs.readFileSync(inPath));
-if (outPath) fs.writeFileSync(outPath, img);
-console.log('decompressed load image:', img.length, 'bytes', outPath ? `-> ${outPath}` : '');
-const t = img.toString('latin1');
-console.log('sanity strings:', ['Wolfenstein', 'Episode', 'VSWAP'].map(s => s + (t.includes(s) ? '✓' : '✗')).join('  '));
+const isCli = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isCli) {
+  const [, , inPath, outPath] = process.argv;
+  if (!inPath) { console.error('usage: node oracle/unlzexe.mjs <packed.exe> [out.bin]'); process.exit(2); }
+  const img = unlzexe(fs.readFileSync(inPath));
+  if (outPath) fs.writeFileSync(outPath, img);
+  console.log('decompressed load image:', img.length, 'bytes', outPath ? `-> ${outPath}` : '');
+  const t = img.toString('latin1');
+  console.log('sanity strings:', ['Wolfenstein', 'Episode', 'VSWAP'].map(s => s + (t.includes(s) ? '✓' : '✗')).join('  '));
+}

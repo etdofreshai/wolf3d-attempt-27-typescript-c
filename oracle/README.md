@@ -135,12 +135,55 @@ the MEDIUM model).
 
 ---
 
+## DGROUP / save-layout fixture
+
+`generate-dgroup-layout.mjs` parses the Borland linker map and emits the current
+save-layout fixture:
+
+```bash
+npm run generate:dgroup-layout
+```
+
+Outputs:
+
+- `oracle/generated/dgroup-layout.json`
+- `apps/source-typescript/src/WOLFSRC/TS_DGROUP_LAYOUT.ts`
+
+The fixture records the locked retail EXE hash/decompressed size, the rebuild
+MAP hash, save-critical public symbols (`gamestate`, `objlist`, `statetype`
+tables, doors/statics/push-wall fields), Borland medium-model struct layouts,
+and `SaveTheGame` checksum inclusion/exclusion.
+
+For a bounded retail/rebuild image check without regenerating anything:
+
+```bash
+node oracle/compare-retail-dgroup.mjs
+```
+
+This decompresses the locked retail EXE, reports the MAP-derived DGROUP range,
+checks how much of that range is physically present in the decompressed retail
+image, and compares the overlap against an existing rebuild MZ image when one is
+present. Treat the output as confirmation evidence: retail symbols are still not
+available, and an overlap comparison cannot prove retail DGROUP offset equality
+by itself.
+
+Important caveat: this is **rebuild-MAP-derived evidence**, not yet a final
+retail-authoritative map. The locked retail EXE is decompressed and verified,
+but its DGROUP symbol equality still needs the instrumented/extracted retail
+confirmation described in PORTING.md §10.
+
+`npm run check` now includes `check:source-typescript-port`, which validates
+this fixture alongside the current structural and WL6 asset-extraction gates.
+
+---
+
 ## Next oracle tasks
 
-- **DGROUP layout map (§10).** Parse `WOLF3D.MAP` for the DS offsets of
-  `objlist`, every `statetype` table, `gamestate`, doors, statics; compare the
-  decompressed retail vs rebuild DGROUP *aligned by DGROUP start* to confirm the
-  offsets match (or take retail's). This is the input to byte-identical saves.
+- **Retail DGROUP confirmation (§10).** The rebuild-MAP-derived fixture now
+  exists. Next, compare the decompressed retail vs rebuild DGROUP *aligned by
+  DGROUP start* or add instrumentation/extraction that proves the retail DS
+  offsets match (or replaces the fixture with retail-derived offsets). This is
+  the final input to byte-identical saves.
 - **Per-tic instrumentation** in `apps/source-modified-dos`: state hash,
   320×200 framebuffer, OPL register stream — the fixtures for acceptance tiers
   T2/T4 (PORTING.md §9).

@@ -1,0 +1,13 @@
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os"; import path from "node:path";
+import { pathToFileURL } from "node:url"; import { build } from "esbuild";
+const r=process.cwd(), t=path.join(r,"apps/source-typescript/src/WOLFSRC"), wl6=path.join(r,"steam/base");
+const td=await mkdtemp(path.join(os.tmpdir(),"cv-")); const e=path.join(td,"e.ts"),o=path.join(td,"e.mjs");
+const rel=(p)=>{let x=path.relative(td,p).split(path.sep).join("/");return x.startsWith(".")?x:"./"+x;};
+await writeFile(e,[`export { ReadConfig } from "${rel(path.join(t,"WL_MAIN.C.ts"))}";`].join("\n"));
+await build({entryPoints:[e],outfile:o,bundle:true,format:"esm",platform:"node",logLevel:"silent"});
+const m=await import(`${pathToFileURL(o).href}?c=${Date.now()}`);
+const cfg=new Uint8Array(await readFile(path.join(wl6,"CONFIG.WL6")));
+const c=m.ReadConfig(cfg);
+console.log("config.viewsize =", c.viewsize, " mousenabled=", c.mouseenabled, " keys:", Object.keys(c).join(","));
+await rm(td,{recursive:true,force:true});
