@@ -170,6 +170,7 @@ import {
   serializeSaveGame,
 } from "./WOLFSRC/TS_SAVE_LAYOUT";
 import { Died, DrawPlayBorder, DrawPlayScreen, SetupGameLevel } from "./WOLFSRC/WL_GAME.C";
+import { DebugKeys } from "./WOLFSRC/WL_DEBUG.C";
 import { BJ_Breathe, CheckHighScore, DrawHighScores, LevelCompleted, Victory, Write, type LevelCompletedSummary, type VictorySummary } from "./WOLFSRC/WL_INTER.C";
 import { CacheLayoutGraphics, EndText, HelpScreens, ShowArticle, type TextDrawOperation } from "./WOLFSRC/WL_TEXT.C";
 import { Scores, US_CPrint, US_Print, US_RestoreWindow, US_SetWindowState, type HighScore } from "./WOLFSRC/ID_US_1.C";
@@ -498,6 +499,7 @@ class BrowserWolf3DRuntime {
   private mouseEnabled = true; // WL_MENU.C mouseenabled (default MousePresent); gates mouse-look polling
   private menuFromPlay = false; // an options menu opened in-game (F-key) returns to play, not the menu
   private controlCursor = 0; // cursor row in the Control menu
+  private debugOk = false; // WL_PLAY.C DebugOk: TAB debug keys enabled (DOS: 'goobers' parm; here ?debug)
   // Timestamp (performance.now) of the last user input; the menu auto-starts demos when idle.
   private lastInputTime = 0;
   private mode: RuntimeMode = "boot";
@@ -589,6 +591,7 @@ class BrowserWolf3DRuntime {
     WL_MAIN.NewViewSize(config.viewsize);
     SD_SetSoundMode(sdm_AdLib);
     this.loadConfig(); // restore persisted sound/view/mouse settings over the CONFIG.WL6 defaults
+    this.debugOk = debugRequested(); // ?debug enables the TAB debug keys (DOS 'goobers' parm analog)
 
     VL_SetBufferOffset(0);
     VL_SetScreen(0, 0);
@@ -2474,6 +2477,54 @@ class BrowserWolf3DRuntime {
   }
 
   // WL_PLAY.C CheckKeys MLI cheat: top up health/ammo/keys, zero the score, and grant the chaingun.
+  // Run a WL_DEBUG.C DebugKeys action (TAB + letter while ?debug). Applies the player-affecting
+  // actions (god mode, no clip, free items, hurt, warp); the DOS-only diagnostics (counts, memory,
+  // shape test, etc.) are no-ops in the browser. A brief message confirms toggles.
+  private applyDebugKey(letter: string): void {
+    const gs = nearOffsetForRuntimeSymbol("_gamestate");
+    const godmodeOff = nearOffsetForRuntimeSymbol("_godmode");
+    const noclipOff = nearOffsetForRuntimeSymbol("_noclip");
+    const result = DebugKeys({
+      key: letter,
+      godmode: this.dgroup.u16(godmodeOff) !== 0,
+      noclip: this.dgroup.u16(noclipOff) !== 0,
+      value: this.gamestateU16(GAMESTATE_MAPON_OFFSET) + 2, // warp target = next floor (mapon+1)
+    });
+    if (!result.handled) {
+      return;
+    }
+    switch (result.action) {
+      case "god-mode":
+        this.dgroup.setU16(godmodeOff, result.godmode ? 1 : 0);
+        this.pressedScans.clear();
+        this.showMessage(`God Mode ${result.godmode ? "ON" : "OFF"}`, () => this.returnToGame());
+        return;
+      case "no-clip":
+        this.dgroup.setU16(noclipOff, result.noclip ? 1 : 0);
+        this.pressedScans.clear();
+        this.showMessage(`No Clipping ${result.noclip ? "ON" : "OFF"}`, () => this.returnToGame());
+        return;
+      case "free-items":
+        this.dgroup.setU16(gs + GAMESTATE_HEALTH_OFFSET, 100);
+        this.dgroup.setU16(gs + GAMESTATE_AMMO_OFFSET, 99);
+        this.dgroup.setU16(gs + GAMESTATE_KEYS_OFFSET, 3);
+        break;
+      case "hurt-self": {
+        const h = Math.max(0, this.gamestateU16(GAMESTATE_HEALTH_OFFSET) - (result.value ?? 16));
+        this.dgroup.setU16(gs + GAMESTATE_HEALTH_OFFSET, h);
+        break;
+      }
+      case "warp":
+        this.dgroup.setU16(gs + GAMESTATE_MAPON_OFFSET, (result.value ?? 0) % 10);
+        this.loadLevel();
+        return;
+      default:
+        return; // DOS-only diagnostics: no browser effect
+    }
+    this.drawStatusBar();
+    this.present("PLAYLOOP");
+  }
+
   private applyMLICheat(): void {
     const gs = nearOffsetForRuntimeSymbol("_gamestate");
     this.dgroup.setU16(gs + GAMESTATE_HEALTH_OFFSET, 100);
@@ -2782,6 +2833,13 @@ class BrowserWolf3DRuntime {
     }
     if (down) {
       this.pressedScans.add(scan);
+      // WL_PLAY.C CheckKeys: with DebugOk set, TAB + a letter runs WL_DEBUG.C DebugKeys (god mode,
+      // no clip, free items, warp, etc.). Gated behind ?debug, like the original 'goobers' parm.
+      if (this.debugOk && !event.repeat && this.pressedScans.has(sc_Tab) && /^[a-zA-Z]$/.test(event.key)) {
+        event.preventDefault();
+        this.applyDebugKey(event.key.toUpperCase());
+        return;
+      }
       // WL_PLAY.C CheckKeys retail cheat: M+L+I held → full health/ammo/keys + chaingun, then the
       // STR_CHEATER message (which warns the high score is forfeit).
       if (!event.repeat && this.pressedScans.has(sc_M) && this.pressedScans.has(sc_L) && this.pressedScans.has(sc_I)) {
@@ -2891,6 +2949,16 @@ function bytesFromBase64(b64: string): Uint8Array {
 function skipIntroRequested(): boolean {
   try {
     return new URLSearchParams(window.location.search).has("nointro");
+  } catch {
+    return false;
+  }
+}
+
+// `?debug` enables the TAB debug keys — the browser analog of DOS' 'goobers' command-line parm +
+// Alt+LShift+BackSpace unlock that gated WL_DEBUG.C DebugKeys in the shipped retail build.
+function debugRequested(): boolean {
+  try {
+    return new URLSearchParams(window.location.search).has("debug");
   } catch {
     return false;
   }
