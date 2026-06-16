@@ -275,8 +275,9 @@ class ABCPlayer {
 }
 
 function fmt(seconds: number): string {
-  const s = Math.max(0, Math.floor(seconds));
-  return `0:${String(s).padStart(2, "0")}`;
+  // Decimal seconds read sensibly for both the ~6 s songs and the sub-second SFX (a "0:00 / 0:00"
+  // whole-second readout looked broken for the 0.9 s bonus chime).
+  return `${Math.max(0, seconds).toFixed(1)}s`;
 }
 
 // ----------------------------------------------------------------------------------------------
@@ -402,7 +403,7 @@ function buildPlayer(player: AudioPlayer): HTMLElement {
   const loopBtn = el("button", "loop-btn on", "↻ Loop");
   loopBtn.type = "button";
   loopBtn.setAttribute("aria-pressed", "true");
-  const time = el("span", "time", "0:00 / 0:00");
+  const time = el("span", "time", "0.0s / 0.0s");
   transport.append(play, loopBtn, time);
 
   controls.append(segmented, transport);
