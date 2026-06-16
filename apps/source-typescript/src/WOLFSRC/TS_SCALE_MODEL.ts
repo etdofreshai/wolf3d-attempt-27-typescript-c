@@ -377,7 +377,11 @@ function getScaleForShape(state: ScalerState, scale: number, viewheight: number)
     return null;
   }
   const existing = state.scaledirectory[scale];
-  if (existing) {
+  // A compiled scaler's vertical centering (topPix = (viewheight - scaleHeight)/2) is viewheight-
+  // dependent, so a cache hit is only valid at the SAME viewheight. Change View resizes the viewport
+  // without rebuilding the scaler directory, so keying on `scale` alone reused a stale comptable and
+  // misplaced sprites (floor/ceiling items) vertically. Rebuild when the active viewheight differs.
+  if (existing && existing.viewheight === viewheight) {
     return existing;
   }
   const built = buildCompScale(scale * 2, { viewheight });
