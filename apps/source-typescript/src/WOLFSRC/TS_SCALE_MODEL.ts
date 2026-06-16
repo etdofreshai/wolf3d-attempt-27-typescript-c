@@ -370,9 +370,10 @@ export function scaleLine(options: ScaleLineOptions): ScaleLineSummary {
 }
 
 function getScaleForShape(state: ScalerState, scale: number, viewheight: number): CompScale | null {
-  // WL_SCALE.C ScaleShape: `if (!scale || scale > maxscale) return;` — point-blank sprites (taller
-  // than the view) are culled, which is why an enemy on top of you visually drops out.
-  if (scale <= 0 || (state.maxscale > 0 && scale > state.maxscale) || scale >= state.scaledirectory.length) {
+  // NOTE: the original's `scale > maxscale` point-blank cull lives in ScaleShape (enemy sprites),
+  // NOT this shared lookup — applying it here also culls the always-drawn held weapon. Left out
+  // until it can be scoped to the enemy path only.
+  if (scale <= 0 || scale >= state.scaledirectory.length) {
     return null;
   }
   const existing = state.scaledirectory[scale];

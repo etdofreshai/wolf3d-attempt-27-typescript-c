@@ -5967,7 +5967,8 @@ function buildStateDefinitions(): Readonly<Record<string, StateDefinition>> {
     ],
     [
       ["_s_schabbdie1", 10],
-      ["_s_schabbdie2", 10],
+      ["_s_schabbdie2", 140], // WL_ACT2.C patches die2 to 140 with digi on (else 5) so the boss death cry plays fully; the browser runs digi
+
       ["_s_schabbdie3", 10],
       ["_s_schabbdie4", 10],
       ["_s_schabbdie5", 10],
@@ -5975,7 +5976,8 @@ function buildStateDefinitions(): Readonly<Record<string, StateDefinition>> {
     ],
     [
       ["_s_giftdie1", 1],
-      ["_s_giftdie2", 10],
+      ["_s_giftdie2", 140], // digi death-cry duration (WL_ACT2.C)
+
       ["_s_giftdie3", 10],
       ["_s_giftdie4", 10],
       ["_s_giftdie5", 10],
@@ -5983,7 +5985,8 @@ function buildStateDefinitions(): Readonly<Record<string, StateDefinition>> {
     ],
     [
       ["_s_fatdie1", 1],
-      ["_s_fatdie2", 10],
+      ["_s_fatdie2", 140], // digi death-cry duration (WL_ACT2.C)
+
       ["_s_fatdie3", 10],
       ["_s_fatdie4", 10],
       ["_s_fatdie5", 10],
@@ -6005,7 +6008,8 @@ function buildStateDefinitions(): Readonly<Record<string, StateDefinition>> {
     ],
     [
       ["_s_hitlerdie1", 1],
-      ["_s_hitlerdie2", 10],
+      ["_s_hitlerdie2", 140], // digi death-cry duration (WL_ACT2.C)
+
       ["_s_hitlerdie3", 10],
       ["_s_hitlerdie4", 10],
       ["_s_hitlerdie5", 10],
