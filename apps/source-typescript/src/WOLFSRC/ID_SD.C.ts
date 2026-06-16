@@ -1616,9 +1616,14 @@ export function SDL_t0Service(): SoundModeSummary {
       tickUser();
     }
     serviceSound();
-    if (DigiMode === sds_SoundBlaster) {
-      SDL_SBService();
-    }
+  }
+  // In DOS the Sound Blaster ran off its own DMA-completion IRQ (sbIntVec), independent of the timer
+  // ISR and of the music mode. The port stubbed the DMA out, so service it here EVERY tic: SDL_SBService
+  // drains the digi segment and, when it finishes, SDL_DigitizedDone resets DigiNumber/DigiPriority.
+  // Without this, with AdLib music on (the gameplay default) DigiPriority ratcheted up and never reset,
+  // so SFX got locked out after a few sounds and never returned (worse across a level change).
+  if (DigiMode === sds_SoundBlaster) {
+    SDL_SBService();
   }
 
   return SD_DebugState();
