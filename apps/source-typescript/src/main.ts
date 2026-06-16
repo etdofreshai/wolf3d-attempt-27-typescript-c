@@ -154,7 +154,7 @@ import {
 } from "./WOLFSRC/TS_SAVE_LAYOUT";
 import { Died, DrawPlayScreen, SetupGameLevel } from "./WOLFSRC/WL_GAME.C";
 import { CheckHighScore, DrawHighScores, LevelCompleted, Victory, Write, type LevelCompletedSummary, type VictorySummary } from "./WOLFSRC/WL_INTER.C";
-import { Scores } from "./WOLFSRC/ID_US_1.C";
+import { Scores, type HighScore } from "./WOLFSRC/ID_US_1.C";
 import { parseDemo, type WolfDemo } from "./WOLFSRC/TS_DEMO";
 import { HIGHSCORESPIC } from "./WOLFSRC/TS_WL6_ASSETS";
 import { ThreeDRefresh } from "./WOLFSRC/WL_DRAW.C";
@@ -341,6 +341,7 @@ const MAIN_QUIT = 9;
 // localStorage key prefix for the 10 browser save slots; each holds {name, data:base64} JSON
 // (data = the T3 byte-identical save image).
 const SAVE_SLOT_PREFIX = "wolf3d-ts-save-";
+const HIGHSCORE_STORAGE_KEY = "wolf3d-ts-highscores"; // persisted high-score table (WriteConfig analog)
 const SAVE_SLOT_COUNT = 10;
 const saveSlotKey = (slot: number): string => `${SAVE_SLOT_PREFIX}${slot}`;
 // Max typed characters for a new high-score name (kept short so it fits the NAME column + cursor).
@@ -510,6 +511,7 @@ class BrowserWolf3DRuntime {
     SD_SetDigiPlaybackHook((pcm) => this.audio.playDigi(pcm));
     CheckForEpisodes({ files: ["WOLF3D.WL6"] });
     const config = WL_MAIN.ReadConfig(files.CONFIG);
+    this.loadHighScores(); // restore any locally-saved high scores over the shipped defaults
     WL_MAIN.BuildTables();
     WL_MAIN.SetupWalls();
     WL_MAIN.NewViewSize(config.viewsize);
@@ -1289,7 +1291,7 @@ class BrowserWolf3DRuntime {
         // consume the accumulated delta so it's applied once (WL_PLAY.C PollControls polls both).
         if (this.pointerLocked) {
           PollMouseButtons(dgroup, this.mouseButtons);
-          PollMouseMove(dgroup, this.mouseDeltaX, this.mouseDeltaY);
+          PollMouseMove(dgroup, this.mouseDeltaX, this.mouseDeltaY, { mouseadjustment: WL_MAIN.mouseadjustment });
           this.mouseDeltaX = 0;
           this.mouseDeltaY = 0;
         }
@@ -1636,6 +1638,33 @@ class BrowserWolf3DRuntime {
   // entries) and present it. drawPic blits the title/header pics from the cached lookup; print
   // renders each row's name/level/score via the proportional font (VW_SetFontState px/py). When
   // `entryIndex` >= 0 the player is typing that row's name — redraw it with a trailing cursor.
+  // Persist the high-score table to localStorage (the browser stand-in for WriteConfig writing
+  // CONFIG.WL6) so scores survive a reload, and hydrate it at boot.
+  private saveHighScores(): void {
+    try {
+      window.localStorage?.setItem(HIGHSCORE_STORAGE_KEY, JSON.stringify(Scores));
+    } catch { /* storage may be unavailable */ }
+  }
+
+  private loadHighScores(): void {
+    try {
+      const raw = window.localStorage?.getItem(HIGHSCORE_STORAGE_KEY);
+      if (!raw) {
+        return;
+      }
+      const saved = JSON.parse(raw) as Array<Partial<HighScore>>;
+      for (let i = 0; i < Scores.length && i < saved.length; i++) {
+        const s = saved[i];
+        if (s && typeof s.score === "number") {
+          Scores[i].name = String(s.name ?? "");
+          Scores[i].score = s.score | 0;
+          Scores[i].completed = (s.completed ?? 0) | 0;
+          Scores[i].episode = (s.episode ?? 0) | 0;
+        }
+      }
+    } catch { /* ignore corrupt storage */ }
+  }
+
   private showHighScores(entryIndex = -1): void {
     this.mode = "highscores";
     this.playSong(ROSTER_MUS); // WL_MENU.C CheckHighScore plays the roster song
@@ -1689,6 +1718,7 @@ class BrowserWolf3DRuntime {
       if (index >= 0 && Scores[index]) {
         Scores[index].name = this.highScoreEntryName;
       }
+      this.saveHighScores(); // persist the finalized table so it survives a reload
       this.showHighScores(); // leave entry mode (no cursor)
       return;
     }
