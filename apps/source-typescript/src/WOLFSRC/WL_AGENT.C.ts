@@ -386,8 +386,8 @@ export function VictorySpin(
   return VictorySpinMemory(dgroup, options);
 }
 
-export function VictoryTile(dgroup: DOSMemory): void {
-  return VictoryTileMemory(dgroup);
+export function VictoryTile(dgroup: DOSMemory, plane0?: Uint16Array): void {
+  return VictoryTileMemory(dgroup, plane0);
 }
 // ---------------------------------------------------------------------------
 // Original source follows.

@@ -431,6 +431,7 @@ type StateAction =
   | "T_Projectile"
   | "A_DeathScream"
   | "A_HitlerMorph"
+  | "A_StartDeathCam"
   | "A_Smoke"
   | "T_BJYell"
   | "T_BJDone"
@@ -2904,7 +2905,12 @@ export function ClipMoveMemory(
   return clipMoveSummary(dgroup, actor, false, "none");
 }
 
-export function VictoryTileMemory(dgroup: DOSMemory): void {
+export function VictoryTileMemory(dgroup: DOSMemory, plane0?: Uint16Array): void {
+  // WL_AGENT.C VictoryTile: spawn BJ to run off the exit, then latch the victory flag. T_BJRun/
+  // T_BJDone then end the episode (ex_victorious) for the exit-elevator endings (E1, E5, etc.).
+  if (plane0) {
+    SpawnBJVictoryMemory(dgroup, plane0);
+  }
   dgroup.setU16(
     nearOffsetForRuntimeSymbol("_gamestate") + GAMESTATE_VICTORYFLAG_OFFSET,
     1,
@@ -2944,7 +2950,7 @@ export function ThrustMemory(
   const areanumber = areaTile - AREATILE;
   dgroup.setU8(player + OBJ_AREANUMBER_OFFSET, areanumber);
   if (plane1[tiley * MAPSIZE + tilex] === EXITTILE) {
-    VictoryTileMemory(dgroup);
+    VictoryTileMemory(dgroup, plane0);
   }
 
   return {
@@ -4405,6 +4411,18 @@ export function A_SmokeMemory(dgroup: DOSMemory, actor: number): SmokeSummary {
   return { actor: smoke, source: actor, state: "_s_smoke1", ticcount: 6 };
 }
 
+// WL_ACT2.C A_StartDeathCam: the looping final die-state of the death-cam bosses (Schabbs, Hitler,
+// Otto Giftmacher, Fettgesicht). First pass latches the victory flag (the DOS cinematic plays here);
+// the next pass through the same looping state ends the episode by entering ex_victorious.
+export function A_StartDeathCamMemory(dgroup: DOSMemory): void {
+  const gamestate = nearOffsetForRuntimeSymbol("_gamestate");
+  if (dgroup.u16(gamestate + GAMESTATE_VICTORYFLAG_OFFSET)) {
+    dgroup.setU16(nearOffsetForRuntimeSymbol("_playstate"), EX_VICTORIOUS);
+    return;
+  }
+  dgroup.setU16(gamestate + GAMESTATE_VICTORYFLAG_OFFSET, 1);
+}
+
 export function A_DeathScreamMemory(dgroup: DOSMemory, actor: number): ActorSoundSummary {
   const gamestate = nearOffsetForRuntimeSymbol("_gamestate");
   const mapon = dgroup.u16(gamestate + GAMESTATE_MAPON_OFFSET);
@@ -5666,6 +5684,14 @@ function initialStateTicTime(state: string): number {
 
 function buildStateDefinitions(): Readonly<Record<string, StateDefinition>> {
   const states: Record<string, StateDefinition> = {};
+  // The looping final die-state of the four death-cam bosses (WL_ACT2.C: s_schabbdie6/s_giftdie6/
+  // s_fatdie6/s_hitlerdie10 all run A_StartDeathCam) — killing them ends the episode (ex_victorious).
+  const deathCamStates = new Set([
+    "_s_schabbdie6",
+    "_s_giftdie6",
+    "_s_fatdie6",
+    "_s_hitlerdie10",
+  ]);
   const deathScreamStates = new Set([
     "_s_grddie1",
     "_s_dogdie1",
@@ -5887,7 +5913,13 @@ function buildStateDefinitions(): Readonly<Record<string, StateDefinition>> {
         name,
         tictime,
         think: null,
-        action: deathScreamStates.has(name) ? "A_DeathScream" : name === "_s_mechadie3" ? "A_HitlerMorph" : null,
+        action: deathScreamStates.has(name)
+          ? "A_DeathScream"
+          : name === "_s_mechadie3"
+            ? "A_HitlerMorph"
+            : deathCamStates.has(name)
+              ? "A_StartDeathCam"
+              : null,
         next: i === chain.length - 1 ? name : chain[i + 1][0],
       };
     }
@@ -6125,6 +6157,9 @@ function dispatchAction(
       return { action, sound: A_DeathScreamMemory(dgroup, actor) };
     case "A_HitlerMorph":
       return { action, morph: A_HitlerMorphMemory(dgroup, plane0, actor) };
+    case "A_StartDeathCam":
+      A_StartDeathCamMemory(dgroup);
+      break;
     case "A_Smoke":
       A_SmokeMemory(dgroup, actor);
       break;
