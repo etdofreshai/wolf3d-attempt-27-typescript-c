@@ -3588,6 +3588,13 @@ export function PollControlsMemory(
     }
   } else {
     options.pollControls?.(dgroup, tics);
+    // WL_PLAY.C PollControls clamps the summed control deltas to ±100*tics after polling, so a fast
+    // mouse/joystick flick can't turn or move faster than DOS permits. Live path only — the
+    // demoCommand branch sets pre-bounded values (int8 * tics) and must stay byte-exact for demos.
+    const max = 100 * tics;
+    const clampControl = (v: number): number => (v > max ? max : v < -max ? -max : v);
+    dgroup.setU16(controlx, i16(clampControl(i16(dgroup.u16(controlx)))));
+    dgroup.setU16(controly, i16(clampControl(i16(dgroup.u16(controly)))));
   }
 
   return pollControlsSummary(dgroup);

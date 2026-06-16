@@ -311,6 +311,7 @@ const GAMESTATE_EPISODE_OFFSET = structFieldOffset("gametype", "episode");
 const GAMESTATE_DIFFICULTY_OFFSET = structFieldOffset("gametype", "difficulty");
 const GAMESTATE_SCORE_OFFSET = structFieldOffset("gametype", "score");
 const GAMESTATE_OLDSCORE_OFFSET = structFieldOffset("gametype", "oldscore");
+const GAMESTATE_TIMECOUNT_OFFSET = structFieldOffset("gametype", "TimeCount"); // 32-bit level time (tics)
 const GAMESTATE_LIVES_OFFSET = structFieldOffset("gametype", "lives");
 const GAMESTATE_HEALTH_OFFSET = structFieldOffset("gametype", "health");
 const GAMESTATE_AMMO_OFFSET = structFieldOffset("gametype", "ammo");
@@ -1609,12 +1610,18 @@ class BrowserWolf3DRuntime {
       this.dgroup.setU16(gs + GAMESTATE_ATTACKFRAME_OFFSET, p.attackframe);
       this.dgroup.setU16(gs + GAMESTATE_ATTACKCOUNT_OFFSET, p.attackcount);
       this.dgroup.setU16(gs + GAMESTATE_WEAPONFRAME_OFFSET, p.weaponframe);
+      // WL_GAME.C GameLoop restart loop: `if (!loadedgame) gamestate.score = gamestate.oldscore;`
+      // — dying rolls the score back to its level-start value so points from the failed attempt
+      // aren't kept (and re-earned), which would inflate the score and farm extra lives.
+      this.dgroup.setU32(gs + GAMESTATE_SCORE_OFFSET, this.dgroup.u32(gs + GAMESTATE_OLDSCORE_OFFSET));
       this.loadLevel(false); // WL_GAME.C: `if (!died) PreloadGraphics()` — no Get-Psyched on respawn
     } else {
       // Game over (no lives left): record the score into the high-score table and show it.
       this.hasGame = false;
       this.dgroup.setU16(nearOffsetForRuntimeSymbol("_playstate"), 0);
-      const completed = this.gamestateU16(GAMESTATE_MAPON_OFFSET);
+      // WL_GAME.C ex_died: CheckHighScore(score, mapon+1) — 1-based level reached, matching the
+      // victory path (recordHighScoreAndShow(mapon+1)) for the LEVEL column + equal-score tie-break.
+      const completed = this.gamestateU16(GAMESTATE_MAPON_OFFSET) + 1;
       this.recordHighScoreAndShow(completed);
     }
   }
@@ -1645,9 +1652,11 @@ class BrowserWolf3DRuntime {
       this.writeRatioValue(s.secret, 16, opt);
       this.writeRatioValue(s.treasure, 18, opt);
     } else {
-      Write(14, 4, "floor\ncompleted", opt);
-      Write(14, 9, "bonus", opt);
-      Write(36 - bonusStr.length * 2, 9, bonusStr, opt);
+      // Secret/boss floor (mapon >= 8). WL_INTER.C LevelCompleted (#else / non-SPEAR branch) draws
+      // the fixed "secret floor completed!" panel and the literal "15000 bonus!" (GivePoints(15000)
+      // already awards it in LevelCompleted), not the generic floor/bonus layout.
+      Write(14, 4, "secret floor\n completed!", opt);
+      Write(10, 16, "15000 bonus!", opt);
     }
     this.present("INTERMISSION");
   }
@@ -1707,10 +1716,9 @@ class BrowserWolf3DRuntime {
 
   // Intermission ack: while the count-up is still animating, a key skips to the final values;
   // once the tally is complete (or on a boss-floor static panel), a key advances to the next level.
-  private handleIntermissionScan(scan: ScanCode): void {
-    if (scan !== sc_Enter && scan !== sc_Space && scan !== sc_Control) {
-      return;
-    }
+  private handleIntermissionScan(_scan: ScanCode): void {
+    // WL_INTER.C LevelCompleted advances/skips on IN_CheckAck/IN_Ack, i.e. ANY key — not just
+    // Enter/Space/Ctrl. setKey only routes mapped scancodes here (down, non-repeat), so accept all.
     const a = this.intermissionAnim;
     if (a && a.stage <= 3) {
       a.shown = { bonus: a.summary.bonus, kill: a.summary.ratios.kill, secret: a.summary.ratios.secret, treasure: a.summary.ratios.treasure };
@@ -1781,10 +1789,8 @@ class BrowserWolf3DRuntime {
   // Victory ack: record the score and show the high scores — the faithful WL6 episode ending
   // (WL_GAME GameLoop ex_victorious: Victory() then CheckHighScore(score, mapon+1)). WL6 has no
   // separate end-story/credits screen; the BJ-collapse/EndScreen art is Spear-of-Destiny only.
-  private handleVictoryScan(scan: ScanCode): void {
-    if (scan !== sc_Enter && scan !== sc_Space && scan !== sc_Control) {
-      return;
-    }
+  private handleVictoryScan(_scan: ScanCode): void {
+    // WL_INTER.C Victory ends with IN_Ack — ANY key advances/skips, not just Enter/Space/Ctrl.
     const a = this.victoryAnim;
     if (a && a.stage <= 2) {
       // first key skips the count-up to the final averages
@@ -1958,6 +1964,9 @@ class BrowserWolf3DRuntime {
     this.dgroup.setU16(gs + GAMESTATE_WEAPON_OFFSET, WP_CHAINGUN);
     this.dgroup.setU16(gs + GAMESTATE_BESTWEAPON_OFFSET, WP_CHAINGUN);
     this.dgroup.setU16(gs + GAMESTATE_CHOSENWEAPON_OFFSET, WP_CHAINGUN);
+    // WL_PLAY.C CheckKeys MLI cheat also does gamestate.TimeCount += 42000 — pushing level time past
+    // par so the cheat zeroes the time bonus on the next intermission (matching the CHEATER text).
+    this.dgroup.setU32(gs + GAMESTATE_TIMECOUNT_OFFSET, (this.dgroup.u32(gs + GAMESTATE_TIMECOUNT_OFFSET) + 42000) >>> 0);
     SD_PlaySound(ENDBONUS2SND); // a little chime to confirm (original shows the CHEATER message)
     this.drawStatusBar();
     this.present("PLAYLOOP");
