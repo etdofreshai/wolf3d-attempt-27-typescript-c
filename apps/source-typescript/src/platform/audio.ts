@@ -17,8 +17,12 @@ const PC_TIMER_HZ = 1192030;
 const PC_SOUND_MULTIPLIER = 60;
 const PC_GAIN = 0.08;
 const ADLIB_BUFFER = 1024; // ScriptProcessor block size (~21 ms at 48 kHz)
-const ADLIB_GAIN = 1.6; // OPL2 output is scaled conservatively in opl2.ts; lift it to a usable level
-const DIGI_HZ = 7000; // Wolf3D digitized sounds are unsigned 8-bit PCM at ~7 kHz (Web Audio resamples)
+const ADLIB_GAIN = 3.6; // opl2.ts now normalizes by 18 operators (/73728); lift back to the established
+// listening level (1.6 × 73728/32768 = 3.6, so loudness is unchanged from the old /32768 scaling)
+// Wolf3D digitized sounds are unsigned 8-bit PCM. The DOS SB plays them at the rate implied by the
+// DAC time constant tc = 256 - 1000000/7000 = 114 (truncated), i.e. 1000000/(256-114) = 7042 Hz — the
+// true hardware rate, not the nominal 7000 (id_sd.c). Web Audio resamples this buffer to the context rate.
+const DIGI_HZ = 7042;
 const DIGI_GAIN = 0.85; // headroom so a digi sound mixed over AdLib FM doesn't clip
 const MAX_PENDING_WRITES = 8192; // cap on writes buffered while the worklet module loads (~12s of music)
 

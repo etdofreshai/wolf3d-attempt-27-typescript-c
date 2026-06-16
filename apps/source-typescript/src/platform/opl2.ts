@@ -26,10 +26,13 @@ const PHASE_MASK = (1 << PHASE_BITS) - 1;
 // MULT field -> 2x multiplier (MULT 0 = 0.5x -> value 1). Standard OPL2 table.
 const MULT_X2 = [1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 20, 24, 24, 30, 30];
 
-// Key-scale-level attenuation (in 0.75 dB units, *8 to match the internal 1/8 dB env scale).
-// Indexed by the top 4 bits of the F-number; standard OPL KSL table (dB*2 then mapped).
+// Key-scale-level: the standard OPL kslrom, indexed by the top 4 bits of the F-number.
 const KSL_TABLE = [0, 32, 40, 45, 48, 51, 53, 55, 56, 58, 59, 60, 61, 62, 63, 64];
-const KSL_SHIFT = [8, 4, 2, 0]; // KSL field 0..3 -> attenuation >> shift (0 = none)
+// KSL field 0..3 -> right-shift of the base attenuation. NOTE the OPL "bit swap": field 1 = 3 dB/oct
+// (STRONGER than field 2 = 1.5 dB/oct), field 3 = 6 dB/oct. The previous [8,4,2,0] made field 1 the
+// weakest (~0 dB/oct) — so KSL instruments stayed far too bright/loud at high pitch (off by up to 11 dB
+// vs a faithful OPL2). Correct mapping is [8,1,2,0].
+const KSL_SHIFT = [8, 1, 2, 0];
 
 // Register->operator slot order: the 18 operators occupy register offsets
 // 0,1,2,3,4,5, 8,9,10,11,12,13, 16,17,18,19,20,21. This maps an offset to a slot index 0..17.
@@ -67,7 +70,10 @@ function expLookup(attenuation: number): number {
   let att = attenuation;
   if (att < 0) att = 0;
   if (att > 0x1fff) att = 0x1fff;
-  const mantissa = (EXP[att & 0xff] | 0x400) << 1;
+  // The exp ROM is increasing, but attenuation increasing must DECREASE amplitude, so the low byte is
+  // complemented (^0xff) before lookup — the standard OPL2/Nuked convention. Without it the att->linear
+  // map is a sawtooth within each octave (non-monotonic), grossly distorting every operator's waveform.
+  const mantissa = (EXP[(att & 0xff) ^ 0xff] | 0x400) << 1;
   return mantissa >> (att >> 8);
 }
 
@@ -294,7 +300,10 @@ export class OPL2 {
       }
       case EG_DECAY: {
         const rate = this.effectiveRate(op.decayRate, op, block, fnumHi);
-        const target = op.sustainLevel === 15 ? MAX_ATT : op.sustainLevel * 32;
+        // Sustain level = 3 dB per step. envAtt enters the att domain as `envAtt << 3`, where 1 envAtt
+        // unit = 8 att-units = 0.1875 dB, so 3 dB = 16 envAtt units => `sustainLevel << 4` (== Nuked's
+        // eg_sl). The previous *32 gave 6 dB/step, settling every sustained note ~2x too quiet (thin music).
+        const target = op.sustainLevel === 15 ? MAX_ATT : op.sustainLevel * 16;
         const { shift, row } = egParams(rate);
         if ((this.egTimer & ((1 << shift) - 1)) === 0) {
           op.envAtt += EG_INC[row][(this.egTimer >> shift) & 7]; // linear rise toward the sustain level
@@ -335,10 +344,14 @@ export class OPL2 {
     phaseIndex = (phaseIndex + modulation) & 0x3ff;
 
     const { att, neg } = waveLogSin(phaseIndex, op.waveform);
-    // total attenuation = wave + envelope(<<? ) + totalLevel + KSL, all in 1/8 dB-ish units.
-    const kslAtt = (KSL_TABLE[(channel.fnum >> 6) & 0x0f] - 8 * (7 - channel.block));
-    const ksl = op.ksl === 0 ? 0 : Math.max(0, kslAtt) >> KSL_SHIFT[op.ksl];
-    const totalAtt = att + (envAtt << 3) + (op.totalLevel << 5) + (ksl << 4);
+    // total attenuation = wave + envelope + totalLevel + KSL, in the exp-table att domain (256 = 6 dB).
+    // KSL base = (kslrom[fnum_hi] << 2) - ((8 - block) << 5), clamped >=0 (no scaling in low octaves) —
+    // the exact OPL/Nuked formula. >> KSL_SHIFT[field], then << 3 lands the per-octave attenuation at
+    // {0, 3, 1.5, 6} dB for field {0,1,2,3} in this domain (verified vs the opl3 reference).
+    let kslBase = (KSL_TABLE[(channel.fnum >> 6) & 0x0f] << 2) - ((8 - channel.block) << 5);
+    if (kslBase < 0) kslBase = 0;
+    const ksl = op.ksl === 0 ? 0 : (kslBase >> KSL_SHIFT[op.ksl]) << 3;
+    const totalAtt = att + (envAtt << 3) + (op.totalLevel << 5) + ksl;
     let sample = expLookup(totalAtt);
     if (neg) sample = -sample;
 
@@ -360,23 +373,30 @@ export class OPL2 {
         // feedback: average of modulator's last two outputs, scaled by feedback amount.
         let fb = 0;
         if (channel.feedback > 0) {
-          fb = ((modOp.out0 + modOp.out1) >> (9 - channel.feedback));
+          // feedback depth = (out0+out1) >> (9-fb); this matches the OPL feedback[fb] cycle table
+          // (1/32..2 cycles) exactly. Pass it SIGNED — masking here would corrupt negative phase.
+          fb = (modOp.out0 + modOp.out1) >> (9 - channel.feedback);
         }
-        const modOut = this.operatorOutput(modSlot, channel, fb & 0x3ff);
+        const modOut = this.operatorOutput(modSlot, channel, fb);
         let chOut: number;
         if (channel.connection) {
           // additive: both operators feed output directly.
           const carOut = this.operatorOutput(carSlot, channel, 0);
           chOut = modOut + carOut;
         } else {
-          // FM: modulator phase-modulates the carrier. mod output -> phase offset (>>1 ~ 1.0 idx/unit).
-          const carOut = this.operatorOutput(carSlot, channel, (modOut >> 1) & 0x3ff);
+          // FM: modulator phase-modulates the carrier. The modulator output (±~4080 ≈ ±1.0 full scale)
+          // maps to ±4 cycles of phase swing (the OPL "toPhase=4" modulation index): in this 1024-per-
+          // cycle phase domain that is modOut itself. Pass it SIGNED; operatorOutput masks after adding.
+          const carOut = this.operatorOutput(carSlot, channel, modOut);
           chOut = carOut;
         }
         mix += chOut;
       }
-      // 9 channels of ~±4084 -> scale to [-1,1] with headroom.
-      out[offset + n] = Math.max(-1, Math.min(1, mix / 32768));
+      // Normalize by the operator count: 18 operators × ±4096 full-scale = 73728, so the full chip
+      // output spans [-1,1] (the documented DOSBox/opl3 "/18" per-operator normalization). The old
+      // /32768 ran ~2.25× hot, soft-clipping busy polyphony here before the output gain. Final listening
+      // level is set by ADLIB_GAIN in audio.ts / opl2-worklet.ts (raised in step to keep loudness equal).
+      out[offset + n] = Math.max(-1, Math.min(1, mix / 73728));
     }
   }
 

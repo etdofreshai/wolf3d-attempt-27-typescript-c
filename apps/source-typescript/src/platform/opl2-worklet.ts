@@ -22,7 +22,8 @@ declare function registerProcessor(
   ctor: new (options?: unknown) => AudioWorkletProcessor,
 ): void;
 
-const ADLIB_GAIN = 1.6; // OPL2 output is scaled conservatively in opl2.ts; lift it to a usable level
+const ADLIB_GAIN = 3.6; // opl2.ts now normalizes by 18 operators (/73728); lift back to the established
+// listening level (1.6 × 73728/32768 = 3.6) so loudness is unchanged from the old /32768 scaling
 
 type WorkletMessage =
   | { readonly type: "schedule"; readonly data: Int32Array }
