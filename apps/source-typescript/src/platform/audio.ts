@@ -14,6 +14,8 @@ const PC_SOUND_MULTIPLIER = 60;
 const PC_GAIN = 0.08;
 const ADLIB_BUFFER = 1024; // ScriptProcessor block size (~21 ms at 48 kHz)
 const ADLIB_GAIN = 1.6; // OPL2 output is scaled conservatively in opl2.ts; lift it to a usable level
+const DIGI_HZ = 7000; // Wolf3D digitized sounds are unsigned 8-bit PCM at ~7 kHz (Web Audio resamples)
+const DIGI_GAIN = 0.85; // headroom so a digi sound mixed over AdLib FM doesn't clip
 
 type BrowserAudioWindow = Window & typeof globalThis & {
   readonly webkitAudioContext?: typeof AudioContext;
@@ -58,6 +60,28 @@ export class BrowserWolf3DAudio {
       this.adlib.feed(alRegisterWrites);
     }
     alRegisterWrites.length = 0;
+  }
+
+  // Play a digitized sound (unsigned 8-bit PCM @ ~7 kHz) as a one-shot Web Audio buffer. Driven by
+  // the ID_SD digiPlaybackHook when DigiMode (SoundBlaster) routes a sound to its digitized version;
+  // mixes alongside the continuous AdLib ScriptProcessor (non-digi sounds still play FM).
+  playDigi(pcm: Uint8Array): void {
+    const context = this.ensureContext();
+    if (!context || pcm.length === 0) {
+      return;
+    }
+    const buffer = context.createBuffer(1, pcm.length, DIGI_HZ);
+    const channel = buffer.getChannelData(0);
+    for (let i = 0; i < pcm.length; i++) {
+      channel[i] = (pcm[i] - 128) / 128; // unsigned 8-bit (128 = silence) → [-1, 1]
+    }
+    const source = context.createBufferSource();
+    source.buffer = buffer;
+    const gain = context.createGain();
+    gain.gain.value = DIGI_GAIN;
+    source.connect(gain);
+    gain.connect(context.destination);
+    source.start();
   }
 
   private ensureAdLibNode(context: AudioContext): void {

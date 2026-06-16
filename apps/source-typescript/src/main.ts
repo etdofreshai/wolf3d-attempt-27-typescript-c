@@ -97,6 +97,7 @@ import {
   VL_SetVGAPlaneMode,
 } from "./WOLFSRC/ID_VL.C";
 import {
+  CA_CacheAudioChunk,
   CA_CacheGrChunk,
   CA_LoadAllSounds,
   CA_CacheMap,
@@ -107,11 +108,17 @@ import {
   SD_DebugState,
   SD_PlaySound,
   SD_ResetSoundState,
+  SD_SetDigiDevice,
+  SD_SetDigiPlaybackHook,
+  SD_SetMusicMode,
   SD_SetSoundMode,
+  SD_StartMusic,
   SD_Startup,
+  STARTMUSIC,
+  SDL_SetupDigi,
   SDL_t0Service,
 } from "./WOLFSRC/ID_SD.C";
-import { sdm_AdLib } from "./WOLFSRC/ID_SD.H";
+import { sdm_AdLib, sds_SoundBlaster, smm_AdLib } from "./WOLFSRC/ID_SD.H";
 import { US_InitRndT } from "./WOLFSRC/ID_US_A.ASM";
 import { DOSMemory } from "./WOLFSRC/TS_DOS_MEMORY";
 import {
@@ -177,6 +184,7 @@ import {
   PollKeyboardMove,
   PollMouseButtons,
   PollMouseMove,
+  SONGS,
 } from "./WOLFSRC/WL_PLAY.C";
 
 const root = document.querySelector<HTMLElement>("#app");
@@ -351,6 +359,10 @@ const PLAYERDEATHSND = 9; // AUDIOWL6 sound index — the player's death cry (WL
 const DEATH_SPIN_STEPS_PER_FRAME = 3; // rotation steps consumed per rendered frame during the death spin
 const DEATH_REDFADE_FRAMES = 9; // frames spent fading the held death frame toward red before respawn/game-over
 const FIZZLE_STEPS_PER_FRAME = 4096; // LFSR steps consumed per rendered frame during the level-start fizzle
+// AdLib music mode services the timer at ~700 Hz; at the 70 Hz tic rate that's 10 t0 services/tic.
+// SDL_t0Service's own dispatch then yields 700 Hz music, 140 Hz sound effects, and 70 Hz TimeCount.
+const T0_SERVICES_PER_TIC = 10;
+const MENUSONG = 14; // WONDERIN_MUS — the control-panel / main-menu song (WL_MENU.C StartCPMusic)
 
 type RuntimeMode = "boot" | "menu" | "episode" | "difficulty" | "play" | "intermission" | "victory" | "highscores" | "demo" | "loadsave" | "dying" | "fizzle";
 
@@ -398,6 +410,10 @@ class BrowserWolf3DRuntime {
   private latchChunks: Array<Uint8Array | null> = [];
   private levelEndChunks: Array<Uint8Array | null> = [];
   private highScoreChunks: Array<Uint8Array | null> = [];
+  // Raw AUDIOHED/AUDIOT kept for caching per-level IMF music chunks (CA_CacheAudioChunk).
+  private audiohed: Uint8Array | null = null;
+  private audiot: Uint8Array | null = null;
+  private currentSong = -1; // music chunk currently playing (-1 = none), to avoid restarting it
   // Damage (red) / bonus (gold) palette-shift tables, built from gamepal at boot (InitRedShifts).
   private shiftTables: ReturnType<typeof InitRedShifts> | null = null;
   // Shift level active for the frame being rendered: red 1..NUMREDSHIFTS, white 1..NUMWHITESHIFTS.
@@ -471,11 +487,21 @@ class BrowserWolf3DRuntime {
     // Emulate an installed AdLib card so SD_SetSoundMode(sdm_AdLib) takes effect; the OPL2
     // emulator (platform/opl2.ts) synthesizes the resulting register stream in the browser.
     // (SD_ResetSoundState clears SD_Started, so SD_Startup must follow it.)
-    SD_ResetSoundState({ AdLibPresent: true });
+    SD_ResetSoundState({ AdLibPresent: true, SoundBlasterPresent: true });
     SD_Startup();
     SD_SetSoundMode(sdm_AdLib);
+    SD_SetMusicMode(smm_AdLib); // enable AdLib (IMF) background music; serviced via SDL_t0Service
+    this.audiohed = files.AUDIOHED;
+    this.audiot = files.AUDIOT;
     CA_LoadAllSounds(files.AUDIOHED, files.AUDIOT);
     PM_Startup(files.VSWAP, ["wolf3d.exe", "-noems", "-noxms"]);
+    // Enable digitized (Sound Blaster) sound effects: build DigiList from VSWAP, map the sounds
+    // that have digitized versions, switch the digi device on, and route playback to Web Audio.
+    // Sounds without a digi mapping still play through the AdLib FM path.
+    SDL_SetupDigi();
+    WL_MAIN.InitDigiMap();
+    SD_SetDigiDevice(sds_SoundBlaster);
+    SD_SetDigiPlaybackHook((pcm) => this.audio.playDigi(pcm));
     CheckForEpisodes({ files: ["WOLF3D.WL6"] });
     const config = WL_MAIN.ReadConfig(files.CONFIG);
     WL_MAIN.BuildTables();
@@ -515,10 +541,11 @@ class BrowserWolf3DRuntime {
     }
     if (this.mode !== "play") {
       this.lastFrameTime = frameTime;
-      // Service the sound timer so AdLib menu sounds advance, then hand the resulting register
-      // writes to the OPL2 emulator (no game tics run outside "play").
-      SDL_t0Service();
-      SDL_t0Service();
+      // Service the sound timer so AdLib menu sounds + music advance, then hand the resulting
+      // register writes to the OPL2 emulator (no game tics run outside "play").
+      for (let i = 0; i < T0_SERVICES_PER_TIC; i++) {
+        SDL_t0Service();
+      }
       // Drive the bonus/ratio count-up on the intermission + victory screens.
       if (this.mode === "intermission" && this.intermissionAnim && this.intermissionAnim.stage <= 3) {
         this.advanceIntermission();
@@ -578,6 +605,7 @@ class BrowserWolf3DRuntime {
   private showMainMenu(): void {
     this.mode = "menu";
     this.lastInputTime = performance.now(); // restart the attract-demo idle timer
+    this.playSong(MENUSONG); // the menu's AdLib song (WL_MENU.C StartCPMusic(MENUSONG))
     SetupControlPanel({ skipResourceCache: true, skipLoadAllSounds: true });
     MainMenu[MAIN_SAVE_GAME].active = this.hasGame ? 1 : 0;
     MainMenu[MAIN_LOAD_GAME].active = this.hasSavedGame() ? 1 : 0;
@@ -799,9 +827,31 @@ class BrowserWolf3DRuntime {
     this.lastFrameTime = 0;
     this.tickAccumulator = 0;
     this.paletteShift = { red: 0, white: 0 }; // no leftover damage tint on the fresh level
+    this.startLevelMusic();
     // Render the first frame and dissolve it in (WL_GAME.C fizzles the view in on level start).
     this.renderFrame();
     this.beginFizzleIn();
+  }
+
+  // Play an AdLib (IMF) song by its AUDIOT music-chunk index: cache the chunk and hand its IMF event
+  // stream to SD_StartMusic, which SDL_t0Service plays through the OPL2 emulator (and loops). Skips
+  // re-starting a song that's already playing so menu navigation doesn't keep restarting it.
+  private playSong(songChunk: number): void {
+    if (songChunk === this.currentSong || !this.audiohed || !this.audiot) {
+      return;
+    }
+    this.currentSong = songChunk;
+    const data = CA_CacheAudioChunk(STARTMUSIC + songChunk, this.audiohed, this.audiot);
+    if (data && data.length >= 2) {
+      SD_StartMusic(data); // raw chunk: [u16 length][IMF events] — SD_StartMusic parses + loops it
+    }
+  }
+
+  // Start the current level's song (WL_PLAY.C StartMusic picks it per episode/map from SONGS).
+  private startLevelMusic(): void {
+    const episode = this.gamestateU16(GAMESTATE_EPISODE_OFFSET);
+    const mapon = this.gamestateU16(GAMESTATE_MAPON_OFFSET);
+    this.playSong(SONGS[(episode * 10 + mapon) % SONGS.length]);
   }
 
   // Start the level-start fizzle: capture the just-rendered frame (renderFrame filled surface.pixels)
@@ -1238,8 +1288,9 @@ class BrowserWolf3DRuntime {
       },
     });
     this.audio.syncFromSoundState();
-    SDL_t0Service();
-    SDL_t0Service();
+    for (let i = 0; i < T0_SERVICES_PER_TIC; i++) {
+      SDL_t0Service(); // 700 Hz timer: advances IMF music, sound effects, and TimeCount in step
+    }
     // Capture this tic's palette-shift level so the rendered frame can flash red (damage) or
     // gold (bonus). UpdatePaletteShiftsMemory already decremented the counters inside PlayLoop.
     const shift = result.lastStep?.palette;

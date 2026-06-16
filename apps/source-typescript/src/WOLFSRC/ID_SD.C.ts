@@ -1,3 +1,4 @@
+import { ChunksInFile, PMSoundStart, PM_GetPage, PM_GetSoundPage } from "./ID_PM.C";
 import { readU16LE, readU32LE } from "./TS_C";
 import {
   TickBase,
@@ -139,6 +140,15 @@ export let LeftPosition = 0;
 export let RightPosition = 0;
 export let DigiPlaying = false;
 export let NumDigi = 0;
+// Flattened (startPage, lengthBytes) pairs per digitized sound, built from VSWAP by SDL_SetupDigi.
+export let DigiList: number[] = [];
+const PMPAGESIZE = 4096; // VSWAP page size (digi sounds span ceil(len/PMPAGESIZE) consecutive pages)
+// Browser bridge: when set, SD_PlaySound hands a digi sound's assembled PCM to this hook (Web Audio)
+// instead of relying on the inert DOS DMA model. Null in headless/gate contexts (DigiMode stays off).
+let digiPlaybackHook: ((pcm: Uint8Array, leftpos: number, rightpos: number) => void) | null = null;
+export function SD_SetDigiPlaybackHook(fn: ((pcm: Uint8Array, leftpos: number, rightpos: number) => void) | null): void {
+  digiPlaybackHook = fn;
+}
 export let sqActive = false;
 export let alFXReg = 0;
 export let TimerRate = TickBase * 2;
@@ -152,6 +162,14 @@ export let pcSoundCursor = 0;
 export let pcSampleActive = false;
 export let alLengthLeft = 0;
 export let alTimeCount = 0;
+// AdLib IMF music ("sqHack") state — the song's event stream and playback cursor (SD_StartMusic /
+// SDL_ALService). Each event is 4 bytes: reg, val, delay(word); delays are in alTimeCount (700 Hz)
+// units. The stream loops when exhausted.
+let sqHackData: Uint8Array | null = null;
+let sqHackPtr = 0; // byte offset into sqHackData
+let sqHackLen = 0; // bytes remaining in the current pass
+let sqHackSeqLen = 0; // total length, for looping
+let sqHackTime = 0;
 export let alBlock = 0;
 export let alSoundCursor = 0;
 export let DigiLeft = 0;
@@ -715,6 +733,14 @@ export function SD_PlaySound(sound: number): boolean {
       SoundPositioned = ispos;
       DigiNumber = sound;
       DigiPriority = soundCommon.priority;
+      // Browser: the DOS SB DMA model (SDL_SBPlaySeg) is inert here, so hand the assembled PCM to
+      // the Web Audio bridge if one is registered (main.ts). No-op in headless/gate contexts.
+      if (digiPlaybackHook) {
+        const pcm = assembleDigiSound(DigiMap[sound]);
+        if (pcm) {
+          digiPlaybackHook(pcm, lp, rp);
+        }
+      }
     }
 
     return true;
@@ -927,10 +953,29 @@ export function SD_SoundPlaying(): number {
   }
 }
 
-export function SD_StartMusic(music?: { readonly length: number }): SoundModeSummary {
+export function SD_StartMusic(music?: Uint8Array | { readonly length: number; readonly values?: Uint8Array | ArrayLike<number> }): SoundModeSummary {
   SD_MusicOff();
 
   if (MusicMode === smm_AdLib && music) {
+    // Load the IMF event stream. A raw music chunk (Uint8Array) carries a [u16 length] header
+    // followed by the events; a {length, values} object supplies them directly. When no data is
+    // present (headless mode-transition checks pass {length} only) keep the original on/off behavior.
+    if (music instanceof Uint8Array) {
+      const len = (music[0] ?? 0) | ((music[1] ?? 0) << 8);
+      sqHackData = music.subarray(2);
+      sqHackPtr = 0;
+      sqHackLen = len;
+      sqHackSeqLen = len;
+      sqHackTime = 0;
+      alTimeCount = 0;
+    } else if (music.values) {
+      sqHackData = music.values instanceof Uint8Array ? music.values : Uint8Array.from(music.values);
+      sqHackPtr = 0;
+      sqHackLen = music.length;
+      sqHackSeqLen = music.length;
+      sqHackTime = 0;
+      alTimeCount = 0;
+    }
     SD_MusicOn();
   }
 
@@ -1027,8 +1072,26 @@ export function SDL_ALPlaySound(sound: SoundCommon): SoundModeSummary {
 }
 
 export function SDL_ALService(): SoundModeSummary {
-  if (sqActive) {
-    alTimeCount++;
+  if (!sqActive || !sqHackData) {
+    return SD_DebugState();
+  }
+  // Faithful to the DOS SDL_ALService: emit every IMF event whose scheduled time has arrived, then
+  // advance the clock; loop the song when the stream is exhausted.
+  while (sqHackLen > 0 && sqHackTime <= alTimeCount) {
+    const reg = sqHackData[sqHackPtr];
+    const val = sqHackData[sqHackPtr + 1];
+    const delay = sqHackData[sqHackPtr + 2] | (sqHackData[sqHackPtr + 3] << 8);
+    sqHackPtr += 4;
+    sqHackTime = alTimeCount + delay;
+    alOut(reg, val);
+    sqHackLen -= 4;
+  }
+  alTimeCount++;
+  if (sqHackLen <= 0) {
+    sqHackPtr = 0;
+    sqHackLen = sqHackSeqLen;
+    alTimeCount = 0;
+    sqHackTime = 0;
   }
   return SD_DebugState();
 }
@@ -1151,14 +1214,12 @@ export function SDL_DigitizedDone(): SoundModeSummary {
   return SD_DebugState();
 }
 
-export function SDL_LoadDigiSegment(page = 0, length = 4096): Uint8Array {
-  const safeLength = Math.max(0, Math.trunc(length));
-  const segment = new Uint8Array(safeLength);
-  for (let i = 0; i < segment.length; i++) {
-    segment[i] = (page + i) & 0xff;
-  }
+export function SDL_LoadDigiSegment(page = 0, length = PMPAGESIZE): Uint8Array {
   DigiPage = Math.max(0, Math.trunc(page));
-  return segment;
+  // Faithful to the DOS original (addr = PM_GetSoundPage(page)); the browser path uses
+  // assembleDigiSound() instead, so this segment only feeds the (inert-in-browser) DMA bookkeeping.
+  const segment = ChunksInFile > 0 ? PM_GetSoundPage(DigiPage) : new Uint8Array(Math.max(0, Math.trunc(length)));
+  return length > 0 && length < segment.length ? segment.subarray(0, Math.trunc(length)) : segment;
 }
 
 export function SDL_PCPlaySample(addr: unknown, len: number): SoundModeSummary {
@@ -1364,7 +1425,6 @@ export function SDL_SetTimerSpeed(): number {
 }
 
 export function SDL_SetupDigi(numDigi = 0): SoundModeSummary {
-  NumDigi = Math.max(0, Math.trunc(numDigi));
   DigiPlaying = false;
   DigiLeft = 0;
   DigiNextLen = 0;
@@ -1374,7 +1434,51 @@ export function SDL_SetupDigi(numDigi = 0): SoundModeSummary {
   digiCurrentSegment = null;
   digiNextSegment = null;
   DigiMap.fill(-1);
+  DigiList = [];
+  NumDigi = 0;
+  // The last VSWAP chunk is the digisound info list: (startPage, lengthBytes) word pairs, where
+  // startPage is relative to PMSoundStart. Walk it the way the DOS SDL_SetupDigi does — accumulate
+  // pages and stop when they reach the list chunk — to count NumDigi and copy the pairs.
+  if (ChunksInFile > 0) {
+    const list = PM_GetPage(ChunksInFile - 1);
+    const u16 = (o: number): number => (list[o] ?? 0) | ((list[o + 1] ?? 0) << 8);
+    const entries = Math.trunc(list.length / 4);
+    let pg = PMSoundStart;
+    let i = 0;
+    for (; i < entries; i++) {
+      if (pg >= ChunksInFile - 1) {
+        break;
+      }
+      DigiList.push(u16(i * 4), u16(i * 4 + 2));
+      pg += Math.ceil(u16(i * 4 + 2) / PMPAGESIZE);
+    }
+    NumDigi = i;
+  } else {
+    // Headless/unit contexts that never start the page manager: keep the legacy param contract so
+    // the digitized-path checks (which set NumDigi without VSWAP) still work.
+    NumDigi = Math.max(0, Math.trunc(numDigi));
+  }
   return SD_DebugState();
+}
+
+// Assemble a digitized sound's full PCM (unsigned 8-bit, ~7 kHz) from its VSWAP pages. Returns the
+// `length`-byte sample for digi index `which`, or null if out of range / empty.
+export function assembleDigiSound(which: number): Uint8Array | null {
+  if (which < 0 || which * 2 + 1 >= DigiList.length) {
+    return null;
+  }
+  const startPage = DigiList[which * 2];
+  const length = DigiList[which * 2 + 1];
+  if (length <= 0) {
+    return null;
+  }
+  const numPages = Math.ceil(length / PMPAGESIZE);
+  const out = new Uint8Array(numPages * PMPAGESIZE);
+  for (let k = 0; k < numPages; k++) {
+    const page = PM_GetSoundPage(startPage + k);
+    out.set(page.subarray(0, PMPAGESIZE), k * PMPAGESIZE);
+  }
+  return out.subarray(0, length);
 }
 
 export function SDL_ShutAL(): SoundModeSummary {

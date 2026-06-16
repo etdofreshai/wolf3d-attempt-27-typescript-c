@@ -105,7 +105,7 @@ export const dirscan: number[] = [0x48, 0x4d, 0x50, 0x4b];
 export const buttonscan: number[] = [0x1d, 0x38, 0x36, 0x39, 0x02, 0x03, 0x04, 0x05];
 export const buttonmouse: number[] = [BT_ATTACK, BT_STRAFE, BT_USE, BT_NOBUTTON];
 export const buttonjoy: number[] = [BT_ATTACK, BT_STRAFE, BT_USE, BT_RUN];
-const SONGS = [
+export const SONGS = [
   3, 11, 9, 12, 3, 11, 9, 12, 2, 0,
   8, 18, 17, 4, 8, 18, 4, 17, 2, 1,
   6, 20, 22, 21, 6, 20, 22, 21, 19, 26,
