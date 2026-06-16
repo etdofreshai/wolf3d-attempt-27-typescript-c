@@ -313,6 +313,7 @@ const GAMESTATE_KEYS_OFFSET = structFieldOffset("gametype", "keys");
 const GAMESTATE_WEAPON_OFFSET = structFieldOffset("gametype", "weapon");
 const GAMESTATE_BESTWEAPON_OFFSET = structFieldOffset("gametype", "bestweapon");
 const GAMESTATE_CHOSENWEAPON_OFFSET = structFieldOffset("gametype", "chosenweapon");
+const WP_CHAINGUN = 3; // the chaingun weapon index (the MLI cheat grants it)
 const GAMESTATE_ATTACKFRAME_OFFSET = structFieldOffset("gametype", "attackframe");
 const GAMESTATE_ATTACKCOUNT_OFFSET = structFieldOffset("gametype", "attackcount");
 const GAMESTATE_WEAPONFRAME_OFFSET = structFieldOffset("gametype", "weaponframe");
@@ -1797,6 +1798,21 @@ class BrowserWolf3DRuntime {
     }
   }
 
+  // WL_PLAY.C CheckKeys MLI cheat: top up health/ammo/keys, zero the score, and grant the chaingun.
+  private applyMLICheat(): void {
+    const gs = nearOffsetForRuntimeSymbol("_gamestate");
+    this.dgroup.setU16(gs + GAMESTATE_HEALTH_OFFSET, 100);
+    this.dgroup.setU16(gs + GAMESTATE_AMMO_OFFSET, 99);
+    this.dgroup.setU16(gs + GAMESTATE_KEYS_OFFSET, 3);
+    this.dgroup.setU32(gs + GAMESTATE_SCORE_OFFSET, 0);
+    this.dgroup.setU16(gs + GAMESTATE_WEAPON_OFFSET, WP_CHAINGUN);
+    this.dgroup.setU16(gs + GAMESTATE_BESTWEAPON_OFFSET, WP_CHAINGUN);
+    this.dgroup.setU16(gs + GAMESTATE_CHOSENWEAPON_OFFSET, WP_CHAINGUN);
+    SD_PlaySound(ENDBONUS2SND); // a little chime to confirm (original shows the CHEATER message)
+    this.drawStatusBar();
+    this.present("PLAYLOOP");
+  }
+
   private drawStatusBar(): void {
     if (!this.pictable) {
       return;
@@ -1985,6 +2001,10 @@ class BrowserWolf3DRuntime {
     }
     if (down) {
       this.pressedScans.add(scan);
+      // WL_PLAY.C CheckKeys retail cheat: M+L+I held → full health/ammo/keys + chaingun.
+      if (!event.repeat && this.pressedScans.has(sc_M) && this.pressedScans.has(sc_L) && this.pressedScans.has(sc_I)) {
+        this.applyMLICheat();
+      }
     } else {
       this.pressedScans.delete(scan);
     }
