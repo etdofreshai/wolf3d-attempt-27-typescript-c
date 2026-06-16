@@ -200,7 +200,7 @@ import {
   SndItems,
   SndMenu,
 } from "./WOLFSRC/WL_MENU.C";
-import { CURGAME } from "./WOLFSRC/FOREIGN.H";
+import { CURGAME, ENDGAMESTR } from "./WOLFSRC/FOREIGN.H";
 import {
   InitRedShifts,
   PlayLoop,
@@ -876,6 +876,7 @@ class BrowserWolf3DRuntime {
   // answer. `onYes`/`onNo` run on Y / (N or Esc). The underlying screen must already be presented;
   // Message overlays the centered text box. Used for the "erase current game?" prompt etc.
   private showConfirm(text: string, onYes: () => void, onNo: () => void): void {
+    VL_SetBufferOffset(displayPageBase(displayofs)); // visible page (in-game F7 confirm page-flips)
     US_SetWindowState(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT); // fullscreen window so Message centers on screen
     Message(text, { font: this.menuChunks[STARTFONT + 1] ?? undefined });
     VW_UpdateScreen();
@@ -2030,7 +2031,8 @@ class BrowserWolf3DRuntime {
   // call and resets its text offset, so page k = render pages 1..k and keep page k). The port's text
   // engine only COMPUTES each page's draw operations (for gate-testability); execute them here.
   private renderArticlePage(): void {
-    VL_SetBufferOffset(0);
+    // Draw onto the visible page (in-game F1 help page-flips; in the menus displayofs is 0 anyway).
+    VL_SetBufferOffset(displayPageBase(displayofs));
     const shown = ShowArticle({ article: this.articleText, renderAll: true, maxPages: this.articlePage });
     const page = shown.pages[shown.pages.length - 1];
     if (page) {
@@ -2448,6 +2450,16 @@ class BrowserWolf3DRuntime {
       this.showMainMenu();
       return;
     }
+    // In-game help (WL_PLAY.C CheckKeys → US_ControlPanel(F1) → HelpScreens). F1 shows the help
+    // article, then resumes play.
+    if (down && !event.repeat && scan === sc_F1) {
+      event.preventDefault();
+      this.pressedScans.clear();
+      const info = HelpScreens();
+      const chunk = typeof info.chunkOrFile === "number" ? info.chunkOrFile : -1;
+      this.showArticle(chunk, () => this.returnToGame());
+      return;
+    }
     // In-game save/load (WL_PLAY.C CheckKeys → US_ControlPanel(F2/F3)). F2 saves, F3 loads; both
     // open the 10-slot screen and resume play when done/cancelled.
     if (down && !event.repeat && scan === sc_F2) {
@@ -2458,6 +2470,18 @@ class BrowserWolf3DRuntime {
     if (down && !event.repeat && scan === sc_F3 && this.hasSavedGame()) {
       this.pressedScans.clear();
       this.showLoadSaveScreen("load", true);
+      return;
+    }
+    // In-game End Game (WL_PLAY.C CheckKeys → US_ControlPanel(F7) → CP_CheckQuick): confirm, then
+    // end the run to the high-score table (recording the score reached), or resume play on N.
+    if (down && !event.repeat && scan === sc_F7) {
+      event.preventDefault();
+      this.pressedScans.clear();
+      const completed = this.gamestateU16(GAMESTATE_MAPON_OFFSET) + 1;
+      this.showConfirm(ENDGAMESTR, () => {
+        this.hasGame = false;
+        this.recordHighScoreAndShow(completed);
+      }, () => this.returnToGame());
       return;
     }
     if (down) {
