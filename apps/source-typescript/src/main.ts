@@ -370,6 +370,7 @@ const FIZZLE_STEPS_PER_FRAME = 4096; // LFSR steps consumed per rendered frame d
 // SDL_t0Service's own dispatch then yields 700 Hz music, 140 Hz sound effects, and 70 Hz TimeCount.
 const T0_SERVICES_PER_TIC = 10;
 const PLAYLOOP_T0_SERVICES = 2; // t0 ticks PlayLoopStepMemory already services per tic (controls.tics*2)
+const T0_MS = 1000 / 700; // one AdLib timer-ISR service (700 Hz) in milliseconds, for real-time pacing
 const MENUSONG = 14; // WONDERIN_MUS — the control-panel / main-menu song (WL_MENU.C StartCPMusic)
 const ENDLEVEL_MUS = 16; // floor-completed intermission (WL_INTER.C LevelCompleted)
 const ROSTER_MUS = 23; // high-score table (WL_MENU.C CheckHighScore)
@@ -458,6 +459,7 @@ class BrowserWolf3DRuntime {
   private selectedEpisode = 0;
   private lastFrameTime = 0;
   private tickAccumulator = 0;
+  private t0Accumulator = 0; // real-time accumulator (ms) for 700 Hz AdLib timer servicing outside "play"
   private frames = 0;
 
   constructor(
@@ -527,6 +529,24 @@ class BrowserWolf3DRuntime {
     requestAnimationFrame(this.tick);
   }
 
+  // Advance the 700 Hz AdLib timer ISR (SDL_t0Service) by real elapsed wall-clock time. The "play"
+  // loop already paces the timer through its own 70 Hz tic accumulator; this keeps music/SFX at the
+  // correct tempo on every other screen (menu, intermission, victory, fizzle, death) on displays
+  // that aren't 70 Hz. Capped so a long stall can't spiral into thousands of catch-up services.
+  private serviceAudioTimer(frameTime: number): void {
+    if (!this.lastFrameTime) {
+      this.lastFrameTime = frameTime;
+    }
+    this.t0Accumulator += Math.min(250, frameTime - this.lastFrameTime);
+    this.lastFrameTime = frameTime;
+    let guard = 0;
+    while (this.t0Accumulator >= T0_MS && guard < 256) {
+      SDL_t0Service();
+      this.t0Accumulator -= T0_MS;
+      guard++;
+    }
+  }
+
   private readonly tick = (frameTime: number): void => {
     if (this.mode === "demo") {
       // Attract-mode demo playback runs game tics from recorded input (PlayLoopStepMemory does
@@ -538,8 +558,10 @@ class BrowserWolf3DRuntime {
     }
     if (this.mode === "dying") {
       // The death spin+redfade animation (WL_GAME.C Died) — no game tics run; advanceDying drives
-      // the rotation/fade and resolves into respawn or game over.
+      // the rotation/fade and resolves into respawn or game over. The AdLib timer keeps running so
+      // music continues underneath the animation, as it does under DOS' timer ISR.
       this.advanceDying();
+      this.serviceAudioTimer(frameTime);
       this.audio.serviceAdLib();
       requestAnimationFrame(this.tick);
       return;
@@ -547,17 +569,16 @@ class BrowserWolf3DRuntime {
     if (this.mode === "fizzle") {
       // The level-start dissolve (ID_VH.C FizzleFade) — no tics run until the screen is revealed.
       this.advanceFizzle();
+      this.serviceAudioTimer(frameTime);
       this.audio.serviceAdLib();
       requestAnimationFrame(this.tick);
       return;
     }
     if (this.mode !== "play") {
-      this.lastFrameTime = frameTime;
-      // Service the sound timer so AdLib menu sounds + music advance, then hand the resulting
-      // register writes to the OPL2 emulator (no game tics run outside "play").
-      for (let i = 0; i < T0_SERVICES_PER_TIC; i++) {
-        SDL_t0Service();
-      }
+      // Service the sound timer in real time so AdLib menu/intermission music plays at its true
+      // 700 Hz tempo regardless of display refresh rate, then hand the resulting register writes to
+      // the OPL2 emulator (no game tics run outside "play").
+      this.serviceAudioTimer(frameTime);
       // Drive the bonus/ratio count-up on the intermission + victory screens.
       if (this.mode === "intermission" && this.intermissionAnim && this.intermissionAnim.stage <= 3) {
         this.advanceIntermission();

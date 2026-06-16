@@ -383,7 +383,21 @@ export class OPL2 {
 // from id_sd.c's `alRegisterWrites`), and renders continuously at an arbitrary output sample
 // rate by resampling from the chip's native 49716 Hz. Pure (no browser deps) so it can be unit
 // tested; the AudioContext glue in platform/audio.ts only feeds it writes and pulls samples.
-export interface AdLibRegisterWrite { readonly register: number; readonly value: number; }
+export interface AdLibRegisterWrite {
+  readonly register: number;
+  readonly value: number;
+  // 700 Hz timer-service index (id_sd.c SDL_t0Service). schedule() groups writes by this tick and
+  // releases each group on the 700 Hz grid; undefined means "apply with the current/previous group".
+  readonly tick?: number;
+}
+
+// Wolf3D's AdLib timer ISR runs at 700 Hz; music (SDL_ALService) is serviced every interrupt and
+// sound effects (SDL_ALSoundService) every 5th. Each interrupt's register writes are simultaneous,
+// so we release one tick-group every OPL2_RATE/700 chip samples to reproduce the original cadence.
+const AL_SERVICE_HZ = 700;
+// Cap queued tick-groups so a long rAF stall (hidden tab, GC pause) that bursts a backlog of writes
+// can't add unbounded latency — beyond this we fast-forward the oldest groups on the next render.
+const MAX_PENDING_GROUPS = 256; // ~0.37 s of music at 700 Hz
 
 export class AdLibStream {
   private readonly opl = new OPL2();
@@ -391,9 +405,15 @@ export class AdLibStream {
   private fracPos = 0;
   private last = 0;
   private readonly one = new Float32Array(1);
+  // Sample-accurate register scheduling: queued groups of writes (one per 700 Hz service tick) and
+  // the chip-sample countdown until the next group is applied.
+  private readonly pending: AdLibRegisterWrite[][] = [];
+  private readonly oplSamplesPerService: number;
+  private oplSamplesUntilNext = 0;
 
   constructor(outRate: number) {
     this.ratio = OPL2_RATE / Math.max(8000, outRate || OPL2_RATE);
+    this.oplSamplesPerService = OPL2_RATE / AL_SERVICE_HZ; // ≈ 71 chip samples between 700 Hz ticks
     this.opl.reset();
   }
 
@@ -401,25 +421,68 @@ export class AdLibStream {
     this.opl.reset();
     this.fracPos = 0;
     this.last = 0;
+    this.pending.length = 0;
+    this.oplSamplesUntilNext = 0;
   }
 
   write(register: number, value: number): void {
     this.opl.write(register, value);
   }
 
-  // Apply a batch of register writes (and clear the source array in place if given one).
+  // Apply a batch of register writes immediately. Used by the gates/tests, which already interleave
+  // service + render at the correct per-tick cadence (so "now" is the right time for them).
   feed(writes: AdLibRegisterWrite[]): void {
     for (let i = 0; i < writes.length; i++) this.opl.write(writes[i].register, writes[i].value);
   }
 
-  // Render `out.length` output samples at the construction-time rate, resampling from 49716 Hz
-  // with a zero-order hold (the chip rate is only ~3.6% above 48 kHz, so ZOH is transparent).
+  // Enqueue a frame's worth of register writes for sample-accurate playback. The writes carry the
+  // 700 Hz `tick` they were produced on (id_sd.c's timer-service index); consecutive writes sharing
+  // a tick are one simultaneous group. render() then releases one group every 700 Hz, instead of
+  // dumping the whole frame into a single instant (which collapses tempo + note onsets → garbling).
+  schedule(writes: ArrayLike<AdLibRegisterWrite>): void {
+    let groupStart = 0;
+    for (let i = 0; i < writes.length; i++) {
+      const next = writes[i + 1];
+      const boundary = i + 1 >= writes.length || (next.tick ?? -1) !== (writes[i].tick ?? -1);
+      if (boundary) {
+        const group: AdLibRegisterWrite[] = [];
+        for (let j = groupStart; j <= i; j++) group.push(writes[j]);
+        this.pending.push(group);
+        groupStart = i + 1;
+      }
+    }
+  }
+
+  private applyGroup(group: AdLibRegisterWrite[]): void {
+    for (let i = 0; i < group.length; i++) this.opl.write(group[i].register, group[i].value);
+  }
+
+  // Drop the oldest queued groups (applying them) when the backlog exceeds MAX_PENDING_GROUPS, so a
+  // burst after a stall doesn't accumulate latency. Applied instantly because they're already late.
+  private catchUp(): void {
+    while (this.pending.length > MAX_PENDING_GROUPS) {
+      this.applyGroup(this.pending.shift() as AdLibRegisterWrite[]);
+    }
+  }
+
+  // Render `out.length` output samples at the construction-time rate, resampling from 49716 Hz with
+  // a zero-order hold (the chip rate is only ~3.6% above 48 kHz, so ZOH is transparent). Queued
+  // register groups are released on the 700 Hz service grid as chip samples are produced.
   render(out: Float32Array): void {
     const one = this.one;
+    this.catchUp();
     for (let i = 0; i < out.length; i++) {
       this.fracPos += this.ratio;
       while (this.fracPos >= 1) {
         this.fracPos -= 1;
+        // Release scheduled register groups due at this chip sample (700 Hz grid).
+        if (this.pending.length > 0) {
+          this.oplSamplesUntilNext -= 1;
+          while (this.oplSamplesUntilNext <= 0 && this.pending.length > 0) {
+            this.applyGroup(this.pending.shift() as AdLibRegisterWrite[]);
+            this.oplSamplesUntilNext += this.oplSamplesPerService;
+          }
+        }
         this.opl.render(one, 0, 1);
         this.last = one[0];
       }

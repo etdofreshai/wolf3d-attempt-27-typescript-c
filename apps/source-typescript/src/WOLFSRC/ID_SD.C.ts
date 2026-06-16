@@ -245,6 +245,12 @@ const alDefaultInst: Required<Instrument> = {
 export interface AlRegisterWrite {
   readonly register: number;
   readonly value: number;
+  // 700 Hz timer-service index at which DOS' SDL_t0Service ISR emitted this write. The browser
+  // audio layer groups writes by this tick and releases each group `OPL2_RATE/700` samples apart,
+  // so sub-frame note timing is preserved instead of collapsing a whole rAF frame into one instant.
+  // Optional/derived: gates only read register|value, and writes emitted outside a service (e.g.
+  // SD_PlaySound's instrument setup) inherit the most recent tick (≈ "now").
+  readonly tick?: number;
 }
 
 export interface SoundModeSummary {
@@ -577,7 +583,7 @@ function soundOrQuit(sound: number): SoundCommon {
 }
 
 export function alOut(n: number, b: number): AlRegisterWrite {
-  const write = { register: n & 0xff, value: b & 0xff };
+  const write = { register: n & 0xff, value: b & 0xff, tick: timerServiceCount };
   alRegisterWrites.push(write);
   return write;
 }

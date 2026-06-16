@@ -50,15 +50,18 @@ export class BrowserWolf3DAudio {
     this.playPcSound(SoundNumber, force);
   }
 
-  // Drain the AdLib register writes id_sd.c produced this frame into the OPL2 emulator. Called
-  // once per game frame; the ScriptProcessor renders continuously from the emulator's state.
+  // Hand the AdLib register writes id_sd.c produced this frame to the OPL2 emulator. Called once per
+  // game frame, but the writes are NOT applied all at once: each carries the 700 Hz timer-service
+  // tick it was emitted on, and AdLibStream.schedule() releases each tick-group on the 700 Hz grid
+  // as the ScriptProcessor renders — preserving sub-frame note timing (DOS' timer-ISR cadence)
+  // instead of collapsing ~12 services/frame into a single instant (which garbled tempo + onsets).
   // Writes are always cleared (even before audio starts) so the queue can't grow unbounded.
   serviceAdLib(): void {
     if (alRegisterWrites.length === 0) {
       return;
     }
     if (SoundMode === sdm_AdLib && this.adlib) {
-      this.adlib.feed(alRegisterWrites);
+      this.adlib.schedule(alRegisterWrites);
     }
     alRegisterWrites.length = 0;
   }
