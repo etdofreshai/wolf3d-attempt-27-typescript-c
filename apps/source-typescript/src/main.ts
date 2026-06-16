@@ -404,6 +404,7 @@ const GETPSYCHED_MS = 700; // how long the "Get Psyched!" loading screen shows b
 const INTRO_PG13_MS = 3000;   // PG13 rating screen hold (DOS IN_UserInput(TickBase*7); any key skips)
 const INTRO_TITLE_MS = 6000;  // title page hold before auto-advancing (DOS IN_UserInput(TickBase*15))
 const INTRO_CREDITS_MS = 4000; // credits page hold (DOS IN_UserInput(TickBase*10)); then the menu opens
+const INTRO_FADE_FRAMES = 12;  // frames to fade each attract screen in/out (DOS VW_FadeIn/VW_FadeOut)
 // AdLib music mode services the timer at ~700 Hz; at the 70 Hz tic rate that's 10 t0 services/tic.
 // SDL_t0Service's own dispatch then yields 700 Hz music, 140 Hz sound effects, and 70 Hz TimeCount.
 const T0_SERVICES_PER_TIC = 10;
@@ -526,9 +527,12 @@ class BrowserWolf3DRuntime {
   private articleOnDone: (() => void) | null = null;
   // "Get Psyched!" loading screen (WL_INTER.C PreloadGraphics) state: deadline + how the level resumes.
   private getPsychedDeadline = 0;
-  // Pre-menu attract intro (WL_MAIN.C DemoLoop: PG13 -> title -> credits) state.
+  // Pre-menu attract intro (WL_MAIN.C DemoLoop: PG13 -> title -> credits) state, with palette fades.
   private introStage = 0;
   private introDeadline = 0;
+  private introFadeStep = 0;
+  private introFadeDir: "in" | "hold" | "out" = "in";
+  private introScreenTag = "PG13";
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -615,11 +619,14 @@ class BrowserWolf3DRuntime {
     this.lastFrameTime = 0;
     this.t0Accumulator = 0;
     this.playSong(INTROSONG);
-    this.drawIntroStage(0);
+    this.drawIntroStage(0); // draw the buffer; the fade loop presents it as the palette ramps up
+    this.introFadeDir = "in";
+    this.introFadeStep = 0;
     this.introDeadline = performance.now() + INTRO_PG13_MS;
   }
 
-  // Draw one attract-intro stage: 0 = PG13 rating screen, 1 = title page, 2 = credits page.
+  // Draw one attract-intro stage into the buffer (0 = PG13, 1 = title, 2 = credits). The palette is
+  // left to advanceIntro's fade loop, which presents each frame.
   private drawIntroStage(stage: number): void {
     VL_SetBufferOffset(0);
     if (stage === 0) {
@@ -627,32 +634,60 @@ class BrowserWolf3DRuntime {
       VWB_Bar(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0x82);
       const source = CA_CacheGrChunk(PG13PIC) ?? undefined;
       VWB_DrawPic(216, 110, PG13PIC, { source, pictable: this.pictable ?? undefined });
-      this.present("PG13");
+      this.introScreenTag = "PG13";
     } else if (stage === 1) {
       CA_CacheScreen(TITLEPIC); // unpack the full-screen title art into the video buffer
-      this.present("TITLE");
+      this.introScreenTag = "TITLE";
     } else {
       CA_CacheScreen(CREDITSPIC); // full-screen credits art
-      this.present("CREDITS");
+      this.introScreenTag = "CREDITS";
     }
   }
 
-  // Advance the attract intro each frame; when a stage's hold elapses, move to the next (PG13 →
-  // title → credits → main menu).
+  // Advance the attract intro each frame, bracketing every screen with a palette fade-in/out like
+  // DOS DemoLoop's VW_FadeIn()/VW_FadeOut(): fade the screen in, hold for its duration, fade out,
+  // then draw the next stage (PG13 → title → credits → main menu).
   private advanceIntro(frameTime: number): void {
-    if (frameTime < this.introDeadline) {
-      return;
+    const gamepal = WL_MAIN.gamepal;
+    if (this.introFadeDir === "in") {
+      this.applyFadePalette(this.introFadeStep / INTRO_FADE_FRAMES);
+      if (this.introFadeStep++ >= INTRO_FADE_FRAMES) {
+        this.introFadeDir = "hold";
+        VL_SetPalette(gamepal);
+      }
+    } else if (this.introFadeDir === "hold") {
+      if (frameTime >= this.introDeadline) {
+        this.introFadeDir = "out";
+        this.introFadeStep = 0;
+      }
+    } else { // "out"
+      this.applyFadePalette(1 - this.introFadeStep / INTRO_FADE_FRAMES);
+      if (this.introFadeStep++ >= INTRO_FADE_FRAMES) {
+        this.introStage += 1;
+        if (this.introStage === 1) {
+          this.drawIntroStage(1);
+          this.introDeadline = frameTime + INTRO_TITLE_MS;
+        } else if (this.introStage === 2) {
+          this.drawIntroStage(2);
+          this.introDeadline = frameTime + INTRO_CREDITS_MS;
+        } else {
+          this.showMainMenu(); // intro finished → land on the control panel
+          return;
+        }
+        this.introFadeDir = "in";
+        this.introFadeStep = 0;
+      }
     }
-    this.introStage += 1;
-    if (this.introStage === 1) {
-      this.drawIntroStage(1);
-      this.introDeadline = frameTime + INTRO_TITLE_MS;
-    } else if (this.introStage === 2) {
-      this.drawIntroStage(2);
-      this.introDeadline = frameTime + INTRO_CREDITS_MS;
-    } else {
-      this.showMainMenu(); // intro finished → land on the control panel
-    }
+    this.present(this.introScreenTag);
+  }
+
+  // Set the active palette to `gamepal` scaled by t (0 = black, 1 = full) for a VW_Fade-style ramp.
+  private applyFadePalette(t: number): void {
+    const gamepal = WL_MAIN.gamepal;
+    const clamped = Math.max(0, Math.min(1, t));
+    const faded = new Uint8Array(gamepal.length);
+    for (let i = 0; i < gamepal.length; i++) faded[i] = Math.round(gamepal[i] * clamped);
+    VL_SetPalette(faded);
   }
 
   // Advance the 700 Hz AdLib timer ISR (SDL_t0Service) by real elapsed wall-clock time. The "play"
@@ -787,6 +822,7 @@ class BrowserWolf3DRuntime {
 
   private showMainMenu(): void {
     this.mode = "menu";
+    VL_SetPalette(WL_MAIN.gamepal); // restore full palette (the intro fade-out / a game may have dimmed it)
     this.lastInputTime = performance.now(); // restart the attract-demo idle timer
     this.playSong(MENUSONG); // the menu's AdLib song (WL_MENU.C StartCPMusic(MENUSONG))
     SetupControlPanel({ skipResourceCache: true, skipLoadAllSounds: true });
