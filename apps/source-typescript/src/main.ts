@@ -99,6 +99,7 @@ import {
 import {
   CA_CacheAudioChunk,
   CA_CacheGrChunk,
+  CA_CacheScreen,
   CA_LoadAllSounds,
   CA_CacheMap,
   CA_Startup,
@@ -136,15 +137,19 @@ import {
 import {
   CONTROLS_LUMP_END,
   CONTROLS_LUMP_START,
+  CREDITSPIC,
+  GETPSYCHEDPIC,
   L_GUYPIC,
   LATCHPICS_LUMP_END,
   LATCHPICS_LUMP_START,
   MAPSIZE,
   PAUSEDPIC,
+  PG13PIC,
   STARTFONT,
   STARTTILE8,
   STATUSBARPIC,
   STRUCTPIC,
+  TITLEPIC,
 } from "./WOLFSRC/TS_WL6_ASSETS";
 import {
   STRUCT_LAYOUTS,
@@ -366,17 +371,22 @@ const PLAYERDEATHSND = 9; // AUDIOWL6 sound index — the player's death cry (WL
 const DEATH_SPIN_STEPS_PER_FRAME = 3; // rotation steps consumed per rendered frame during the death spin
 const DEATH_REDFADE_FRAMES = 9; // frames spent fading the held death frame toward red before respawn/game-over
 const FIZZLE_STEPS_PER_FRAME = 4096; // LFSR steps consumed per rendered frame during the level-start fizzle
+const GETPSYCHED_MS = 700; // how long the "Get Psyched!" loading screen shows before a level fizzles in
+const INTRO_PG13_MS = 3000;   // PG13 rating screen hold (DOS IN_UserInput(TickBase*7); any key skips)
+const INTRO_TITLE_MS = 6000;  // title page hold before auto-advancing (DOS IN_UserInput(TickBase*15))
+const INTRO_CREDITS_MS = 4000; // credits page hold (DOS IN_UserInput(TickBase*10)); then the menu opens
 // AdLib music mode services the timer at ~700 Hz; at the 70 Hz tic rate that's 10 t0 services/tic.
 // SDL_t0Service's own dispatch then yields 700 Hz music, 140 Hz sound effects, and 70 Hz TimeCount.
 const T0_SERVICES_PER_TIC = 10;
 const PLAYLOOP_T0_SERVICES = 2; // t0 ticks PlayLoopStepMemory already services per tic (controls.tics*2)
 const T0_MS = 1000 / 700; // one AdLib timer-ISR service (700 Hz) in milliseconds, for real-time pacing
 const MENUSONG = 14; // WONDERIN_MUS — the control-panel / main-menu song (WL_MENU.C StartCPMusic)
+const INTROSONG = 7; // NAZI_NOR — the attract/title song (WL_MAIN.C DemoLoop StartCPMusic(INTROSONG))
 const ENDLEVEL_MUS = 16; // floor-completed intermission (WL_INTER.C LevelCompleted)
 const ROSTER_MUS = 23; // high-score table (WL_MENU.C CheckHighScore)
 const URAHERO_MUS = 24; // episode victory (WL_INTER.C Victory)
 
-type RuntimeMode = "boot" | "menu" | "episode" | "difficulty" | "play" | "intermission" | "victory" | "highscores" | "demo" | "loadsave" | "dying" | "fizzle";
+type RuntimeMode = "boot" | "menu" | "episode" | "difficulty" | "play" | "intermission" | "victory" | "highscores" | "demo" | "loadsave" | "dying" | "fizzle" | "getpsyched" | "intro";
 
 // In-progress level-start dissolve (ID_VH.C FizzleFade): reveal `target` into the surface in the
 // 17-bit LFSR pixel order over several frames.
@@ -461,6 +471,11 @@ class BrowserWolf3DRuntime {
   private tickAccumulator = 0;
   private t0Accumulator = 0; // real-time accumulator (ms) for 700 Hz AdLib timer servicing outside "play"
   private frames = 0;
+  // "Get Psyched!" loading screen (WL_INTER.C PreloadGraphics) state: deadline + how the level resumes.
+  private getPsychedDeadline = 0;
+  // Pre-menu attract intro (WL_MAIN.C DemoLoop: PG13 -> title -> credits) state.
+  private introStage = 0;
+  private introDeadline = 0;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -525,8 +540,64 @@ class BrowserWolf3DRuntime {
 
     VL_SetBufferOffset(0);
     VL_SetScreen(0, 0);
-    this.showMainMenu();
+    // WL_MAIN.C DemoLoop shows the attract intro (PG13 → title → credits) before the control panel;
+    // the port used to boot straight to the menu. Any key skips the intro to the main menu.
+    // `?nointro` boots straight to the menu (deterministic for the headless browser-smoke gate).
+    if (skipIntroRequested()) {
+      this.showMainMenu();
+    } else {
+      this.startIntro();
+    }
     requestAnimationFrame(this.tick);
+  }
+
+  // Begin the pre-menu attract intro (WL_MAIN.C DemoLoop: StartCPMusic(INTROSONG); PG13(); then the
+  // title → credits rotation). Each stage auto-advances after a hold or is skipped by any keypress;
+  // after credits the main menu opens. The menu's own idle timer then drives the attract demos.
+  private startIntro(): void {
+    this.mode = "intro";
+    this.introStage = 0;
+    this.lastFrameTime = 0;
+    this.t0Accumulator = 0;
+    this.playSong(INTROSONG);
+    this.drawIntroStage(0);
+    this.introDeadline = performance.now() + INTRO_PG13_MS;
+  }
+
+  // Draw one attract-intro stage: 0 = PG13 rating screen, 1 = title page, 2 = credits page.
+  private drawIntroStage(stage: number): void {
+    VL_SetBufferOffset(0);
+    if (stage === 0) {
+      // WL_INTER.C PG13: fill the screen with bg color 0x82, draw the PG13 pic at (216,110).
+      VWB_Bar(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0x82);
+      const source = CA_CacheGrChunk(PG13PIC) ?? undefined;
+      VWB_DrawPic(216, 110, PG13PIC, { source, pictable: this.pictable ?? undefined });
+      this.present("PG13");
+    } else if (stage === 1) {
+      CA_CacheScreen(TITLEPIC); // unpack the full-screen title art into the video buffer
+      this.present("TITLE");
+    } else {
+      CA_CacheScreen(CREDITSPIC); // full-screen credits art
+      this.present("CREDITS");
+    }
+  }
+
+  // Advance the attract intro each frame; when a stage's hold elapses, move to the next (PG13 →
+  // title → credits → main menu).
+  private advanceIntro(frameTime: number): void {
+    if (frameTime < this.introDeadline) {
+      return;
+    }
+    this.introStage += 1;
+    if (this.introStage === 1) {
+      this.drawIntroStage(1);
+      this.introDeadline = frameTime + INTRO_TITLE_MS;
+    } else if (this.introStage === 2) {
+      this.drawIntroStage(2);
+      this.introDeadline = frameTime + INTRO_CREDITS_MS;
+    } else {
+      this.showMainMenu(); // intro finished → land on the control panel
+    }
   }
 
   // Advance the 700 Hz AdLib timer ISR (SDL_t0Service) by real elapsed wall-clock time. The "play"
@@ -569,6 +640,24 @@ class BrowserWolf3DRuntime {
     if (this.mode === "fizzle") {
       // The level-start dissolve (ID_VH.C FizzleFade) — no tics run until the screen is revealed.
       this.advanceFizzle();
+      this.serviceAudioTimer(frameTime);
+      this.audio.serviceAdLib();
+      requestAnimationFrame(this.tick);
+      return;
+    }
+    if (this.mode === "getpsyched") {
+      // The "Get Psyched!" loading screen (WL_INTER.C PreloadGraphics) — holds briefly with a filling
+      // bar, then fizzles the level in. The AdLib timer keeps the level song playing underneath.
+      this.advanceGetPsyched(frameTime);
+      this.serviceAudioTimer(frameTime);
+      this.audio.serviceAdLib();
+      requestAnimationFrame(this.tick);
+      return;
+    }
+    if (this.mode === "intro") {
+      // Pre-menu attract intro (WL_MAIN.C DemoLoop): PG13 → title → credits, each holding a few
+      // seconds, with the INTROSONG playing. advanceIntro moves to the menu when the rotation ends.
+      this.advanceIntro(frameTime);
       this.serviceAudioTimer(frameTime);
       this.audio.serviceAdLib();
       requestAnimationFrame(this.tick);
@@ -831,7 +920,7 @@ class BrowserWolf3DRuntime {
   // Used both to start a new game and to (re)load a level on a playstate transition;
   // unlike beginGame it preserves gamestate (score/lives/weapons) — mirroring how
   // WL_GAME.C GameLoop re-runs SetupGameLevel between PlayLoop iterations.
-  private loadLevel(): void {
+  private loadLevel(showGetPsyched = true): void {
     if (!this.pictable || !this.statusBar) {
       return;
     }
@@ -861,9 +950,49 @@ class BrowserWolf3DRuntime {
     this.tickAccumulator = 0;
     this.paletteShift = { red: 0, white: 0 }; // no leftover damage tint on the fresh level
     this.startLevelMusic();
+    // WL_GAME.C GameLoop: `if (!died) PreloadGraphics()` — show the "Get Psyched!" loading screen on
+    // a fresh level start, but NOT on a death-respawn (the caller passes showGetPsyched=false there).
+    // Then the first frame is fizzled in. In DOS the bar tracks PM_Preload; assets are already in
+    // memory here, so it fills over a short fixed hold instead of a black gap between levels.
+    if (showGetPsyched) {
+      this.getPsychedDeadline = performance.now() + GETPSYCHED_MS;
+      this.drawGetPsyched(0);
+      this.mode = "getpsyched";
+      this.lastFrameTime = 0;
+      return;
+    }
     // Render the first frame and dissolve it in (WL_GAME.C fizzles the view in on level start).
     this.renderFrame();
     this.beginFizzleIn();
+  }
+
+  // Draw the WL_INTER.C "Get Psyched!" loading screen: a gray play area with the GETPSYCHEDPIC bar
+  // graphic and a red progress bar (PreloadUpdate geometry). The status bar drawn by DrawPlayScreen
+  // stays at the bottom. `progress` is 0..1 of the loading bar fill.
+  private drawGetPsyched(progress: number): void {
+    VL_SetBufferOffset(0);
+    VWB_Bar(0, 0, SCREEN_WIDTH, 200 - 40, 127); // clear the play view (STATUSLINES=40) to bg color 127
+    LatchDrawPic(20 - 14, 80 - 3 * 8, GETPSYCHEDPIC, { pictable: this.pictable ?? undefined });
+    // Loading bar inside US_SetWindowState(160-14*8, 80-3*8, 28*8, 48): WindowX/Y/W/H = 48/56/224/48.
+    const barX = 48 + 5, barY = 56 + 48 - 3, barW = 224 - 10;
+    VWB_Bar(barX, barY, barW, 2, 0); // black track (PreloadUpdate)
+    const filled = Math.max(0, Math.min(barW, Math.trunc(barW * progress)));
+    if (filled > 0) {
+      VWB_Bar(barX, barY, filled, 2, 0x37); // red fill (SECONDCOLOR)
+      VWB_Bar(barX, barY, Math.max(0, filled - 1), 1, 0x32); // lighter highlight row
+    }
+    this.present("GETPSYCHED");
+  }
+
+  // Advance the "Get Psyched!" hold each frame; when it elapses, fizzle the first level frame in.
+  private advanceGetPsyched(frameTime: number): void {
+    const remaining = this.getPsychedDeadline - frameTime;
+    const progress = 1 - Math.max(0, remaining) / GETPSYCHED_MS;
+    this.drawGetPsyched(Math.min(1, progress));
+    if (frameTime >= this.getPsychedDeadline) {
+      this.renderFrame();
+      this.beginFizzleIn(); // sets mode = "fizzle"; play resumes after the dissolve
+    }
   }
 
   // Play an AdLib (IMF) song by its AUDIOT music-chunk index: cache the chunk and hand its IMF event
@@ -1480,7 +1609,7 @@ class BrowserWolf3DRuntime {
       this.dgroup.setU16(gs + GAMESTATE_ATTACKFRAME_OFFSET, p.attackframe);
       this.dgroup.setU16(gs + GAMESTATE_ATTACKCOUNT_OFFSET, p.attackcount);
       this.dgroup.setU16(gs + GAMESTATE_WEAPONFRAME_OFFSET, p.weaponframe);
-      this.loadLevel();
+      this.loadLevel(false); // WL_GAME.C: `if (!died) PreloadGraphics()` — no Get-Psyched on respawn
     } else {
       // Game over (no lives left): record the score into the high-score table and show it.
       this.hasGame = false;
@@ -1934,8 +2063,18 @@ class BrowserWolf3DRuntime {
     if (down) {
       this.lastInputTime = performance.now(); // any input resets the attract-demo idle timer
     }
-    // The death + level-start fizzle animations run to completion non-interactively; swallow input.
-    if (this.mode === "dying" || this.mode === "fizzle") {
+    // The death + level-start fizzle + Get-Psyched screens run to completion non-interactively.
+    if (this.mode === "dying" || this.mode === "fizzle" || this.mode === "getpsyched") {
+      return;
+    }
+    // Pre-menu attract intro (PG13/title/credits): any key skips straight to the main menu, exactly
+    // as DOS DemoLoop breaks out of the title rotation into US_ControlPanel on IN_UserInput.
+    if (this.mode === "intro") {
+      if (down && !event.repeat) {
+        event.preventDefault();
+        this.audio.resume();
+        this.showMainMenu();
+      }
       return;
     }
     // High-score name entry captures RAW character input (any printable key, incl. ones not in
@@ -2113,6 +2252,17 @@ function bytesFromBase64(b64: string): Uint8Array {
     bytes[i] = binary.charCodeAt(i) & 0xff;
   }
   return bytes;
+}
+
+// True when the page URL requests skipping the pre-menu attract intro (`?nointro`). This is a
+// test/automation hook (the browser-smoke gate uses it for a deterministic menu screenshot); a
+// normal launch has no query string and shows the full intro.
+function skipIntroRequested(): boolean {
+  try {
+    return new URLSearchParams(window.location.search).has("nointro");
+  } catch {
+    return false;
+  }
 }
 
 function requireGraphicChunk(chunk: number): Uint8Array {

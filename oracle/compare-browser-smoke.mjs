@@ -16,7 +16,9 @@ import zlib from "node:zlib";
 
 const repoRoot = process.cwd();
 const PORT = 5174;
-const URL = `http://localhost:${PORT}/`;
+// `?nointro` skips the pre-menu attract intro (PG13/title/credits) so the screenshot deterministically
+// lands on the rendered main menu instead of mid-intro or an idle-triggered attract demo.
+const URL = `http://localhost:${PORT}/?nointro`;
 
 async function exists(p) { try { await access(p, constants.X_OK | constants.F_OK); return true; } catch { return false; } }
 
@@ -64,6 +66,8 @@ try {
 
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "wolf-browser-"));
   const shot = path.join(tempDir, "shot.png");
+  // The app plays a pre-menu attract intro (WL_MAIN.C DemoLoop); the URL above appends ?nointro so
+  // boot goes straight to the menu, keeping this single-screenshot smoke test deterministic.
   const args = ["--headless=new", "--disable-gpu", "--no-sandbox", "--hide-scrollbars",
     `--screenshot=${shot}`, "--window-size=640,400", "--virtual-time-budget=15000", URL];
   await new Promise((resolve) => {
