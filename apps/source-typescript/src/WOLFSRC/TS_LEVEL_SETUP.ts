@@ -111,6 +111,43 @@ const DEATHSCREAM1SND = 29;
 const AHHHGSND = 52;
 const LEBENSND = 56;
 const NEINSOVASSND = 67;
+// AUDIOWL6 sound indices used by the in-game feedback restored from WL_STATE/WL_ACT/WL_AGENT.
+const NOWAYSND = 6;
+const GETKEYSND = 12;
+const OPENDOORSND = 18;
+const CLOSEDOORSND = 19;
+const HALTSND = 21;
+const GETAMMOSND = 31;
+const HEALTH1SND = 33;
+const HEALTH2SND = 34;
+const BONUS1SND = 35;
+const LEVELDONESND = 40;
+const DOGBARKSND = 41;
+const BONUS1UPSND = 44;
+const PUSHWALLSND = 46;
+const MUTTISND = 50;
+const SCHUTZADSND = 51;
+const DIESND = 53;
+const EVASND = 54;
+const GUTENTAGSND = 55;
+const SCHEISTSND = 57;
+const NAZIFIRESND = 58;
+const BOSSFIRESND = 59;
+const SSFIRESND = 60;
+const TOT_HUNDSND = 62;
+const MEINGOTTSND = 63;
+const SCHABBSHASND = 64;
+const HITLERHASND = 65;
+const SPIONSND = 66;
+const DOGATTACKSND = 68;
+const FLAMETHROWERSND = 69;
+const DONNERSND = 79;
+const EINESND = 80;
+const ERLAUBENSND = 81;
+const KEINSND = 82;
+const MEINSND = 83;
+const ROSESND = 84;
+const MISSILEFIRESND = 85;
 const DEATHSCREAM4SND = 73;
 const DEATHSCREAM5SND = 74;
 const DEATHSCREAM6SND = 75;
@@ -1421,6 +1458,26 @@ export function CheckSightMemory(
 }
 
 export function FirstSightingMemory(dgroup: DOSMemory, actor: number): void {
+  // Alert shout on first sighting (WL_STATE.C FirstSighting) — these never consume RNG, so the
+  // bit-exact demos are unaffected. Mutants/ghosts are silent in the original.
+  const sightSound: Record<number, number> = {
+    [GUARDOBJ]: HALTSND,
+    [OFFICEROBJ]: SPIONSND,
+    [SSOBJ]: SCHUTZADSND,
+    [DOGOBJ]: DOGBARKSND,
+    [BOSSOBJ]: GUTENTAGSND,
+    [GRETELOBJ]: KEINSND,
+    [GIFTOBJ]: EINESND,
+    [FATOBJ]: ERLAUBENSND,
+    [SCHABBOBJ]: SCHABBSHASND,
+    [FAKEOBJ]: TOT_HUNDSND,
+    [MECHAHITLEROBJ]: DIESND,
+    [REALHITLEROBJ]: DIESND,
+  };
+  const alert = sightSound[dgroup.u16(actor + OBJ_CLASS_OFFSET)];
+  if (alert) {
+    SD_PlaySound(alert);
+  }
   switch (dgroup.u16(actor + OBJ_CLASS_OFFSET)) {
     case GUARDOBJ:
       NewStateMemory(dgroup, actor, "_s_grdchase1");
@@ -2292,6 +2349,15 @@ export function T_ShootMemory(
     TakeDamageMemory(dgroup, actor, damage);
   }
 
+  // Enemy fire sound (WL_ACT2.C T_Shoot) — does not consume RNG, so demos stay bit-exact.
+  const fireSound =
+    obclass === SSOBJ ? SSFIRESND
+      : obclass === GIFTOBJ || obclass === FATOBJ ? MISSILEFIRESND
+        : obclass === MECHAHITLEROBJ || obclass === REALHITLEROBJ || obclass === BOSSOBJ ? BOSSFIRESND
+          : obclass === FAKEOBJ ? FLAMETHROWERSND
+            : NAZIFIRESND;
+  SD_PlaySound(fireSound);
+
   return {
     actor,
     areaVisible,
@@ -2309,6 +2375,7 @@ export function T_ShootMemory(
 }
 
 export function T_BiteMemory(dgroup: DOSMemory, actor: number): BiteSummary {
+  SD_PlaySound(DOGATTACKSND); // the dog's snap (WL_ACT2.C T_Bite); no RNG, demos unaffected
   const gamestate = nearOffsetForRuntimeSymbol("_gamestate");
   const healthOffset = gamestate + GAMESTATE_HEALTH_OFFSET;
   const player = dgroup.u16(nearOffsetForRuntimeSymbol("_player"));
@@ -2346,6 +2413,7 @@ export function GivePointsMemory(dgroup: DOSMemory, points: number): void {
 }
 
 export function GiveExtraManMemory(dgroup: DOSMemory): number {
+  SD_PlaySound(BONUS1UPSND); // 1-up chime (WL_AGENT.C GiveExtraMan)
   const livesOffset = nearOffsetForRuntimeSymbol("_gamestate") + GAMESTATE_LIVES_OFFSET;
   const lives = dgroup.u16(livesOffset);
   if (lives < 9) {
@@ -2422,6 +2490,7 @@ export function GetBonusMemory(dgroup: DOSMemory, statobj: number): BonusSummary
       if (dgroup.u16(gamestate + GAMESTATE_HEALTH_OFFSET) === 100) {
         return bonusSummary(dgroup, statobj, itemnumber, false);
       }
+      SD_PlaySound(HEALTH2SND); // pickup SFX (WL_AGENT.C GetBonus); no RNG, demos unaffected
       HealSelfMemory(dgroup, 25);
       break;
 
@@ -2429,22 +2498,27 @@ export function GetBonusMemory(dgroup: DOSMemory, statobj: number): BonusSummary
     case bo_key2:
     case bo_key3:
     case bo_key4:
+      SD_PlaySound(GETKEYSND);
       GiveKeyMemory(dgroup, itemnumber - bo_key1);
       break;
 
     case bo_cross:
+      SD_PlaySound(BONUS1SND);
       GivePointsMemory(dgroup, 100);
       incrementGamestateWord(dgroup, GAMESTATE_TREASURECOUNT_OFFSET);
       break;
     case bo_chalice:
+      SD_PlaySound(BONUS1SND);
       GivePointsMemory(dgroup, 500);
       incrementGamestateWord(dgroup, GAMESTATE_TREASURECOUNT_OFFSET);
       break;
     case bo_bible:
+      SD_PlaySound(BONUS1SND);
       GivePointsMemory(dgroup, 1000);
       incrementGamestateWord(dgroup, GAMESTATE_TREASURECOUNT_OFFSET);
       break;
     case bo_crown:
+      SD_PlaySound(BONUS1SND);
       GivePointsMemory(dgroup, 5000);
       incrementGamestateWord(dgroup, GAMESTATE_TREASURECOUNT_OFFSET);
       break;
@@ -2453,18 +2527,21 @@ export function GetBonusMemory(dgroup: DOSMemory, statobj: number): BonusSummary
       if (dgroup.u16(gamestate + GAMESTATE_AMMO_OFFSET) === 99) {
         return bonusSummary(dgroup, statobj, itemnumber, false);
       }
+      SD_PlaySound(GETAMMOSND);
       GiveAmmoMemory(dgroup, 8);
       break;
     case bo_clip2:
       if (dgroup.u16(gamestate + GAMESTATE_AMMO_OFFSET) === 99) {
         return bonusSummary(dgroup, statobj, itemnumber, false);
       }
+      SD_PlaySound(GETAMMOSND);
       GiveAmmoMemory(dgroup, 4);
       break;
     case bo_25clip:
       if (dgroup.u16(gamestate + GAMESTATE_AMMO_OFFSET) === 99) {
         return bonusSummary(dgroup, statobj, itemnumber, false);
       }
+      SD_PlaySound(GETAMMOSND);
       GiveAmmoMemory(dgroup, 25);
       break;
 
@@ -2490,12 +2567,14 @@ export function GetBonusMemory(dgroup: DOSMemory, statobj: number): BonusSummary
       if (dgroup.u16(gamestate + GAMESTATE_HEALTH_OFFSET) === 100) {
         return bonusSummary(dgroup, statobj, itemnumber, false);
       }
+      SD_PlaySound(HEALTH1SND);
       HealSelfMemory(dgroup, 10);
       break;
     case bo_alpo:
       if (dgroup.u16(gamestate + GAMESTATE_HEALTH_OFFSET) === 100) {
         return bonusSummary(dgroup, statobj, itemnumber, false);
       }
+      SD_PlaySound(HEALTH1SND);
       HealSelfMemory(dgroup, 4);
       break;
     case bo_gibs:
@@ -3113,6 +3192,7 @@ export function CloseDoorMemory(dgroup: DOSMemory, door: number): CloseDoorSumma
     }
   }
 
+  SD_PlaySound(CLOSEDOORSND); // door commits to closing (WL_ACT1.C CloseDoor)
   dgroup.setU16(doorobj + DOOR_ACTION_OFFSET, DR_CLOSING);
   dgroup.setU16(actoratCellOffset(nearOffsetForRuntimeSymbol("_actorat"), tilex, tiley), door | 0x80);
   return closeDoorSummary(dgroup, door, true, false);
@@ -3221,6 +3301,7 @@ export function DoorOpeningMemory(
     connections[area2 * NUMAREAS + area1] = (connections[area2 * NUMAREAS + area1] + 1) & 0xff;
     ConnectAreasMemory(dgroup, areaconnect);
     connected = true;
+    SD_PlaySound(OPENDOORSND); // door starts opening (WL_ACT1.C DoorOpening)
   }
 
   position += tics << 10;
@@ -3333,6 +3414,7 @@ export function OperateDoorMemory(dgroup: DOSMemory, door: number): OperateDoorS
   if (lock >= 1 && lock <= 4) {
     const gamestate = nearOffsetForRuntimeSymbol("_gamestate");
     if (!(dgroup.u16(gamestate + GAMESTATE_KEYS_OFFSET) & (1 << (lock - 1)))) {
+      SD_PlaySound(NOWAYSND); // locked door, no key (WL_ACT1.C OperateDoor)
       return {
         door,
         operated: false,
@@ -3410,6 +3492,7 @@ export function PushWallMemory(
   dgroup.setU16(nearOffsetForRuntimeSymbol("_pwallx"), checkx);
   dgroup.setU16(nearOffsetForRuntimeSymbol("_pwally"), checky);
   dgroup.setU16(nearOffsetForRuntimeSymbol("_pwalldir"), dir);
+  SD_PlaySound(PUSHWALLSND); // secret push-wall starts moving (WL_ACT1.C PushWall)
   dgroup.setU16(pwallstate, 1);
   dgroup.setU16(nearOffsetForRuntimeSymbol("_pwallpos"), 0);
   orTilemapCell(dgroup, tilemap, checkx, checky, 0xc0);
@@ -3740,6 +3823,7 @@ export function CmdUseMemory(
 
   if (!dgroup.u16(buttonheld + BT_USE * 2) && doornum === ELEVATORTILE && elevatorok) {
     dgroup.setU16(buttonheld + BT_USE * 2, 1);
+    SD_PlaySound(LEVELDONESND); // exit elevator activated (WL_AGENT.C Cmd_Use)
     const tilemap = nearOffsetForRuntimeSymbol("_tilemap");
     dgroup.setU8(tilemapCellOffset(tilemap, checkx, checky), doornum + 1);
     const playerIndex = dgroup.u16(player + OBJ_TILEY_OFFSET) * MAPSIZE + dgroup.u16(player + OBJ_TILEX_OFFSET);
@@ -4464,6 +4548,31 @@ export function A_DeathScreamMemory(dgroup: DOSMemory, actor: number): ActorSoun
       break;
     case DOGOBJ:
       sound = DOGDEATHSND;
+      break;
+    // Boss death shouts (WL_ACT2.C A_DeathScream) — non-random, so determinism is unaffected.
+    case BOSSOBJ:
+      sound = MUTTISND;
+      break;
+    case SCHABBOBJ:
+      sound = MEINGOTTSND;
+      break;
+    case FAKEOBJ:
+      sound = HITLERHASND;
+      break;
+    case MECHAHITLEROBJ:
+      sound = SCHEISTSND;
+      break;
+    case REALHITLEROBJ:
+      sound = EVASND;
+      break;
+    case GRETELOBJ:
+      sound = MEINSND;
+      break;
+    case GIFTOBJ:
+      sound = DONNERSND;
+      break;
+    case FATOBJ:
+      sound = ROSESND;
       break;
     default:
       sound = 0;

@@ -10243,6 +10243,9 @@ function checkRuntimeInputManager(mod) {
 }
 
 function checkRuntimePlayerMovement(mod) {
+  // These tests exercise game logic (movement, doors, pushwalls) which now emit feedback sounds;
+  // run with sound off so SD_PlaySound is an inert no-op (avoids "Uncached sound").
+  mod.ID_SD_SD_ResetSoundState();
   const TILESHIFT = 16;
   const TILEGLOBAL = 1 << TILESHIFT;
   const MINDIST = 0x5800;
