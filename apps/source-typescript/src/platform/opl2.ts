@@ -138,21 +138,33 @@ function makeChannel(): Channel {
 // attenuation change per output sample using the documented rate->step relationship. `rate` is
 // the effective 6-bit rate (0..63). Returns the attenuation delta to apply this sample (can be
 // fractional, accumulated by the caller).
-function egRateToStep(rate: number): number {
-  // OPL envelope clock: each rate step doubles the speed; rate 63 changes ~full scale per few
-  // samples. Model: increment per sample = 2^((rate-48)/4) attenuation units, clamped sane.
-  // This reproduces the audible ADSR envelope shape (faster attack/decay/release at higher
-  // rates, silence at rate 0). Timbre-level bit-exactness vs hardware is bounded by this model.
-  if (rate <= 0) return 0;
-  const r = Math.min(63, rate);
-  return Math.pow(2, (r - 48) / 4);
+// OPL2 envelope-generator increment table (the Nuked-OPL / DOSBox model). Each EG step the chip adds
+// EG_INC[row][(egTimer >> shift) & 7] to the operator's 9-bit attenuation; `row`/`shift` come from the
+// effective 6-bit rate. This replaces the old 2^((rate-48)/4) heuristic, which ran envelopes ~4x too
+// fast and collapsed the high rates together — the dominant cause of the "rougher" timbre.
+const EG_INC: readonly (readonly number[])[] = [
+  [0, 1, 0, 1, 0, 1, 0, 1], [0, 1, 0, 1, 1, 1, 0, 1], [0, 1, 1, 1, 0, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1],
+  [1, 1, 1, 1, 1, 1, 1, 1], [1, 1, 1, 2, 1, 1, 1, 2], [1, 2, 1, 2, 1, 2, 1, 2], [1, 2, 2, 2, 1, 2, 2, 2],
+  [2, 2, 2, 2, 2, 2, 2, 2], [2, 2, 2, 4, 2, 2, 2, 4], [2, 4, 2, 4, 2, 4, 2, 4], [2, 4, 4, 4, 2, 4, 4, 4],
+  [4, 4, 4, 4, 4, 4, 4, 4],
+];
+// Decode an effective 6-bit rate to (shift, row): the EG advances every 2^shift samples and reads
+// the 8-entry pattern EG_INC[row].
+function egParams(rate: number): { shift: number; row: number } {
+  const r = Math.min(63, Math.max(0, rate));
+  const hi = r >> 2, lo = r & 3;
+  if (hi < 12) return { shift: 12 - hi, row: lo };
+  if (hi === 12) return { shift: 0, row: lo };
+  if (hi === 13) return { shift: 0, row: 4 + lo };
+  if (hi === 14) return { shift: 0, row: 8 + lo };
+  return { shift: 0, row: 12 };
 }
 
 export class OPL2 {
   private readonly registers = new Uint8Array(256);
   private readonly operators: Operator[] = [];
   private readonly channels: Channel[] = [];
-  private readonly egAccum = new Float64Array(18); // fractional envelope accumulator per op
+  private egTimer = 0; // global EG sample counter; egParams selects when each operator's EG advances
   // NOTE: the global AM (tremolo) and vibrato LFOs are not yet modeled — `op.am`/`op.vib` are
   // decoded from registers but their depth modulation is a future fidelity refinement.
 
@@ -163,7 +175,8 @@ export class OPL2 {
 
   reset(): void {
     this.registers.fill(0);
-    for (let i = 0; i < 18; i++) { this.operators[i] = makeOperator(); this.egAccum[i] = 0; }
+    this.egTimer = 0;
+    for (let i = 0; i < 18; i++) { this.operators[i] = makeOperator(); }
     for (let c = 0; c < 9; c++) this.channels[c] = makeChannel();
   }
 
@@ -267,26 +280,24 @@ export class OPL2 {
       case EG_ATTACK: {
         const rate = this.effectiveRate(op.attackRate, op, block, fnumHi);
         if (op.attackRate >= 15) { op.envAtt = 0; op.egPhase = EG_DECAY; break; }
-        const step = egRateToStep(rate);
-        this.egAccum[slot] += step;
-        // Attack is exponential toward 0; approximate by proportional approach.
-        const dec = this.egAccum[slot];
-        if (dec >= 1) {
-          this.egAccum[slot] = 0;
-          op.envAtt -= Math.max(1, (op.envAtt >> 3) + 1) * Math.floor(dec);
-          if (op.envAtt <= 0) { op.envAtt = 0; op.egPhase = EG_DECAY; }
+        const { shift, row } = egParams(rate);
+        if ((this.egTimer & ((1 << shift) - 1)) === 0) {
+          const delta = EG_INC[row][(this.egTimer >> shift) & 7];
+          if (delta > 0) {
+            // Attack: exponential approach toward 0 (louder). ~envAtt is negative, so this DECREASES
+            // the attenuation by a fraction of the remaining distance, fast at first then easing in.
+            op.envAtt += (~op.envAtt * delta) >> 3;
+            if (op.envAtt <= 0) { op.envAtt = 0; op.egPhase = EG_DECAY; }
+          }
         }
         break;
       }
       case EG_DECAY: {
         const rate = this.effectiveRate(op.decayRate, op, block, fnumHi);
         const target = op.sustainLevel === 15 ? MAX_ATT : op.sustainLevel * 32;
-        const step = egRateToStep(rate);
-        this.egAccum[slot] += step;
-        if (this.egAccum[slot] >= 1) {
-          const whole = Math.floor(this.egAccum[slot]);
-          this.egAccum[slot] -= whole;
-          op.envAtt += whole * 2;
+        const { shift, row } = egParams(rate);
+        if ((this.egTimer & ((1 << shift) - 1)) === 0) {
+          op.envAtt += EG_INC[row][(this.egTimer >> shift) & 7]; // linear rise toward the sustain level
         }
         if (op.envAtt >= target) { op.envAtt = target; op.egPhase = op.egType ? EG_SUSTAIN : EG_RELEASE; }
         break;
@@ -296,12 +307,9 @@ export class OPL2 {
         break;
       case EG_RELEASE: {
         const rate = this.effectiveRate(op.releaseRate, op, block, fnumHi);
-        const step = egRateToStep(rate);
-        this.egAccum[slot] += step;
-        if (this.egAccum[slot] >= 1) {
-          const whole = Math.floor(this.egAccum[slot]);
-          this.egAccum[slot] -= whole;
-          op.envAtt += whole * 2;
+        const { shift, row } = egParams(rate);
+        if ((this.egTimer & ((1 << shift) - 1)) === 0) {
+          op.envAtt += EG_INC[row][(this.egTimer >> shift) & 7]; // linear rise toward silence
         }
         if (op.envAtt >= MAX_ATT) { op.envAtt = MAX_ATT; op.egPhase = EG_OFF; }
         break;
@@ -342,6 +350,7 @@ export class OPL2 {
   // render `count` samples into `out` (Float32, ~[-1,1]), starting at `offset`.
   render(out: Float32Array, offset: number, count: number): void {
     for (let n = 0; n < count; n++) {
+      this.egTimer = (this.egTimer + 1) | 0; // advance the EG clock once per chip sample
       let mix = 0;
       for (let c = 0; c < 9; c++) {
         const channel = this.channels[c];
