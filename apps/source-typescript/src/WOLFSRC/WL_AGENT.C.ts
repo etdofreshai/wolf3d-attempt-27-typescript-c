@@ -1,6 +1,7 @@
 import { DOSMemory } from "./TS_DOS_MEMORY";
 import { bufferofs as vlBufferofs, VL_SetBufferOffset } from "./ID_VL.C";
 import { LatchDrawPic, type LatchDrawPicSummary } from "./ID_VH.C";
+import { SD_SoundPlaying } from "./ID_SD.C";
 import {
   ClipMoveMemory,
   CmdUseMemory,
@@ -108,7 +109,9 @@ const N_BLANKPIC = 98;
 const N_0PIC = 99;
 const FACE1APIC = 109;
 const FACE8APIC = 130;
+const GOTGATLINGPIC = 131; // BJ-with-gatling face shown briefly on chaingun pickup
 const MUTANTBJPIC = 132;
+const GETGATLINGSND = 38; // AUDIOWL6 chaingun-pickup sound (WL_AGENT.C bo_chaingun)
 const NEEDLEOBJ = 12;
 const OBJ_CLASS_OFFSET = 4;
 const GAMESTATE_MAPON_OFFSET = 2;
@@ -196,7 +199,13 @@ export function DrawFace(dgroup: DOSMemory, options: StatusDrawOptions = {}): Dr
   let picnum: number;
   let mutantDeath = false;
 
-  if (health) {
+  // WL_AGENT.C GetBonus bo_chaingun sets gotgatgun and paints the BJ-with-gatling face; UpdateFace
+  // early-returns while GETGATLINGSND plays so it stays up. The port redraws the face every frame, so
+  // keep showing GOTGATLINGPIC here for the sound's duration instead (then the health face returns).
+  const gotgatgun = dgroup.u16(nearOffsetForRuntimeSymbol("_gotgatgun"));
+  if (gotgatgun && SD_SoundPlaying() === GETGATLINGSND) {
+    picnum = GOTGATLINGPIC;
+  } else if (health) {
     picnum = FACE1APIC + 3 * Math.trunc((100 - health) / 16) + faceframe;
   } else {
     const lastAttacker = dgroup.u16(nearOffsetForRuntimeSymbol("_LastAttacker"));
