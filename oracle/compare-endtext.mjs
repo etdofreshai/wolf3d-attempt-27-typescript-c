@@ -19,7 +19,7 @@ const rel = (p) => { let r = path.relative(tempDir, p).split(path.sep).join("/")
 await writeFile(entryPath, [
   `export { CA_Startup, CA_CacheGrChunk, grsegs } from "${rel(path.join(targetDir, "ID_CA.C.ts"))}";`,
   `export * as WL_MAIN from "${rel(path.join(targetDir, "WL_MAIN.C.ts"))}";`,
-  `export { EndText, ShowArticle, CacheLayoutGraphics } from "${rel(path.join(targetDir, "WL_TEXT.C.ts"))}";`,
+  `export { EndText, HelpScreens, ShowArticle, CacheLayoutGraphics } from "${rel(path.join(targetDir, "WL_TEXT.C.ts"))}";`,
   `export { VWB_Bar, VWB_DrawPic, VWB_DrawPropString, VW_SetFontState } from "${rel(path.join(targetDir, "ID_VH.C.ts"))}";`,
   `export { STRUCTPIC, STARTFONT } from "${rel(path.join(targetDir, "TS_WL6_ASSETS.ts"))}";`,
   `export { videoPlanes, displayofs, linewidth, VL_ResetVideoState, VL_SetVGAPlaneMode, VL_SetBufferOffset, VL_SetScreen } from "${rel(path.join(targetDir, "ID_VL.C.ts"))}";`,
@@ -110,8 +110,31 @@ for (let episode = 0; episode < 6; episode++) {
   }
 }
 
+// The "Read This!" help article (WL_TEXT.C HelpScreens, T_HELPART) renders through the same path.
+{
+  const info = mod.HelpScreens();
+  let threw = null, pages = 0;
+  try {
+    const bytes = mod.CA_CacheGrChunk(info.chunkOrFile);
+    let article = ""; for (let i = 0; i < bytes.length; i++) article += String.fromCharCode(bytes[i]);
+    const layout = mod.CacheLayoutGraphics(article);
+    for (const chunk of layout.marked) mod.CA_CacheGrChunk(chunk);
+    pages = layout.pages;
+    mod.VL_SetBufferOffset(0);
+    const shown = mod.ShowArticle({ article, renderAll: true, maxPages: 1 });
+    executeOps(shown.pages[shown.pages.length - 1].operations, pictable);
+  } catch (e) { threw = e; }
+  if (threw) { expect(false, `help article (chunk ${info.chunkOrFile}) rendered without throwing — ${threw.message}`); }
+  else {
+    const s = deplanarStats();
+    console.log(`help article: chunk ${info.chunkOrFile}, ${pages} page(s), page1 ${s.colors} colors ${s.nonZero}px`);
+    expect(pages >= 1, "help article has at least one page");
+    expect(s.nonZero > 8000, "help article page 1 drew substantial content");
+  }
+}
+
 await rm(tempDir, { recursive: true, force: true });
 console.log(fail === 0
-  ? "\n✅ END TEXT: all 6 episode-ending ENDART articles lay out and render real content (multi-page)."
+  ? "\n✅ END TEXT: all 6 episode-ending ENDART articles + the Read This! help article render real content (multi-page)."
   : `\n❌ END TEXT: ${fail} check(s) failed.`);
 process.exitCode = fail === 0 ? 0 : 1;

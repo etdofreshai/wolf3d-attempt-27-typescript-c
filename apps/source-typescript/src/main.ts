@@ -170,7 +170,7 @@ import {
 } from "./WOLFSRC/TS_SAVE_LAYOUT";
 import { Died, DrawPlayScreen, SetupGameLevel } from "./WOLFSRC/WL_GAME.C";
 import { BJ_Breathe, CheckHighScore, DrawHighScores, LevelCompleted, Victory, Write, type LevelCompletedSummary, type VictorySummary } from "./WOLFSRC/WL_INTER.C";
-import { CacheLayoutGraphics, EndText, ShowArticle, type TextDrawOperation } from "./WOLFSRC/WL_TEXT.C";
+import { CacheLayoutGraphics, EndText, HelpScreens, ShowArticle, type TextDrawOperation } from "./WOLFSRC/WL_TEXT.C";
 import { Scores, US_SetWindowState, type HighScore } from "./WOLFSRC/ID_US_1.C";
 import { parseDemo, type WolfDemo } from "./WOLFSRC/TS_DEMO";
 import { HIGHSCORESPIC } from "./WOLFSRC/TS_WL6_ASSETS";
@@ -359,6 +359,7 @@ const TICK_MS = 1000 / 70;
 const MAIN_NEW_GAME = 0;
 const MAIN_SOUND = 1; // WL_MENU.C MainMenu[1] = "Sound" → CP_Sound
 const MAIN_LOAD_GAME = 3;
+const MAIN_READ_THIS = 6; // WL_MENU.C MainMenu[6] = "Read This!" → CP_ReadThis → HelpScreens
 const MAIN_SAVE_GAME = 4;
 const MAIN_VIEW_SCORES = 7;
 const MAIN_BACK_TO_DEMO = 8;
@@ -494,12 +495,12 @@ class BrowserWolf3DRuntime {
   // Pending Y/N confirm dialog (WL_MENU.C Confirm) callbacks, set while mode === "confirm".
   private confirmOnYes: (() => void) | null = null;
   private confirmOnNo: (() => void) | null = null;
-  // Per-episode end-of-game article (WL_TEXT.C EndText): the article text, current page, page count,
-  // and the mapon used for the high-score table after the article finishes.
-  private endTextArticle = "";
-  private endTextPage = 0;
-  private endTextTotalPages = 0;
-  private endTextCompleted = 0;
+  // Article viewer (WL_TEXT.C ShowArticle) state: the article text, current page, page count, and
+  // what to do when the last page is acknowledged (high scores after an ending, menu after help).
+  private articleText = "";
+  private articlePage = 0;
+  private articleTotalPages = 0;
+  private articleOnDone: (() => void) | null = null;
   // "Get Psyched!" loading screen (WL_INTER.C PreloadGraphics) state: deadline + how the level resumes.
   private getPsychedDeadline = 0;
   // Pre-menu attract intro (WL_MAIN.C DemoLoop: PG13 -> title -> credits) state.
@@ -1030,6 +1031,11 @@ class BrowserWolf3DRuntime {
         ShootSnd();
         this.audio.syncFromSoundState(true);
         this.showSoundMenu();
+        return;
+      case MAIN_READ_THIS:
+        ShootSnd();
+        this.audio.syncFromSoundState(true);
+        this.showReadThis();
         return;
       case MAIN_LOAD_GAME:
         if (this.hasSavedGame()) {
@@ -1982,40 +1988,50 @@ class BrowserWolf3DRuntime {
   // for the high-score table after the article. Falls straight through to high scores if the article
   // can't be loaded/rendered.
   private showEndText(episode: number, completed: number): void {
-    this.endTextCompleted = completed;
+    const info = EndText({ episode });
+    // WL6 end art is a VGAGRAPH chunk (T_ENDART1 + episode); only that numeric form is supported.
+    const chunk = typeof info.chunkOrFile === "number" ? info.chunkOrFile : -1;
+    this.playSong(ENDLEVEL_MUS); // a settled tune under the ending text
+    this.showArticle(chunk, () => this.recordHighScoreAndShow(completed));
+  }
+
+  // "Read This!" help/instructions article (WL_MENU.C CP_ReadThis → WL_TEXT.C HelpScreens, T_HELPART).
+  private showReadThis(): void {
+    const info = HelpScreens();
+    const chunk = typeof info.chunkOrFile === "number" ? info.chunkOrFile : -1;
+    this.showArticle(chunk, () => this.showMainMenu());
+  }
+
+  // Show a WL_TEXT article (ENDART / help) page-by-page; `onDone` runs when the last page is acked.
+  // Falls straight through to onDone if the chunk can't be loaded or the layout fails (never strands).
+  private showArticle(chunk: number, onDone: () => void): void {
+    this.articleOnDone = onDone;
     try {
-      const info = EndText({ episode });
-      // WL6 end art is a VGAGRAPH chunk (T_ENDART1 + episode); only that numeric form is supported.
-      const bytes = typeof info.chunkOrFile === "number" ? CA_CacheGrChunk(info.chunkOrFile) : null;
-      if (!bytes || bytes.length === 0) {
-        this.recordHighScoreAndShow(completed);
-        return;
-      }
+      const bytes = chunk >= 0 ? CA_CacheGrChunk(chunk) : null;
+      if (!bytes || bytes.length === 0) { onDone(); return; }
       let article = "";
       for (let i = 0; i < bytes.length; i++) article += String.fromCharCode(bytes[i]);
-      this.endTextArticle = article;
+      this.articleText = article;
       // Cache the fonts + every graphic the article references (CacheLayoutGraphics marks them).
       CA_CacheGrChunk(STARTFONT);
       CA_CacheGrChunk(STARTFONT + 1);
       const layout = CacheLayoutGraphics(article);
-      for (const chunk of layout.marked) CA_CacheGrChunk(chunk);
-      this.endTextTotalPages = Math.max(1, layout.pages);
-      this.endTextPage = 1;
-      this.playSong(ENDLEVEL_MUS); // a settled tune under the ending text
+      for (const c of layout.marked) CA_CacheGrChunk(c);
+      this.articleTotalPages = Math.max(1, layout.pages);
+      this.articlePage = 1;
       this.mode = "endtext";
-      this.renderEndTextPage();
+      this.renderArticlePage();
     } catch {
-      // Any layout/parse failure: don't strand the player — go to the high scores.
-      this.recordHighScoreAndShow(completed);
+      onDone();
     }
   }
 
   // Render the article up to the current page (WL_TEXT.C ShowArticle re-lays-out from the top each
   // call and resets its text offset, so page k = render pages 1..k and keep page k). The port's text
   // engine only COMPUTES each page's draw operations (for gate-testability); execute them here.
-  private renderEndTextPage(): void {
+  private renderArticlePage(): void {
     VL_SetBufferOffset(0);
-    const shown = ShowArticle({ article: this.endTextArticle, renderAll: true, maxPages: this.endTextPage });
+    const shown = ShowArticle({ article: this.articleText, renderAll: true, maxPages: this.articlePage });
     const page = shown.pages[shown.pages.length - 1];
     if (page) {
       this.executeTextOperations(page.operations);
@@ -2047,17 +2063,21 @@ class BrowserWolf3DRuntime {
     }
   }
 
-  // Any key turns to the next article page; once the last page is acknowledged, go to the high scores.
+  // Any key turns to the next article page; once the last page is acknowledged, run articleOnDone
+  // (→ high scores after an ending, → main menu after the help screens).
   private handleEndTextScan(_scan: ScanCode): void {
-    if (this.endTextPage >= this.endTextTotalPages) {
-      this.recordHighScoreAndShow(this.endTextCompleted);
+    const done = this.articleOnDone ?? (() => this.showMainMenu());
+    if (this.articlePage >= this.articleTotalPages) {
+      this.articleOnDone = null;
+      done();
       return;
     }
-    this.endTextPage += 1;
+    this.articlePage += 1;
     try {
-      this.renderEndTextPage();
+      this.renderArticlePage();
     } catch {
-      this.recordHighScoreAndShow(this.endTextCompleted);
+      this.articleOnDone = null;
+      done();
     }
   }
 
