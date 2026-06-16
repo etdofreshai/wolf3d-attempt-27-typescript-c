@@ -3308,7 +3308,11 @@ export function DoorOpeningMemory(
     connections[area2 * NUMAREAS + area1] = (connections[area2 * NUMAREAS + area1] + 1) & 0xff;
     ConnectAreasMemory(dgroup, areaconnect);
     connected = true;
-    SD_PlaySound(OPENDOORSND); // door starts opening (WL_ACT1.C DoorOpening)
+    if (areaVisibleToPlayer(dgroup, area1)) {
+      // WL_ACT1.C DoorOpening plays OPENDOORSND only when the door's area (area1, the adjacent floor)
+      // is connected to the player — so distant doors opening aren't heard.
+      SD_PlaySound(OPENDOORSND);
+    }
   }
 
   position += tics << 10;
@@ -3489,6 +3493,7 @@ export function PushWallMemory(
 
   const [targetx, targety] = pushWallTarget(checkx, checky, dir);
   if (actoratAt(dgroup, targetx, targety)) {
+    SD_PlaySound(NOWAYSND); // WL_ACT1.C PushWall: blocked by an actor in the destination tile
     return { pushed: false, blocked: true, busy: false, tilex: checkx, tiley: checky, dir };
   }
 

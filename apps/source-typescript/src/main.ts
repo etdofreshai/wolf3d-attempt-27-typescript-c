@@ -392,6 +392,8 @@ const DEMO_COUNT = 4;
 const DEMO_DIFFICULTY = 3; // gd_hard — the demos were recorded on Hard (matches WL_GAME PlayDemo)
 const DEMOTICS = 4; // tics advanced per demo command (PollControlsMemory uses this for demoCommand)
 const MENU_IDLE_MS = 15000; // main-menu idle time before the attract demos auto-start (title loop)
+const MOVEGUN1SND = 5; // AUDIOWL6 — the menu-cursor move sound (WL_MENU.C DrawGun/DrawHalfStep)
+const ESCPRESSEDSND = 39; // AUDIOWL6 — the menu back/cancel sound (WL_MENU.C, Escape out of a menu)
 const ENDBONUS1SND = 42; // AUDIOWL6 sound index — the ticking sound during the bonus/ratio count-up
 const ENDBONUS2SND = 43; // sound when a tally field finishes counting (WL_INTER.C LevelCompleted)
 const NOBONUSSND = 47; // a ratio finished at 0%
@@ -939,7 +941,7 @@ class BrowserWolf3DRuntime {
         this.applySoundSelection(SndItems.curpos);
         return;
       case sc_Escape:
-        ShootSnd();
+        SD_PlaySound(ESCPRESSEDSND); // WL_MENU.C: Escape out of a menu plays ESCPRESSEDSND, not SHOOTSND
         this.audio.syncFromSoundState(true);
         this.exitOptions();
         return;
@@ -1061,12 +1063,14 @@ class BrowserWolf3DRuntime {
       return;
     }
     if (scan === sc_Enter || scan === sc_Space || scan === sc_Control) {
+      ShootSnd(); // WL_MENU.C: confirming a menu choice plays SHOOTSND
       WL_MAIN.NewViewSize(this.changeViewSize); // commit (already set, but be explicit)
       this.saveConfig();
       this.finishChangeView();
       return;
     }
     if (scan === sc_Escape) {
+      SD_PlaySound(ESCPRESSEDSND); // WL_MENU.C: backing out of a menu plays ESCPRESSEDSND
       WL_MAIN.NewViewSize(this.changeViewOriginal); // cancel → restore the prior size
       this.finishChangeView();
     }
@@ -1236,6 +1240,7 @@ class BrowserWolf3DRuntime {
         return;
       }
       case sc_Escape:
+        SD_PlaySound(ESCPRESSEDSND); // WL_MENU.C: backing out of the Episode menu
         this.showMainMenu();
         return;
     }
@@ -1269,6 +1274,7 @@ class BrowserWolf3DRuntime {
         return;
       }
       case sc_Escape:
+        SD_PlaySound(ESCPRESSEDSND); // WL_MENU.C: backing out of the Difficulty menu
         this.showEpisodeMenu();
         return;
     }
@@ -1669,6 +1675,7 @@ class BrowserWolf3DRuntime {
         if (this.moveCursor(LSItems, LSMenu, 1)) this.drawLoadSaveScreen();
         return;
       case sc_Escape: {
+        SD_PlaySound(ESCPRESSEDSND); // WL_MENU.C: backing out of the load/save menu
         const fromPlay = st.fromPlay;
         this.loadSaveState = null;
         if (fromPlay) { this.returnToGame(); } else { this.showMainMenu(); } // cancel → resume play
@@ -1680,12 +1687,14 @@ class BrowserWolf3DRuntime {
         const slot = LSItems.curpos;
         if (st.action === "load") {
           if (SaveGamesAvail[slot]) {
+            ShootSnd(); // WL_MENU.C CP_LoadGame: selecting a slot plays SHOOTSND
             this.loadSaveState = null;
             this.loadGameFromSlot(slot);
           }
         } else {
           // begin typing a name: prefill an OCCUPIED slot with its existing name (to edit/overwrite),
           // start an empty slot blank. An empty name on confirm falls back to "floor N".
+          ShootSnd(); // WL_MENU.C CP_SaveGame: selecting a slot plays SHOOTSND
           st.entryName = SaveGamesAvail[slot] ? (SaveGameNames[slot] ?? "") : "";
           SaveGamesAvail[slot] = 1;
           SaveGameNames[slot] = st.entryName;
@@ -1862,6 +1871,7 @@ class BrowserWolf3DRuntime {
           return false;
         }
         itemInfo.curpos = next;
+        SD_PlaySound(MOVEGUN1SND); // WL_MENU.C DrawGun: the cursor-move sound (menus were silent)
         return true;
       }
     }
@@ -2153,7 +2163,9 @@ class BrowserWolf3DRuntime {
     if (finished) {
       // End-of-field cue (WL_INTER.C LevelCompleted): a ratio that hit 100% / 0% gets its own
       // sound; every field then chimes ENDBONUS2SND.
-      if (a.stage > 1) {
+      if (a.stage === 1 && a.summary.bonus === 0) {
+        // A zero time-bonus is silent: WL_INTER.C guards the whole time-bonus block behind `if (bonus)`.
+      } else if (a.stage > 1) {
         SD_PlaySound(target === 100 ? PERCENT100SND : target === 0 ? NOBONUSSND : ENDBONUS2SND);
       } else {
         SD_PlaySound(ENDBONUS2SND); // the bonus field finished
