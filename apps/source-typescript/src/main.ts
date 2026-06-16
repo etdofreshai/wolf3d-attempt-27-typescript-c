@@ -133,7 +133,7 @@ import {
   smm_AdLib,
   smm_Off,
 } from "./WOLFSRC/ID_SD.H";
-import { US_InitRndT } from "./WOLFSRC/ID_US_A.ASM";
+import { US_InitRndT, US_RndT } from "./WOLFSRC/ID_US_A.ASM";
 import { DOSMemory } from "./WOLFSRC/TS_DOS_MEMORY";
 import {
   DrawAmmo,
@@ -199,6 +199,7 @@ import {
   ShootSnd,
   SndItems,
   SndMenu,
+  endStrings,
 } from "./WOLFSRC/WL_MENU.C";
 import { CURGAME, ENDGAMESTR } from "./WOLFSRC/FOREIGN.H";
 import {
@@ -1090,9 +1091,18 @@ class BrowserWolf3DRuntime {
           this.startDemo(this.lastDemo); // attract-mode demo loop (continues the LastDemo cycle)
         }
         return;
-      case MAIN_QUIT:
+      case MAIN_QUIT: {
+        // WL_MENU.C CP_Quit: a random end-string taunt + Y/N (selectEndString picks
+        // endStrings[(US_RndT()&7)+(US_RndT()&1)]). DOS quits to DOS; the browser has nowhere to
+        // exit to, so "Yes" returns to the attract title sequence instead.
+        const index = Math.min((US_RndT() & 0x7) + (US_RndT() & 1), endStrings.length - 1);
         this.canvas.dataset.wolfsrcScreen = "MENU_QUIT";
+        this.showConfirm(endStrings[index], () => {
+          this.hasGame = false;
+          this.startIntro();
+        }, () => this.showMainMenu());
         return;
+      }
     }
   }
 
