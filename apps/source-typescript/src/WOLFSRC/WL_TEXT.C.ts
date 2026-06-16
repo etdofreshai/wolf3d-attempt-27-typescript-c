@@ -462,8 +462,12 @@ export function ShowArticle(articleOrOptions: string | ShowArticleOptions): Show
   const cache = CacheLayoutGraphics();
   const pages: PageLayoutSummary[] = [];
   const maxPages = options.renderAll ? (options.maxPages ?? numpages) : 1;
+  // `article` resets textOffset to 0 in PageLayout, so pass it only on the FIRST page; later pages
+  // must keep walking the module-level textOffset forward (matching the original C, where `text` is a
+  // forward-advancing pointer never rewound between pages). Without this every page re-laid-out page 1.
+  const { article: _omitArticle, ...optionsNoArticle } = options;
   while (pages.length < maxPages && text[textOffset + 1]?.toUpperCase() !== "E") {
-    pages.push(PageLayout({ ...options, shownumber: true }));
+    pages.push(PageLayout(pages.length === 0 ? { ...options, shownumber: true } : { ...optionsNoArticle, shownumber: true }));
     if (!options.renderAll) {
       break;
     }

@@ -130,6 +130,19 @@ for (let episode = 0; episode < 6; episode++) {
     console.log(`help article: chunk ${info.chunkOrFile}, ${pages} page(s), page1 ${s.colors} colors ${s.nonZero}px`);
     expect(pages >= 1, "help article has at least one page");
     expect(s.nonZero > 8000, "help article page 1 drew substantial content");
+
+    // Page-advance regression: ShowArticle must WALK FORWARD — page 2's words must differ from page 1.
+    // (The bug re-passed `article` to PageLayout each iteration, resetting textOffset so every page
+    // re-rendered page 1; only the "pg N of M" counter changed.)
+    if (pages >= 2) {
+      const bytes = mod.CA_CacheGrChunk(info.chunkOrFile);
+      let article = ""; for (let i = 0; i < bytes.length; i++) article += String.fromCharCode(bytes[i]);
+      const wordsOf = (k) => mod.ShowArticle({ article, renderAll: true, maxPages: k }).pages.at(-1)
+        .operations.filter((o) => o.type === "word").map((o) => o.word).join(" ");
+      const p1 = wordsOf(1), p2 = wordsOf(2);
+      console.log(`help page1 words: "${p1.slice(0, 40)}…"  page2 words: "${p2.slice(0, 40)}…"`);
+      expect(p1.length > 0 && p2.length > 0 && p1 !== p2, "help page 2 text differs from page 1 (paging walks forward)");
+    }
   }
 }
 

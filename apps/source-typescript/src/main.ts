@@ -628,7 +628,7 @@ class BrowserWolf3DRuntime {
   // Draw one attract-intro stage into the buffer (0 = PG13, 1 = title, 2 = credits). The palette is
   // left to advanceIntro's fade loop, which presents each frame.
   private drawIntroStage(stage: number): void {
-    VL_SetBufferOffset(0);
+    this.toMenuPage(); // page-0-align (Quit→startIntro enters from a page-flipped play frame)
     if (stage === 0) {
       // WL_INTER.C PG13: fill the screen with bg color 0x82, draw the PG13 pic at (216,110).
       VWB_Bar(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0x82);
@@ -822,6 +822,7 @@ class BrowserWolf3DRuntime {
 
   private showMainMenu(): void {
     this.mode = "menu";
+    this.toMenuPage(); // page-0-align so the menu isn't shifted by a leftover play screenofs (Change View)
     VL_SetPalette(WL_MAIN.gamepal); // restore full palette (the intro fade-out / a game may have dimmed it)
     this.lastInputTime = performance.now(); // restart the attract-demo idle timer
     this.playSong(MENUSONG); // the menu's AdLib song (WL_MENU.C StartCPMusic(MENUSONG))
@@ -859,12 +860,19 @@ class BrowserWolf3DRuntime {
   // SoundMode/DigiMode/MusicMode. The browser app drives it directly instead of CP_Sound's blocking
   // loop; selecting an item applies that mode (mirroring CP_Sound's per-item switch).
   private showSoundMenu(fromPlay = false): void {
-    this.menuFromPlay = fromPlay;
+    this.menuFromPlay = fromPlay; // one-time: don't reset this (or curpos) on every redraw
     SndItems.curpos = this.currentSoundCursor();
+    this.mode = "sound";
+    this.drawSoundMenu();
+  }
+
+  // Redraw the sound menu WITHOUT touching menuFromPlay or curpos (so arrow navigation can reach the
+  // digitized/music rows and an in-game F4 still returns to the game on Esc).
+  private drawSoundMenu(): void {
+    this.toMenuPage();
     DrawSoundMenu(this.menuPicOptions());
     DrawMenuGun(SndItems, this.menuPicOptions());
     VW_UpdateScreen();
-    this.mode = "sound";
     this.present("MENU_SOUND");
   }
 
@@ -892,12 +900,12 @@ class BrowserWolf3DRuntime {
     switch (scan) {
       case sc_UpArrow:
         if (this.moveCursor(SndItems, SndMenu, -1)) {
-          this.showSoundMenu();
+          this.drawSoundMenu();
         }
         return;
       case sc_DownArrow:
         if (this.moveCursor(SndItems, SndMenu, 1)) {
-          this.showSoundMenu();
+          this.drawSoundMenu();
         }
         return;
       case sc_Enter:
@@ -939,18 +947,15 @@ class BrowserWolf3DRuntime {
     ShootSnd();
     this.audio.syncFromSoundState(true);
     this.saveConfig(); // persist the new sound device selection (CONFIG.WL6 analog)
-    // Redraw with the new on/off marks and keep the gun where it is.
-    DrawSoundMenu(this.menuPicOptions());
-    DrawMenuGun(SndItems, this.menuPicOptions());
-    VW_UpdateScreen();
-    this.present("MENU_SOUND");
+    this.drawSoundMenu(); // redraw with the new on/off marks, keeping the gun where it is
   }
 
   // Draw a Y/N confirm box over the current screen (WL_MENU.C Confirm → Message) and wait for the
   // answer. `onYes`/`onNo` run on Y / (N or Esc). The underlying screen must already be presented;
   // Message overlays the centered text box. Used for the "erase current game?" prompt etc.
   private showConfirm(text: string, onYes: () => void, onNo: () => void): void {
-    VL_SetBufferOffset(displayPageBase(displayofs)); // visible page (in-game F7 confirm page-flips)
+    VL_SetBufferOffset(displayPageBase(displayofs)); // overlay the box on the visible page (page-flips in-game)
+    VL_SetScreen(displayPageBase(displayofs), 0);    // align displayofs so VW_UpdateScreen + present agree
     US_SetWindowState(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT); // fullscreen window so Message centers on screen
     Message(text, { font: this.menuChunks[STARTFONT + 1] ?? undefined });
     VW_UpdateScreen();
@@ -974,7 +979,8 @@ class BrowserWolf3DRuntime {
   // Draw a centered message box (WL_MENU.C Message) over the current screen and wait for any key
   // (IN_Ack), then run `onDone`. Used for the in-game cheat confirmation messages.
   private showMessage(text: string, onDone: () => void): void {
-    VL_SetBufferOffset(displayPageBase(displayofs)); // visible page (in-game overlays page-flip)
+    VL_SetBufferOffset(displayPageBase(displayofs)); // overlay on the visible page (page-flips in-game)
+    VL_SetScreen(displayPageBase(displayofs), 0);    // align displayofs so VW_UpdateScreen + present agree
     US_SetWindowState(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
     Message(text, { font: this.menuChunks[STARTFONT + 1] ?? undefined });
     VW_UpdateScreen();
@@ -1002,7 +1008,7 @@ class BrowserWolf3DRuntime {
   }
 
   private drawChangeView(): void {
-    VL_SetBufferOffset(displayPageBase(displayofs));
+    this.toMenuPage(); // full-screen preview takeover, page-0-aligned
     WL_MAIN.NewViewSize(this.changeViewSize); // set the geometry, then draw the border at that size
     DrawPlayBorder();                          // bg + centered viewport border at the candidate size
     VWB_Bar(0, 160, SCREEN_WIDTH, 40, 0x7f);   // VIEWCOLOR panel for the size-adjustment text
@@ -1063,7 +1069,7 @@ class BrowserWolf3DRuntime {
   }
 
   private drawControlMenu(): void {
-    VL_SetBufferOffset(displayPageBase(displayofs));
+    this.toMenuPage(); // full-screen menu takeover, page-0-aligned
     VWB_Bar(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0x29); // darker red so the BKGDCOLOR window stands out
     DrawWindow(40, 50, 240, 100, 0x2d);               // bordered BKGDCOLOR window (fill + outline)
     US_RestoreWindow({ x: 56, y: 60, w: 208, h: 80, px: 56, py: 62 }); // text print area inside it
@@ -1610,6 +1616,7 @@ class BrowserWolf3DRuntime {
   }
 
   private drawLoadSaveScreen(): void {
+    this.toMenuPage(); // page-0-align (F2/F3/F8/F9 open this in-game after a page-flipped frame)
     const opt = this.menuPicOptions();
     DrawLoadSaveScreen(this.loadSaveState?.action === "save" ? 1 : 0, { ...opt, skipWaitKeyUp: true });
     DrawMenuGun(LSItems, opt);
@@ -2052,6 +2059,8 @@ class BrowserWolf3DRuntime {
   private drawIntermission(summary: LevelCompletedSummary, shown?: IntermissionShown): void {
     const s = shown ?? { bonus: summary.bonus, kill: summary.ratios.kill, secret: summary.ratios.secret, treasure: summary.ratios.treasure };
     const opt = { chunks: this.levelEndChunks, pictable: this.pictable ?? undefined };
+    this.toMenuPage();
+    VL_SetPalette(WL_MAIN.gamepal); // LevelCompleted's VW_FadeOut left the palette black — restore it
     VWB_Bar(0, 0, SCREEN_WIDTH, 200 - 40, 127); // clear top 160px (STATUSLINES=40) to bg color 127
     VWB_DrawPic(0, 16, L_GUYPIC, { source: this.levelEndChunks[L_GUYPIC] ?? undefined, pictable: this.pictable ?? undefined });
     const bonusStr = String(s.bonus);
@@ -2157,6 +2166,8 @@ class BrowserWolf3DRuntime {
     const s = shown ?? { kill: summary.averages.kill, secret: summary.averages.secret, treasure: summary.averages.treasure };
     const opt = { chunks: this.levelEndChunks, pictable: this.pictable ?? undefined };
     const L_BJWINSPIC = 85; // last pic of the LEVELEND lump (43..85), cached in levelEndChunks
+    this.toMenuPage();
+    VL_SetPalette(WL_MAIN.gamepal);
     VWB_Bar(0, 0, SCREEN_WIDTH, 200 - 40, 127);
     VWB_DrawPic(8, 4, L_BJWINSPIC, { source: this.levelEndChunks[L_BJWINSPIC] ?? undefined, pictable: this.pictable ?? undefined });
     Write(18, 2, "you win!", opt);
@@ -2272,8 +2283,7 @@ class BrowserWolf3DRuntime {
   // call and resets its text offset, so page k = render pages 1..k and keep page k). The port's text
   // engine only COMPUTES each page's draw operations (for gate-testability); execute them here.
   private renderArticlePage(): void {
-    // Draw onto the visible page (in-game F1 help page-flips; in the menus displayofs is 0 anyway).
-    VL_SetBufferOffset(displayPageBase(displayofs));
+    this.toMenuPage(); // full-screen article takeover, page-0-aligned (F1 help enters from a play frame)
     const shown = ShowArticle({ article: this.articleText, renderAll: true, maxPages: this.articlePage });
     const page = shown.pages[shown.pages.length - 1];
     if (page) {
@@ -2391,6 +2401,8 @@ class BrowserWolf3DRuntime {
 
   private showHighScores(entryIndex = -1): void {
     this.mode = "highscores";
+    this.toMenuPage(); // page-0-align so a leftover play page/screenofs doesn't shift the table
+    VL_SetPalette(WL_MAIN.gamepal); // game over may have left a damage/death tint
     this.playSong(ROSTER_MUS); // WL_MENU.C CheckHighScore plays the roster song
     this.highScoreEntryIndex = entryIndex;
     const lookup = (picnum: number): Uint8Array | undefined =>
@@ -2624,6 +2636,16 @@ class BrowserWolf3DRuntime {
 
   private gamestateU16(offset: number): number {
     return this.dgroup.u16(nearOffsetForRuntimeSymbol("_gamestate") + offset);
+  }
+
+  // present() copies the displayed image from displayPageBase(displayofs). During play ThreeDRefresh
+  // page-flips and leaves displayofs = pageBase + screenofs on a non-zero play page, so a full-screen
+  // menu/intermission that draws to page 0 (or VW_UpdateScreen-copies to the unaligned displayofs)
+  // would show a stale, shifted game frame. Full-screen-takeover screens must page-0-align both
+  // pointers on entry (matching loadLevel/startDemo) so draw + copy + present all agree.
+  private toMenuPage(): void {
+    VL_SetBufferOffset(0);
+    VL_SetScreen(0, 0);
   }
 
   private installInput(): void {
