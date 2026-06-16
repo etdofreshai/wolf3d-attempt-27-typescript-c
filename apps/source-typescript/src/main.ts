@@ -167,7 +167,7 @@ import {
   serializeSaveGame,
 } from "./WOLFSRC/TS_SAVE_LAYOUT";
 import { Died, DrawPlayScreen, SetupGameLevel } from "./WOLFSRC/WL_GAME.C";
-import { CheckHighScore, DrawHighScores, LevelCompleted, Victory, Write, type LevelCompletedSummary, type VictorySummary } from "./WOLFSRC/WL_INTER.C";
+import { BJ_Breathe, CheckHighScore, DrawHighScores, LevelCompleted, Victory, Write, type LevelCompletedSummary, type VictorySummary } from "./WOLFSRC/WL_INTER.C";
 import { Scores, US_SetWindowState, type HighScore } from "./WOLFSRC/ID_US_1.C";
 import { parseDemo, type WolfDemo } from "./WOLFSRC/TS_DEMO";
 import { HIGHSCORESPIC } from "./WOLFSRC/TS_WL6_ASSETS";
@@ -693,6 +693,12 @@ class BrowserWolf3DRuntime {
         this.advanceIntermission();
       } else if (this.mode === "victory" && this.victoryAnim && this.victoryAnim.stage <= 2) {
         this.advanceVictory();
+      }
+      // WL_INTER.C LevelCompleted interleaves BJ_Breathe() through the floor-completed intermission
+      // so BJ alternates L_GUYPIC/L_GUY2PIC (~every 35 tics). serviceAudioTimer advances TimeCount.
+      // (The victory screen shows the static L_BJWINSPIC and never breathes.)
+      if (this.mode === "intermission") {
+        this.advanceBJBreathe();
       }
       // Attract mode: auto-start the demo loop after the main menu sits idle (the title loop).
       if (this.mode === "menu" && frameTime - this.lastInputTime > MENU_IDLE_MS) {
@@ -1772,6 +1778,17 @@ class BrowserWolf3DRuntime {
   // kill/secret/treasure ratios) with the level's FINAL stats, then present it. The DOS version
   // animates each value counting up; this shows the settled values (a faithful static layout —
   // count-up animation is a follow-up). Boss floors (mapon >= 8) get the minimal completed panel.
+  // Make BJ breathe on the intermission/victory screen: BJ_Breathe toggles L_GUYPIC/L_GUY2PIC at
+  // (0,16) once TimeCount passes its threshold (~35 tics). It draws only when it toggles, leaving
+  // the rest of the screen (stats/text) intact; present the new frame when it does.
+  private advanceBJBreathe(): void {
+    VL_SetBufferOffset(0);
+    const result = BJ_Breathe({ chunks: this.levelEndChunks, pictable: this.pictable ?? undefined });
+    if (result.breathed) {
+      this.present("INTERMISSION");
+    }
+  }
+
   private drawIntermission(summary: LevelCompletedSummary, shown?: IntermissionShown): void {
     const s = shown ?? { bonus: summary.bonus, kill: summary.ratios.kill, secret: summary.ratios.secret, treasure: summary.ratios.treasure };
     const opt = { chunks: this.levelEndChunks, pictable: this.pictable ?? undefined };
