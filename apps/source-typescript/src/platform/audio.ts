@@ -32,6 +32,7 @@ export class BrowserWolf3DAudio {
   private lastSoundKey = "";
   private adlib: AdLibStream | null = null;
   private adlibNode: ScriptProcessorNode | null = null;
+  private digiSource: AudioBufferSourceNode | null = null; // current one-shot digitized sound
 
   resume(): void {
     const context = this.ensureContext();
@@ -70,6 +71,14 @@ export class BrowserWolf3DAudio {
     if (!context || pcm.length === 0) {
       return;
     }
+    // DOS plays exactly one digitized sound at a time (a new one stops the previous), so cut off
+    // any still-playing digi node before starting this one.
+    if (this.digiSource) {
+      try {
+        this.digiSource.stop();
+      } catch { /* already stopped */ }
+      this.digiSource = null;
+    }
     const buffer = context.createBuffer(1, pcm.length, DIGI_HZ);
     const channel = buffer.getChannelData(0);
     for (let i = 0; i < pcm.length; i++) {
@@ -81,6 +90,12 @@ export class BrowserWolf3DAudio {
     gain.gain.value = DIGI_GAIN;
     source.connect(gain);
     gain.connect(context.destination);
+    source.onended = (): void => {
+      if (this.digiSource === source) {
+        this.digiSource = null;
+      }
+    };
+    this.digiSource = source;
     source.start();
   }
 
