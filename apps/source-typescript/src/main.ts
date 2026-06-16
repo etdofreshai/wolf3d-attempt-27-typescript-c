@@ -121,7 +121,16 @@ import {
   SDL_SetupDigi,
   SDL_t0Service,
 } from "./WOLFSRC/ID_SD.C";
-import { sdm_AdLib, sds_SoundBlaster, smm_AdLib } from "./WOLFSRC/ID_SD.H";
+import {
+  sdm_AdLib,
+  sdm_Off,
+  sdm_PC,
+  sds_Off,
+  sds_SoundBlaster,
+  sds_SoundSource,
+  smm_AdLib,
+  smm_Off,
+} from "./WOLFSRC/ID_SD.H";
 import { US_InitRndT } from "./WOLFSRC/ID_US_A.ASM";
 import { DOSMemory } from "./WOLFSRC/TS_DOS_MEMORY";
 import {
@@ -171,6 +180,7 @@ import {
   DrawMenuGun,
   DrawNewEpisode,
   DrawNewGame,
+  DrawSoundMenu,
   LSItems,
   LSMenu,
   MainItems,
@@ -183,6 +193,8 @@ import {
   SaveGamesAvail,
   SetupControlPanel,
   ShootSnd,
+  SndItems,
+  SndMenu,
 } from "./WOLFSRC/WL_MENU.C";
 import {
   InitRedShifts,
@@ -340,6 +352,7 @@ const ELEVATOR_BACK_TO = [1, 1, 7, 3, 5, 3] as const;
 const VGA_PAGE_BYTES = 80 * 208;
 const TICK_MS = 1000 / 70;
 const MAIN_NEW_GAME = 0;
+const MAIN_SOUND = 1; // WL_MENU.C MainMenu[1] = "Sound" → CP_Sound
 const MAIN_LOAD_GAME = 3;
 const MAIN_SAVE_GAME = 4;
 const MAIN_VIEW_SCORES = 7;
@@ -387,7 +400,7 @@ const ENDLEVEL_MUS = 16; // floor-completed intermission (WL_INTER.C LevelComple
 const ROSTER_MUS = 23; // high-score table (WL_MENU.C CheckHighScore)
 const URAHERO_MUS = 24; // episode victory (WL_INTER.C Victory)
 
-type RuntimeMode = "boot" | "menu" | "episode" | "difficulty" | "play" | "intermission" | "victory" | "highscores" | "demo" | "loadsave" | "dying" | "fizzle" | "getpsyched" | "intro";
+type RuntimeMode = "boot" | "menu" | "episode" | "difficulty" | "play" | "intermission" | "victory" | "highscores" | "demo" | "loadsave" | "dying" | "fizzle" | "getpsyched" | "intro" | "sound";
 
 // In-progress level-start dissolve (ID_VH.C FizzleFade): reveal `target` into the surface in the
 // 17-bit LFSR pixel order over several frames.
@@ -463,6 +476,7 @@ class BrowserWolf3DRuntime {
   private loadSaveState: LoadSaveState | null = null;
   // Active while an attract-mode demo is playing back; null otherwise.
   private demoState: DemoState | null = null;
+  private lastDemo = 0; // session-persistent attract demo index (WL_MAIN.C DemoLoop LastDemo++%4)
   // Timestamp (performance.now) of the last user input; the menu auto-starts demos when idle.
   private lastInputTime = 0;
   private mode: RuntimeMode = "boot";
@@ -677,7 +691,7 @@ class BrowserWolf3DRuntime {
       }
       // Attract mode: auto-start the demo loop after the main menu sits idle (the title loop).
       if (this.mode === "menu" && frameTime - this.lastInputTime > MENU_IDLE_MS) {
-        this.startDemo(0);
+        this.startDemo(this.lastDemo);
       }
       this.audio.serviceAdLib();
       requestAnimationFrame(this.tick);
@@ -757,6 +771,86 @@ class BrowserWolf3DRuntime {
     this.present("MENU_DIFFICULTY");
   }
 
+  // The WL_MENU.C Sound options menu (MainMenu[1] → CP_Sound): three sections — sound effects
+  // (None/PC/AdLib), digitized (None/Disney/SoundBlaster), and music (None/AdLib) — with the gun
+  // cursor on the current selection. DrawSoundMenu renders the windows + on/off marks from the live
+  // SoundMode/DigiMode/MusicMode. The browser app drives it directly instead of CP_Sound's blocking
+  // loop; selecting an item applies that mode (mirroring CP_Sound's per-item switch).
+  private showSoundMenu(): void {
+    SndItems.curpos = this.currentSoundCursor();
+    DrawSoundMenu(this.menuPicOptions());
+    DrawMenuGun(SndItems, this.menuPicOptions());
+    VW_UpdateScreen();
+    this.mode = "sound";
+    this.present("MENU_SOUND");
+  }
+
+  // The SndItems cursor row that matches the currently-active mode in each section (so the menu
+  // opens with the gun on the live setting). Defaults to the AdLib/music rows when uncertain.
+  private currentSoundCursor(): number {
+    const sound = SD_DebugState();
+    if (sound.SoundMode === sdm_Off) return 0;
+    if (sound.SoundMode === sdm_PC) return 1;
+    return 2; // sdm_AdLib
+  }
+
+  private handleSoundMenuScan(scan: ScanCode): void {
+    switch (scan) {
+      case sc_UpArrow:
+        if (this.moveCursor(SndItems, SndMenu, -1)) {
+          this.showSoundMenu();
+        }
+        return;
+      case sc_DownArrow:
+        if (this.moveCursor(SndItems, SndMenu, 1)) {
+          this.showSoundMenu();
+        }
+        return;
+      case sc_Enter:
+      case sc_Space:
+      case sc_Control:
+        this.applySoundSelection(SndItems.curpos);
+        return;
+      case sc_Escape:
+        ShootSnd();
+        this.audio.syncFromSoundState(true);
+        this.showMainMenu();
+        return;
+    }
+  }
+
+  // Apply the sound-menu item at `which`, mirroring WL_MENU.C CP_Sound's per-item switch: set the
+  // effect/digitized/music device for that section, then redraw the menu and re-sync the audio.
+  private applySoundSelection(which: number): void {
+    switch (which) {
+      case 0: SD_SetSoundMode(sdm_Off); break;
+      case 1: SD_SetSoundMode(sdm_PC); break;
+      case 2: SD_SetSoundMode(sdm_AdLib); break;
+      case 5: SD_SetDigiDevice(sds_Off); break;
+      case 6: SD_SetDigiDevice(sds_SoundSource); break;
+      case 7: SD_SetDigiDevice(sds_SoundBlaster); break;
+      case 10:
+        SD_SetMusicMode(smm_Off);
+        SD_MusicOff();          // release the OPL music voices so the last note doesn't sustain
+        this.currentSong = -1;  // so re-enabling music restarts the song
+        break;
+      case 11:
+        SD_SetMusicMode(smm_AdLib);
+        this.currentSong = -1;
+        this.playSong(MENUSONG); // CP_Sound restarts the menu song when music is turned back on
+        break;
+      default:
+        return; // inactive separator row
+    }
+    ShootSnd();
+    this.audio.syncFromSoundState(true);
+    // Redraw with the new on/off marks and keep the gun where it is.
+    DrawSoundMenu(this.menuPicOptions());
+    DrawMenuGun(SndItems, this.menuPicOptions());
+    VW_UpdateScreen();
+    this.present("MENU_SOUND");
+  }
+
   private menuPicOptions(): { chunks: readonly (Uint8Array | null)[]; pictable?: Uint8Array; inGame: boolean } {
     return {
       chunks: this.menuChunks,
@@ -775,6 +869,9 @@ class BrowserWolf3DRuntime {
         break;
       case "difficulty":
         this.handleDifficultyMenuScan(scan);
+        break;
+      case "sound":
+        this.handleSoundMenuScan(scan);
         break;
       case "intermission":
         this.handleIntermissionScan(scan);
@@ -874,6 +971,11 @@ class BrowserWolf3DRuntime {
         this.audio.syncFromSoundState(true);
         this.showEpisodeMenu();
         return;
+      case MAIN_SOUND:
+        ShootSnd();
+        this.audio.syncFromSoundState(true);
+        this.showSoundMenu();
+        return;
       case MAIN_LOAD_GAME:
         if (this.hasSavedGame()) {
           ShootSnd();
@@ -899,7 +1001,7 @@ class BrowserWolf3DRuntime {
         if (this.hasGame) {
           this.returnToGame();
         } else {
-          this.startDemo(0); // attract-mode demo loop
+          this.startDemo(this.lastDemo); // attract-mode demo loop (continues the LastDemo cycle)
         }
         return;
       case MAIN_QUIT:
@@ -1322,6 +1424,9 @@ class BrowserWolf3DRuntime {
       this.showMainMenu();
       return;
     }
+    // WL_MAIN.C DemoLoop uses a session-persistent `LastDemo` and plays PlayDemo(LastDemo++%4), so
+    // the attract cycle continues 0,1,2,3,0… across menu visits instead of restarting at 0.
+    this.lastDemo = (demoIndex % DEMO_COUNT) + 1;
     const gs = nearOffsetForRuntimeSymbol("_gamestate");
     WL_MAIN.NewGame(this.dgroup, 1, 0);
     this.dgroup.setU16(gs + GAMESTATE_MAPON_OFFSET, demo.mapon);
