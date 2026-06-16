@@ -150,6 +150,7 @@ import {
   CONTROLS_LUMP_START,
   CREDITSPIC,
   GETPSYCHEDPIC,
+  HITWALLSND,
   L_GUYPIC,
   LATCHPICS_LUMP_END,
   LATCHPICS_LUMP_START,
@@ -168,10 +169,10 @@ import {
   nearOffsetForRuntimeSymbol,
   serializeSaveGame,
 } from "./WOLFSRC/TS_SAVE_LAYOUT";
-import { Died, DrawPlayScreen, SetupGameLevel } from "./WOLFSRC/WL_GAME.C";
+import { Died, DrawPlayBorder, DrawPlayScreen, SetupGameLevel } from "./WOLFSRC/WL_GAME.C";
 import { BJ_Breathe, CheckHighScore, DrawHighScores, LevelCompleted, Victory, Write, type LevelCompletedSummary, type VictorySummary } from "./WOLFSRC/WL_INTER.C";
 import { CacheLayoutGraphics, EndText, HelpScreens, ShowArticle, type TextDrawOperation } from "./WOLFSRC/WL_TEXT.C";
-import { Scores, US_SetWindowState, type HighScore } from "./WOLFSRC/ID_US_1.C";
+import { Scores, US_CPrint, US_RestoreWindow, US_SetWindowState, type HighScore } from "./WOLFSRC/ID_US_1.C";
 import { parseDemo, type WolfDemo } from "./WOLFSRC/TS_DEMO";
 import { HIGHSCORESPIC } from "./WOLFSRC/TS_WL6_ASSETS";
 import { ThreeDRefresh } from "./WOLFSRC/WL_DRAW.C";
@@ -184,6 +185,7 @@ import {
   DrawNewEpisode,
   DrawNewGame,
   DrawSoundMenu,
+  EpisodeSelect,
   LSItems,
   LSMenu,
   MainItems,
@@ -201,7 +203,7 @@ import {
   SndMenu,
   endStrings,
 } from "./WOLFSRC/WL_MENU.C";
-import { CURGAME, ENDGAMESTR } from "./WOLFSRC/FOREIGN.H";
+import { CURGAME, ENDGAMESTR, STR_SIZE1, STR_SIZE2, STR_SIZE3 } from "./WOLFSRC/FOREIGN.H";
 import {
   InitRedShifts,
   PlayLoop,
@@ -360,7 +362,9 @@ const TICK_MS = 1000 / 70;
 const MAIN_NEW_GAME = 0;
 const MAIN_SOUND = 1; // WL_MENU.C MainMenu[1] = "Sound" → CP_Sound
 const MAIN_LOAD_GAME = 3;
+const MAIN_CHANGE_VIEW = 5; // WL_MENU.C MainMenu[5] = "Change View" → CP_ChangeView
 const MAIN_READ_THIS = 6; // WL_MENU.C MainMenu[6] = "Read This!" → CP_ReadThis → HelpScreens
+const MIN_VIEWSIZE = 4, MAX_VIEWSIZE = 19; // WL_MENU.C CP_ChangeView clamps the size to 4..19
 const MAIN_SAVE_GAME = 4;
 const MAIN_VIEW_SCORES = 7;
 const MAIN_BACK_TO_DEMO = 8;
@@ -369,6 +373,7 @@ const MAIN_QUIT = 9;
 // (data = the T3 byte-identical save image).
 const SAVE_SLOT_PREFIX = "wolf3d-ts-save-";
 const HIGHSCORE_STORAGE_KEY = "wolf3d-ts-highscores"; // persisted high-score table (WriteConfig analog)
+const CONFIG_STORAGE_KEY = "wolf3d-ts-config"; // persisted sound/view/control settings (CONFIG.WL6 analog)
 const SAVE_SLOT_COUNT = 10;
 const saveSlotKey = (slot: number): string => `${SAVE_SLOT_PREFIX}${slot}`;
 // Max typed characters for a new high-score name (kept short so it fits the NAME column + cursor).
@@ -407,7 +412,7 @@ const ENDLEVEL_MUS = 16; // floor-completed intermission (WL_INTER.C LevelComple
 const ROSTER_MUS = 23; // high-score table (WL_MENU.C CheckHighScore)
 const URAHERO_MUS = 24; // episode victory (WL_INTER.C Victory)
 
-type RuntimeMode = "boot" | "menu" | "episode" | "difficulty" | "play" | "intermission" | "victory" | "highscores" | "demo" | "loadsave" | "dying" | "fizzle" | "getpsyched" | "intro" | "sound" | "confirm" | "endtext" | "message";
+type RuntimeMode = "boot" | "menu" | "episode" | "difficulty" | "play" | "intermission" | "victory" | "highscores" | "demo" | "loadsave" | "dying" | "fizzle" | "getpsyched" | "intro" | "sound" | "confirm" | "endtext" | "message" | "changeview";
 
 // WL_PLAY.C CheckKeys cheat messages (FOREIGN.H STR_CHEATER1..5 / the B-A-T Commander Keen string).
 const CHEATER_MESSAGE = "You now have 100% Health,\n99 Ammo and both Keys!\n\nNote that you have basically\neliminated your chances of\ngetting a high score!";
@@ -488,6 +493,7 @@ class BrowserWolf3DRuntime {
   // Active while an attract-mode demo is playing back; null otherwise.
   private demoState: DemoState | null = null;
   private lastDemo = 0; // session-persistent attract demo index (WL_MAIN.C DemoLoop LastDemo++%4)
+  private mouseEnabled = true; // WL_MENU.C mouseenabled (default MousePresent); gates mouse-look polling
   // Timestamp (performance.now) of the last user input; the menu auto-starts demos when idle.
   private lastInputTime = 0;
   private mode: RuntimeMode = "boot";
@@ -502,6 +508,10 @@ class BrowserWolf3DRuntime {
   private confirmOnNo: (() => void) | null = null;
   // Pending any-key message overlay (WL_MENU.C Message + IN_Ack) callback, set while mode === "message".
   private messageOnDone: (() => void) | null = null;
+  // Change View (WL_MENU.C CP_ChangeView): the candidate + pre-edit view size and where to return.
+  private changeViewSize = 0;
+  private changeViewOriginal = 0;
+  private changeViewFromPlay = false;
   // Article viewer (WL_TEXT.C ShowArticle) state: the article text, current page, page count, and
   // what to do when the last page is acknowledged (high scores after an ending, menu after help).
   private articleText = "";
@@ -574,6 +584,7 @@ class BrowserWolf3DRuntime {
     WL_MAIN.SetupWalls();
     WL_MAIN.NewViewSize(config.viewsize);
     SD_SetSoundMode(sdm_AdLib);
+    this.loadConfig(); // restore persisted sound/view/mouse settings over the CONFIG.WL6 defaults
 
     VL_SetBufferOffset(0);
     VL_SetScreen(0, 0);
@@ -872,6 +883,7 @@ class BrowserWolf3DRuntime {
     }
     ShootSnd();
     this.audio.syncFromSoundState(true);
+    this.saveConfig(); // persist the new sound device selection (CONFIG.WL6 analog)
     // Redraw with the new on/off marks and keep the gun where it is.
     DrawSoundMenu(this.menuPicOptions());
     DrawMenuGun(SndItems, this.menuPicOptions());
@@ -922,6 +934,68 @@ class BrowserWolf3DRuntime {
     action?.();
   }
 
+  // The WL_MENU.C Change View screen (CP_ChangeView): a live preview of the play border at the
+  // candidate size with "Use arrows to size / ENTER to accept / ESC to cancel" below. Left/Down
+  // shrink, Right/Up grow (clamped 4..19); ENTER commits, ESC restores the prior size. `fromPlay`
+  // returns to the game vs the main menu.
+  private showChangeView(fromPlay: boolean): void {
+    this.changeViewFromPlay = fromPlay;
+    this.changeViewOriginal = Math.trunc(WL_MAIN.viewwidth / 16);
+    this.changeViewSize = this.changeViewOriginal;
+    this.mode = "changeview";
+    this.drawChangeView();
+  }
+
+  private drawChangeView(): void {
+    VL_SetBufferOffset(displayPageBase(displayofs));
+    WL_MAIN.NewViewSize(this.changeViewSize); // set the geometry, then draw the border at that size
+    DrawPlayBorder();                          // bg + centered viewport border at the candidate size
+    VWB_Bar(0, 160, SCREEN_WIDTH, 40, 0x7f);   // VIEWCOLOR panel for the size-adjustment text
+    // US_CPrint centers on WindowX/WindowW and prints at the window PrintY, so set both via the
+    // window record (US_SetWindowState alone doesn't move the print cursor).
+    US_RestoreWindow({ x: 0, y: 161, w: SCREEN_WIDTH, h: 39, px: 0, py: 162 });
+    VW_SetFontState({ fontnumber: 1, fontcolor: 0x13, backcolor: 0x7f }); // HIGHLIGHT on VIEWCOLOR
+    US_CPrint(`${STR_SIZE1}\n`);
+    US_CPrint(`${STR_SIZE2}\n`);
+    US_CPrint(STR_SIZE3);
+    this.present("CHANGEVIEW");
+  }
+
+  private handleChangeViewScan(scan: ScanCode): void {
+    if (scan === sc_LeftArrow || scan === sc_DownArrow) {
+      this.changeViewSize = Math.max(MIN_VIEWSIZE, this.changeViewSize - 1);
+      SD_PlaySound(HITWALLSND);
+      this.drawChangeView();
+      return;
+    }
+    if (scan === sc_RightArrow || scan === sc_UpArrow) {
+      this.changeViewSize = Math.min(MAX_VIEWSIZE, this.changeViewSize + 1);
+      SD_PlaySound(HITWALLSND);
+      this.drawChangeView();
+      return;
+    }
+    if (scan === sc_Enter || scan === sc_Space || scan === sc_Control) {
+      WL_MAIN.NewViewSize(this.changeViewSize); // commit (already set, but be explicit)
+      this.saveConfig();
+      this.finishChangeView();
+      return;
+    }
+    if (scan === sc_Escape) {
+      WL_MAIN.NewViewSize(this.changeViewOriginal); // cancel → restore the prior size
+      this.finishChangeView();
+    }
+  }
+
+  private finishChangeView(): void {
+    if (this.changeViewFromPlay && this.hasGame) {
+      // Re-lay-out the status bar at the new view size, then resume play.
+      DrawPlayScreen(this.dgroup, { pictable: this.pictable ?? undefined, statusBarSource: this.statusBar ?? undefined, statusBarWidth: SCREEN_WIDTH, statusBarHeight: 40 });
+      this.returnToGame();
+    } else {
+      this.showMainMenu();
+    }
+  }
+
   private menuPicOptions(): { chunks: readonly (Uint8Array | null)[]; pictable?: Uint8Array; inGame: boolean } {
     return {
       chunks: this.menuChunks,
@@ -943,6 +1017,9 @@ class BrowserWolf3DRuntime {
         break;
       case "sound":
         this.handleSoundMenuScan(scan);
+        break;
+      case "changeview":
+        this.handleChangeViewScan(scan);
         break;
       case "endtext":
         this.handleEndTextScan(scan);
@@ -1001,12 +1078,25 @@ class BrowserWolf3DRuntime {
         return;
       case sc_Enter:
       case sc_Space:
-      case sc_Control:
-        this.selectedEpisode = Math.trunc(NewEitems.curpos / 2);
+      case sc_Control: {
+        const episode = Math.trunc(NewEitems.curpos / 2);
+        // WL_MENU.C CP_NewGame: a locked (shareware) episode can't be selected — NOWAYSND + a hint.
+        // With WL6 data CheckForEpisodes unlocks all episodes, so this is faithful but never fires.
+        if (!EpisodeSelect[episode]) {
+          SD_PlaySound(6); // NOWAYSND
+          this.audio.syncFromSoundState(true);
+          this.showMessage(
+            "Please select \"Read This!\"\nfrom the Options menu to\nfind out how to order this\nepisode from Apogee.",
+            () => this.showEpisodeMenu(),
+          );
+          return;
+        }
+        this.selectedEpisode = episode;
         ShootSnd();
         this.audio.syncFromSoundState(true);
         this.showDifficultyMenu();
         return;
+      }
       case sc_Escape:
         this.showMainMenu();
         return;
@@ -1057,6 +1147,11 @@ class BrowserWolf3DRuntime {
         ShootSnd();
         this.audio.syncFromSoundState(true);
         this.showSoundMenu();
+        return;
+      case MAIN_CHANGE_VIEW:
+        ShootSnd();
+        this.audio.syncFromSoundState(true);
+        this.showChangeView(false);
         return;
       case MAIN_READ_THIS:
         ShootSnd();
@@ -1645,7 +1740,7 @@ class BrowserWolf3DRuntime {
         PollKeyboardMove(dgroup, this.pressedScans);
         // Mouse-look: fold the pointer-locked motion + buttons into the same control state, then
         // consume the accumulated delta so it's applied once (WL_PLAY.C PollControls polls both).
-        if (this.pointerLocked) {
+        if (this.pointerLocked && this.mouseEnabled) {
           PollMouseButtons(dgroup, this.mouseButtons);
           PollMouseMove(dgroup, this.mouseDeltaX, this.mouseDeltaY, { mouseadjustment: WL_MAIN.mouseadjustment });
           this.mouseDeltaX = 0;
@@ -1770,7 +1865,7 @@ class BrowserWolf3DRuntime {
         ? rotations[anim.index - 1].angle
         : anim.summary.player.angle;
       this.dgroup.setU16(player + OBJ_ANGLE_OFFSET, angle & 0xffff);
-      this.renderFrame(); // derives viewangle from the player angle (no context passed)
+      this.renderFrame(true); // spin: 3D view only, no status-bar redraw (weapon is the -1 sentinel)
       if (anim.index >= rotations.length) {
         this.dgroup.setU16(player + OBJ_ANGLE_OFFSET, anim.summary.player.angle & 0xffff);
         anim.phase = "redfade";
@@ -2129,6 +2224,40 @@ class BrowserWolf3DRuntime {
     } catch { /* storage may be unavailable */ }
   }
 
+  // Persist user settings (sound modes, view size, mouse-enable) to localStorage — the browser
+  // analog of WL_MAIN.C WriteConfig writing CONFIG.WL6 — so menu/Change-View choices survive reload.
+  private saveConfig(): void {
+    try {
+      const sound = SD_DebugState();
+      const config = {
+        viewsize: Math.trunc(WL_MAIN.viewwidth / 16),
+        soundMode: sound.SoundMode,
+        digiMode: sound.DigiMode,
+        musicMode: sound.MusicMode,
+        mouseEnabled: this.mouseEnabled,
+      };
+      window.localStorage?.setItem(CONFIG_STORAGE_KEY, JSON.stringify(config));
+    } catch { /* storage may be unavailable */ }
+  }
+
+  // Restore persisted settings at boot, over the CONFIG.WL6 defaults (ReadConfig analog).
+  private loadConfig(): void {
+    try {
+      const raw = window.localStorage?.getItem(CONFIG_STORAGE_KEY);
+      if (!raw) {
+        return;
+      }
+      const c = JSON.parse(raw) as Record<string, unknown>;
+      if (typeof c.viewsize === "number") {
+        WL_MAIN.NewViewSize(Math.max(MIN_VIEWSIZE, Math.min(MAX_VIEWSIZE, c.viewsize | 0)));
+      }
+      if (typeof c.soundMode === "number") SD_SetSoundMode(c.soundMode as Parameters<typeof SD_SetSoundMode>[0]);
+      if (typeof c.digiMode === "number") SD_SetDigiDevice(c.digiMode as Parameters<typeof SD_SetDigiDevice>[0]);
+      if (typeof c.musicMode === "number") SD_SetMusicMode(c.musicMode as Parameters<typeof SD_SetMusicMode>[0]);
+      if (typeof c.mouseEnabled === "boolean") this.mouseEnabled = c.mouseEnabled;
+    } catch { /* ignore corrupt storage */ }
+  }
+
   private loadHighScores(): void {
     try {
       const raw = window.localStorage?.getItem(HIGHSCORE_STORAGE_KEY);
@@ -2224,7 +2353,7 @@ class BrowserWolf3DRuntime {
     }
   }
 
-  private renderFrame(): void {
+  private renderFrame(skipStatusBar = false): void {
     ThreeDRefresh({
       dgroup: this.dgroup,
       screenofs: WL_MAIN.screenofs,
@@ -2235,7 +2364,11 @@ class BrowserWolf3DRuntime {
       episode: this.gamestateU16(GAMESTATE_EPISODE_OFFSET),
       mapon: this.gamestateU16(GAMESTATE_MAPON_OFFSET),
     });
-    this.drawStatusBar();
+    // WL_GAME.C Died() only ThreeDRefreshes during the death spin (gamestate.weapon = -1); skip the
+    // status-bar redraw so DrawWeapon isn't handed the -1 sentinel, and the last weapon pic is kept.
+    if (!skipStatusBar) {
+      this.drawStatusBar();
+    }
     this.applyPaletteShift();
     this.present("PLAYLOOP");
   }
@@ -2513,6 +2646,14 @@ class BrowserWolf3DRuntime {
     if (down && !event.repeat && scan === sc_F3 && this.hasSavedGame()) {
       this.pressedScans.clear();
       this.showLoadSaveScreen("load", true);
+      return;
+    }
+    // In-game Change View (WL_PLAY.C CheckKeys → US_ControlPanel(F5) → CP_ChangeView): resize the
+    // viewport, then resume play.
+    if (down && !event.repeat && scan === sc_F5) {
+      event.preventDefault();
+      this.pressedScans.clear();
+      this.showChangeView(true);
       return;
     }
     // In-game End Game (WL_PLAY.C CheckKeys → US_ControlPanel(F7) → CP_CheckQuick): confirm, then
