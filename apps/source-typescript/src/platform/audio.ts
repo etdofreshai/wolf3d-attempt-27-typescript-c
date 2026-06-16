@@ -2,11 +2,15 @@ import {
   SoundMode,
   SoundNumber,
   SoundTable,
+  type AlRegisterWrite,
   alRegisterWrites,
   pcLengthLeft,
 } from "../WOLFSRC/ID_SD.C";
 import { sdm_AdLib, sdm_PC } from "../WOLFSRC/ID_SD.H";
 import { AdLibStream } from "./opl2";
+// Vite bundles the worklet (and its opl2.ts import) into a self-contained script and hands us its
+// URL; AudioContext.audioWorklet.addModule() loads it onto the audio thread.
+import oplWorkletUrl from "./opl2-worklet.ts?worker&url";
 
 const PC_SERVICE_HZ = 140;
 const PC_TIMER_HZ = 1192030;
@@ -16,6 +20,26 @@ const ADLIB_BUFFER = 1024; // ScriptProcessor block size (~21 ms at 48 kHz)
 const ADLIB_GAIN = 1.6; // OPL2 output is scaled conservatively in opl2.ts; lift it to a usable level
 const DIGI_HZ = 7000; // Wolf3D digitized sounds are unsigned 8-bit PCM at ~7 kHz (Web Audio resamples)
 const DIGI_GAIN = 0.85; // headroom so a digi sound mixed over AdLib FM doesn't clip
+const MAX_PENDING_WRITES = 8192; // cap on writes buffered while the worklet module loads (~12s of music)
+
+// Pack register writes into a transferable Int32Array of (register, value, tick) triples for posting
+// to the worklet (avoids structured-cloning an array of objects every frame).
+function packWrites(writes: ArrayLike<AlRegisterWrite>): Int32Array {
+  const a = new Int32Array(writes.length * 3);
+  for (let i = 0; i < writes.length; i++) {
+    const w = writes[i];
+    a[i * 3] = w.register;
+    a[i * 3 + 1] = w.value;
+    a[i * 3 + 2] = w.tick ?? -1;
+  }
+  return a;
+}
+
+// Post a batch of writes to the worklet, transferring the packed buffer (zero-copy).
+function postSchedule(port: MessagePort, writes: ArrayLike<AlRegisterWrite>): void {
+  const data = packWrites(writes);
+  port.postMessage({ type: "schedule", data }, [data.buffer]);
+}
 
 type BrowserAudioWindow = Window & typeof globalThis & {
   readonly webkitAudioContext?: typeof AudioContext;
@@ -30,8 +54,13 @@ export class BrowserWolf3DAudio {
   private context: AudioContext | null = null;
   private source: AudioBufferSourceNode | null = null;
   private lastSoundKey = "";
-  private adlib: AdLibStream | null = null;
+  private adlib: AdLibStream | null = null; // only used by the ScriptProcessor fallback path
   private adlibNode: ScriptProcessorNode | null = null;
+  private adlibPort: MessagePort | null = null; // worklet message port (preferred audio-thread path)
+  private adlibSetupStarted = false;
+  // Register writes produced before the async worklet finishes loading; flushed once it's ready so
+  // the music's instrument-setup writes aren't lost. Capped so a slow load can't grow it unbounded.
+  private pendingWrites: AlRegisterWrite[] = [];
   private digiSource: AudioBufferSourceNode | null = null; // current one-shot digitized sound
 
   resume(): void {
@@ -60,8 +89,17 @@ export class BrowserWolf3DAudio {
     if (alRegisterWrites.length === 0) {
       return;
     }
-    if (SoundMode === sdm_AdLib && this.adlib) {
-      this.adlib.schedule(alRegisterWrites);
+    if (SoundMode === sdm_AdLib) {
+      if (this.adlibPort) {
+        // Worklet path: pack the frame's writes into a transferable Int32Array (reg, val, tick
+        // triples) and post them to the audio thread, where schedule() releases them at 700 Hz.
+        postSchedule(this.adlibPort, alRegisterWrites);
+      } else if (this.adlib) {
+        this.adlib.schedule(alRegisterWrites); // ScriptProcessor fallback (main-thread synth)
+      } else if (this.pendingWrites.length < MAX_PENDING_WRITES) {
+        // Worklet still loading — buffer so the instrument-setup writes survive the brief load.
+        for (let i = 0; i < alRegisterWrites.length; i++) this.pendingWrites.push(alRegisterWrites[i]);
+      }
     }
     alRegisterWrites.length = 0;
   }
@@ -103,12 +141,50 @@ export class BrowserWolf3DAudio {
   }
 
   private ensureAdLibNode(context: AudioContext): void {
+    if (this.adlibSetupStarted) {
+      return;
+    }
+    this.adlibSetupStarted = true;
+    // Preferred path: render the OPL2 on the audio thread via an AudioWorklet, so 3D-frame jank and
+    // GC pauses on the main thread can't underrun the audio ("cut off"). Falls back to a
+    // ScriptProcessor if the worklet can't be loaded (older browsers / addModule failure).
+    const audioWorkletWindow = window as BrowserAudioWindow;
+    if (audioWorkletWindow.AudioWorkletNode && context.audioWorklet) {
+      context.audioWorklet
+        .addModule(oplWorkletUrl)
+        .then(() => {
+          const node = new AudioWorkletNode(context, "opl2-processor", {
+            numberOfInputs: 0,
+            numberOfOutputs: 1,
+            outputChannelCount: [1],
+          });
+          node.connect(context.destination);
+          this.adlibPort = node.port;
+          // Flush any writes produced while the module was loading.
+          if (this.pendingWrites.length > 0) {
+            postSchedule(this.adlibPort, this.pendingWrites);
+            this.pendingWrites = [];
+          }
+        })
+        .catch(() => {
+          this.startScriptProcessorFallback(context);
+        });
+    } else {
+      this.startScriptProcessorFallback(context);
+    }
+  }
+
+  private startScriptProcessorFallback(context: AudioContext): void {
     if (this.adlibNode) {
       return;
     }
     this.adlib = new AdLibStream(context.sampleRate);
-    // ScriptProcessor is deprecated but is the simplest same-thread renderer (no worklet module
-    // to bundle) and keeps the OPL2 state shared with the synchronous game loop.
+    if (this.pendingWrites.length > 0) {
+      this.adlib.schedule(this.pendingWrites);
+      this.pendingWrites = [];
+    }
+    // ScriptProcessor is deprecated and runs on the main thread (so it can underrun under load), but
+    // it's the universally-available fallback and shares the OPL2 state with the game loop.
     const node = context.createScriptProcessor(ADLIB_BUFFER, 0, 1);
     node.onaudioprocess = (event: AudioProcessingEvent): void => {
       const out = event.outputBuffer.getChannelData(0);
