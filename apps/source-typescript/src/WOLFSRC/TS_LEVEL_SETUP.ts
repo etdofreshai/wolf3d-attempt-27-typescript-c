@@ -121,6 +121,9 @@ const GETAMMOSND = 31;
 const HEALTH1SND = 33;
 const HEALTH2SND = 34;
 const BONUS1SND = 35;
+const BONUS2SND = 36;
+const BONUS3SND = 37;
+const BONUS4SND = 45;
 const LEVELDONESND = 40;
 const DOGBARKSND = 41;
 const BONUS1UPSND = 44;
@@ -212,10 +215,12 @@ const EX_DIED = 2;
 const EX_VICTORIOUS = 6;
 const EX_SECRETLEVEL = 9;
 const ATKGATLINGSND = 11;
+const ATKKNIFESND = 23;
 const ATKPISTOLSND = 24;
 const ATKMACHINEGUNSND = 26;
 const GETMACHINESND = 30;
 const GETGATLINGSND = 38;
+const SLURPIESND = 61;
 const EXTRAPOINTS = 40000;
 const WP_KNIFE = 0;
 const WP_PISTOL = 1;
@@ -2508,17 +2513,17 @@ export function GetBonusMemory(dgroup: DOSMemory, statobj: number): BonusSummary
       incrementGamestateWord(dgroup, GAMESTATE_TREASURECOUNT_OFFSET);
       break;
     case bo_chalice:
-      SD_PlaySound(BONUS1SND);
+      SD_PlaySound(BONUS2SND); // WL_AGENT.C GetBonus bo_chalice -> BONUS2SND (each treasure differs)
       GivePointsMemory(dgroup, 500);
       incrementGamestateWord(dgroup, GAMESTATE_TREASURECOUNT_OFFSET);
       break;
     case bo_bible:
-      SD_PlaySound(BONUS1SND);
+      SD_PlaySound(BONUS3SND); // WL_AGENT.C GetBonus bo_bible -> BONUS3SND
       GivePointsMemory(dgroup, 1000);
       incrementGamestateWord(dgroup, GAMESTATE_TREASURECOUNT_OFFSET);
       break;
     case bo_crown:
-      SD_PlaySound(BONUS1SND);
+      SD_PlaySound(BONUS4SND); // WL_AGENT.C GetBonus bo_crown -> BONUS4SND
       GivePointsMemory(dgroup, 5000);
       incrementGamestateWord(dgroup, GAMESTATE_TREASURECOUNT_OFFSET);
       break;
@@ -2581,6 +2586,7 @@ export function GetBonusMemory(dgroup: DOSMemory, statobj: number): BonusSummary
       if (dgroup.u16(gamestate + GAMESTATE_HEALTH_OFFSET) > 10) {
         return bonusSummary(dgroup, statobj, itemnumber, false);
       }
+      SD_PlaySound(SLURPIESND); // WL_AGENT.C GetBonus bo_gibs plays SLURPIESND (was silent); after the guard
       HealSelfMemory(dgroup, 1);
       break;
 
@@ -2639,6 +2645,7 @@ export function CmdFireMemory(dgroup: DOSMemory): CmdFireSummary {
 }
 
 export function KnifeAttackMemory(dgroup: DOSMemory, actor: number): PlayerAttackSummary {
+  SD_PlaySound(ATKKNIFESND); // WL_AGENT.C KnifeAttack: stab sound first, before the target scan (every swing)
   const closest = closestCenteredTarget(dgroup, actor);
   if (!closest || closest.dist > 0x18000) {
     return {
