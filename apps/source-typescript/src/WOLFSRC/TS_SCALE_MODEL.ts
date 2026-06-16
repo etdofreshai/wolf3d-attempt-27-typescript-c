@@ -370,7 +370,9 @@ export function scaleLine(options: ScaleLineOptions): ScaleLineSummary {
 }
 
 function getScaleForShape(state: ScalerState, scale: number, viewheight: number): CompScale | null {
-  if (scale <= 0 || scale >= state.scaledirectory.length) {
+  // WL_SCALE.C ScaleShape: `if (!scale || scale > maxscale) return;` — point-blank sprites (taller
+  // than the view) are culled, which is why an enemy on top of you visually drops out.
+  if (scale <= 0 || (state.maxscale > 0 && scale > state.maxscale) || scale >= state.scaledirectory.length) {
     return null;
   }
   const existing = state.scaledirectory[scale];
