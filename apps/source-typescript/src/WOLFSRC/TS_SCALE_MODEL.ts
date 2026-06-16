@@ -410,6 +410,24 @@ function scaleShapeImpl(
   const viewheight = activeViewheight(options.viewheight);
   const viewwidth = activeViewwidth(options.viewwidth);
   const scale = Math.trunc(height) >> (simple ? 1 : 3);
+  // WL_SCALE.C ScaleShape: `if (!scale || scale > maxscale) return;` — point-blank ENEMY sprites
+  // are culled (the "enemy on top of you vanishes" behavior). SimpleScaleShape (the held weapon,
+  // simple=true) is always drawn, so the cull is gated on !simple.
+  if (!simple && state.maxscale > 0 && scale > state.maxscale) {
+    return {
+      file,
+      xcenter: Math.trunc(xcenter),
+      shapenum: shape.shapenum,
+      height: Math.trunc(height),
+      scale,
+      viewwidth,
+      skipped: true,
+      reason: "scale-too-close",
+      lines: [],
+      screenColumns: 0,
+      pixels: 0,
+    };
+  }
   const comptable = getScaleForShape(state, scale, viewheight);
   if (!comptable) {
     return {
