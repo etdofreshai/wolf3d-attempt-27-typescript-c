@@ -80,6 +80,33 @@ code {
   line-height: 1.5;
 }
 
+.masthead-actions {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Entry point into the Developer's Corner (dev.html). */
+.dev-corner-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 16px;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #f2d077, #d8ac4a);
+  color: #1a140a;
+  text-decoration: none;
+  font-weight: 720;
+  font-size: 0.9rem;
+  transition: filter 0.14s ease;
+}
+.dev-corner-link:hover {
+  filter: brightness(1.07);
+}
+
 .recheck {
   flex: none;
   min-height: 38px;

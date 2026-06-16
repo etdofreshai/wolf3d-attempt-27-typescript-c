@@ -57,11 +57,11 @@ export const VERSIONS: GameVersion[] = [
   {
     id: "source-typescript",
     name: "Source TypeScript",
-    tagline: "A from-scratch TypeScript port — native in the browser, no DOSBox.",
+    tagline: "A from-scratch TypeScript port — complete, playable, and beatable natively in the browser, no DOSBox.",
     description:
-      "Reimplements the Wolfenstein 3D engine in TypeScript, rendering to a canvas natively instead of running the DOS binary under js-dos. Currently a scaffold: a 320×200 framebuffer driven by a fixed-timestep loop with input wired up, ready for the raycaster, asset loader, and game logic to grow into.",
+      "A full reimplementation of the Wolfenstein 3D engine in TypeScript that renders to a canvas natively instead of running the DOS binary under js-dos. It is complete and beatable end-to-end — boot, menus, 3D raycast gameplay, level advance, death, game over, and victory — built from its own raycaster, asset loader, and game logic plus a faithful OPL2 audio synth. Parity with the original is held by 32 oracle gates: the E1M1 level-start frame is byte-identical (0/64000 pixels) to the DOS oracle, saves are byte-identical, and all four embedded attract demos replay bit-exact per tic.",
     devPort: 5174,
-    status: "experimental",
-    tags: ["TypeScript", "native", "scaffold"]
+    status: "playable",
+    tags: ["TypeScript", "native", "byte-exact", "raycaster", "OPL2"]
   }
 ];

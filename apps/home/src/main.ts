@@ -27,7 +27,10 @@ root.innerHTML = `
           <code>npm run dev</code> at the repo root to start them all.
         </p>
       </div>
-      <button id="recheck" type="button" class="recheck">Re-check servers</button>
+      <div class="masthead-actions">
+        <a class="dev-corner-link" href="/dev.html">Developer's Corner ›</a>
+        <button id="recheck" type="button" class="recheck">Re-check servers</button>
+      </div>
     </header>
     <main id="grid" class="grid"></main>
     <footer class="footer">
