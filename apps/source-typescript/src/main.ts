@@ -358,6 +358,9 @@ const DEMO_DIFFICULTY = 3; // gd_hard — the demos were recorded on Hard (match
 const DEMOTICS = 4; // tics advanced per demo command (PollControlsMemory uses this for demoCommand)
 const MENU_IDLE_MS = 15000; // main-menu idle time before the attract demos auto-start (title loop)
 const ENDBONUS1SND = 42; // AUDIOWL6 sound index — the ticking sound during the bonus/ratio count-up
+const ENDBONUS2SND = 43; // sound when a tally field finishes counting (WL_INTER.C LevelCompleted)
+const NOBONUSSND = 47; // a ratio finished at 0%
+const PERCENT100SND = 48; // a ratio finished at 100%
 const PLAYERDEATHSND = 9; // AUDIOWL6 sound index — the player's death cry (WL_GAME.C Died)
 const DEATH_SPIN_STEPS_PER_FRAME = 3; // rotation steps consumed per rendered frame during the death spin
 const DEATH_REDFADE_FRAMES = 9; // frames spent fading the held death frame toward red before respawn/game-over
@@ -1524,12 +1527,22 @@ class BrowserWolf3DRuntime {
     const target = targets[a.stage];
     const step = a.stage === 0 ? Math.max(50, Math.ceil(target / 40)) : Math.max(2, Math.ceil(target / 30));
     let value = a.shown[field] + step;
+    let finished = false;
     if (value >= target) {
       value = target;
       a.stage++;
+      finished = true;
     }
     a.shown[field] = value;
-    if (a.soundCounter++ % 4 === 0) {
+    if (finished) {
+      // End-of-field cue (WL_INTER.C LevelCompleted): a ratio that hit 100% / 0% gets its own
+      // sound; every field then chimes ENDBONUS2SND.
+      if (a.stage > 1) {
+        SD_PlaySound(target === 100 ? PERCENT100SND : target === 0 ? NOBONUSSND : ENDBONUS2SND);
+      } else {
+        SD_PlaySound(ENDBONUS2SND); // the bonus field finished
+      }
+    } else if (a.soundCounter++ % 4 === 0) {
       SD_PlaySound(ENDBONUS1SND); // the DOS ticking sound as the numbers roll up
     }
     this.drawIntermission(a.summary, a.shown);
