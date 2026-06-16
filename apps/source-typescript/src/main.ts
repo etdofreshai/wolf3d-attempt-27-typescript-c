@@ -81,6 +81,7 @@ import {
   LoadLatchMem,
   VWB_Bar,
   VWB_DrawPic,
+  VWB_DrawPropString,
   VW_DrawPropString,
   VW_SetFontState,
   VW_UpdateScreen,
@@ -103,6 +104,7 @@ import {
   CA_LoadAllSounds,
   CA_CacheMap,
   CA_Startup,
+  grsegs,
 } from "./WOLFSRC/ID_CA.C";
 import { PM_Startup } from "./WOLFSRC/ID_PM.C";
 import {
@@ -168,6 +170,7 @@ import {
 } from "./WOLFSRC/TS_SAVE_LAYOUT";
 import { Died, DrawPlayScreen, SetupGameLevel } from "./WOLFSRC/WL_GAME.C";
 import { BJ_Breathe, CheckHighScore, DrawHighScores, LevelCompleted, Victory, Write, type LevelCompletedSummary, type VictorySummary } from "./WOLFSRC/WL_INTER.C";
+import { CacheLayoutGraphics, EndText, ShowArticle, type TextDrawOperation } from "./WOLFSRC/WL_TEXT.C";
 import { Scores, US_SetWindowState, type HighScore } from "./WOLFSRC/ID_US_1.C";
 import { parseDemo, type WolfDemo } from "./WOLFSRC/TS_DEMO";
 import { HIGHSCORESPIC } from "./WOLFSRC/TS_WL6_ASSETS";
@@ -402,7 +405,7 @@ const ENDLEVEL_MUS = 16; // floor-completed intermission (WL_INTER.C LevelComple
 const ROSTER_MUS = 23; // high-score table (WL_MENU.C CheckHighScore)
 const URAHERO_MUS = 24; // episode victory (WL_INTER.C Victory)
 
-type RuntimeMode = "boot" | "menu" | "episode" | "difficulty" | "play" | "intermission" | "victory" | "highscores" | "demo" | "loadsave" | "dying" | "fizzle" | "getpsyched" | "intro" | "sound" | "confirm";
+type RuntimeMode = "boot" | "menu" | "episode" | "difficulty" | "play" | "intermission" | "victory" | "highscores" | "demo" | "loadsave" | "dying" | "fizzle" | "getpsyched" | "intro" | "sound" | "confirm" | "endtext";
 
 // In-progress level-start dissolve (ID_VH.C FizzleFade): reveal `target` into the surface in the
 // 17-bit LFSR pixel order over several frames.
@@ -491,6 +494,12 @@ class BrowserWolf3DRuntime {
   // Pending Y/N confirm dialog (WL_MENU.C Confirm) callbacks, set while mode === "confirm".
   private confirmOnYes: (() => void) | null = null;
   private confirmOnNo: (() => void) | null = null;
+  // Per-episode end-of-game article (WL_TEXT.C EndText): the article text, current page, page count,
+  // and the mapon used for the high-score table after the article finishes.
+  private endTextArticle = "";
+  private endTextPage = 0;
+  private endTextTotalPages = 0;
+  private endTextCompleted = 0;
   // "Get Psyched!" loading screen (WL_INTER.C PreloadGraphics) state: deadline + how the level resumes.
   private getPsychedDeadline = 0;
   // Pre-menu attract intro (WL_MAIN.C DemoLoop: PG13 -> title -> credits) state.
@@ -907,6 +916,9 @@ class BrowserWolf3DRuntime {
         break;
       case "sound":
         this.handleSoundMenuScan(scan);
+        break;
+      case "endtext":
+        this.handleEndTextScan(scan);
         break;
       case "intermission":
         this.handleIntermissionScan(scan);
@@ -1960,7 +1972,93 @@ class BrowserWolf3DRuntime {
     }
     this.victoryAnim = null;
     this.hasGame = false;
-    this.recordHighScoreAndShow(this.gamestateU16(GAMESTATE_MAPON_OFFSET) + 1);
+    // WL_INTER.C Victory ends with EndText() — the per-episode ENDART story/credits article. Show it
+    // (page-turning) before the high-score table, exactly as the original ends the episode.
+    this.showEndText(this.gamestateU16(GAMESTATE_EPISODE_OFFSET), this.gamestateU16(GAMESTATE_MAPON_OFFSET) + 1);
+  }
+
+  // Show the per-episode end-of-game article (WL_TEXT.C EndText/ShowArticle): the ENDART text chunk
+  // laid out page-by-page in the help-window frame. `completed` is the 1-based level reached, used
+  // for the high-score table after the article. Falls straight through to high scores if the article
+  // can't be loaded/rendered.
+  private showEndText(episode: number, completed: number): void {
+    this.endTextCompleted = completed;
+    try {
+      const info = EndText({ episode });
+      // WL6 end art is a VGAGRAPH chunk (T_ENDART1 + episode); only that numeric form is supported.
+      const bytes = typeof info.chunkOrFile === "number" ? CA_CacheGrChunk(info.chunkOrFile) : null;
+      if (!bytes || bytes.length === 0) {
+        this.recordHighScoreAndShow(completed);
+        return;
+      }
+      let article = "";
+      for (let i = 0; i < bytes.length; i++) article += String.fromCharCode(bytes[i]);
+      this.endTextArticle = article;
+      // Cache the fonts + every graphic the article references (CacheLayoutGraphics marks them).
+      CA_CacheGrChunk(STARTFONT);
+      CA_CacheGrChunk(STARTFONT + 1);
+      const layout = CacheLayoutGraphics(article);
+      for (const chunk of layout.marked) CA_CacheGrChunk(chunk);
+      this.endTextTotalPages = Math.max(1, layout.pages);
+      this.endTextPage = 1;
+      this.playSong(ENDLEVEL_MUS); // a settled tune under the ending text
+      this.mode = "endtext";
+      this.renderEndTextPage();
+    } catch {
+      // Any layout/parse failure: don't strand the player — go to the high scores.
+      this.recordHighScoreAndShow(completed);
+    }
+  }
+
+  // Render the article up to the current page (WL_TEXT.C ShowArticle re-lays-out from the top each
+  // call and resets its text offset, so page k = render pages 1..k and keep page k). The port's text
+  // engine only COMPUTES each page's draw operations (for gate-testability); execute them here.
+  private renderEndTextPage(): void {
+    VL_SetBufferOffset(0);
+    const shown = ShowArticle({ article: this.endTextArticle, renderAll: true, maxPages: this.endTextPage });
+    const page = shown.pages[shown.pages.length - 1];
+    if (page) {
+      this.executeTextOperations(page.operations);
+    }
+    this.present("ENDTEXT");
+  }
+
+  // Execute a page's computed draw operations into the video buffer: window/clear bars, embedded
+  // graphics, and proportional-font words (the ENDART articles use only ^P/^G/^C/^E — a single font
+  // with per-word color, so each word carries its own color and position).
+  private executeTextOperations(ops: readonly TextDrawOperation[]): void {
+    for (const op of ops) {
+      switch (op.type) {
+        case "bar":
+          VWB_Bar(op.x, op.y, op.width, op.height, op.color);
+          break;
+        case "pic":
+          VWB_DrawPic(op.x, op.y, op.pic, { source: grsegs[op.pic] ?? undefined, pictable: this.pictable ?? undefined });
+          break;
+        case "word":
+          VW_SetFontState({ fontnumber: 0, fontcolor: op.color, px: op.x, py: op.y });
+          VWB_DrawPropString(op.word);
+          break;
+        case "page-number":
+          VW_SetFontState({ fontnumber: 0, fontcolor: op.color, px: op.x, py: op.y });
+          VWB_DrawPropString(op.text);
+          break;
+      }
+    }
+  }
+
+  // Any key turns to the next article page; once the last page is acknowledged, go to the high scores.
+  private handleEndTextScan(_scan: ScanCode): void {
+    if (this.endTextPage >= this.endTextTotalPages) {
+      this.recordHighScoreAndShow(this.endTextCompleted);
+      return;
+    }
+    this.endTextPage += 1;
+    try {
+      this.renderEndTextPage();
+    } catch {
+      this.recordHighScoreAndShow(this.endTextCompleted);
+    }
   }
 
   // Draw the WL_INTER.C high-score table (HIGH SCORES title + NAME/LEVEL/SCORE columns + the 7
