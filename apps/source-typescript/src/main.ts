@@ -406,7 +406,11 @@ const ENDLEVEL_MUS = 16; // floor-completed intermission (WL_INTER.C LevelComple
 const ROSTER_MUS = 23; // high-score table (WL_MENU.C CheckHighScore)
 const URAHERO_MUS = 24; // episode victory (WL_INTER.C Victory)
 
-type RuntimeMode = "boot" | "menu" | "episode" | "difficulty" | "play" | "intermission" | "victory" | "highscores" | "demo" | "loadsave" | "dying" | "fizzle" | "getpsyched" | "intro" | "sound" | "confirm" | "endtext";
+type RuntimeMode = "boot" | "menu" | "episode" | "difficulty" | "play" | "intermission" | "victory" | "highscores" | "demo" | "loadsave" | "dying" | "fizzle" | "getpsyched" | "intro" | "sound" | "confirm" | "endtext" | "message";
+
+// WL_PLAY.C CheckKeys cheat messages (FOREIGN.H STR_CHEATER1..5 / the B-A-T Commander Keen string).
+const CHEATER_MESSAGE = "You now have 100% Health,\n99 Ammo and both Keys!\n\nNote that you have basically\neliminated your chances of\ngetting a high score!";
+const KEEN_MESSAGE = "Commander Keen is also\navailable from Apogee, but\nthen, you already know\nthat - right, Cheatmeister?!";
 
 // In-progress level-start dissolve (ID_VH.C FizzleFade): reveal `target` into the surface in the
 // 17-bit LFSR pixel order over several frames.
@@ -495,6 +499,8 @@ class BrowserWolf3DRuntime {
   // Pending Y/N confirm dialog (WL_MENU.C Confirm) callbacks, set while mode === "confirm".
   private confirmOnYes: (() => void) | null = null;
   private confirmOnNo: (() => void) | null = null;
+  // Pending any-key message overlay (WL_MENU.C Message + IN_Ack) callback, set while mode === "message".
+  private messageOnDone: (() => void) | null = null;
   // Article viewer (WL_TEXT.C ShowArticle) state: the article text, current page, page count, and
   // what to do when the last page is acknowledged (high scores after an ending, menu after help).
   private articleText = "";
@@ -894,6 +900,24 @@ class BrowserWolf3DRuntime {
       ShootSnd();
     }
     this.audio.syncFromSoundState(true);
+    action?.();
+  }
+
+  // Draw a centered message box (WL_MENU.C Message) over the current screen and wait for any key
+  // (IN_Ack), then run `onDone`. Used for the in-game cheat confirmation messages.
+  private showMessage(text: string, onDone: () => void): void {
+    VL_SetBufferOffset(displayPageBase(displayofs)); // visible page (in-game overlays page-flip)
+    US_SetWindowState(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+    Message(text, { font: this.menuChunks[STARTFONT + 1] ?? undefined });
+    VW_UpdateScreen();
+    this.messageOnDone = onDone;
+    this.mode = "message";
+    this.present("MESSAGE");
+  }
+
+  private resolveMessage(): void {
+    const action = this.messageOnDone;
+    this.messageOnDone = null;
     action?.();
   }
 
@@ -2355,6 +2379,15 @@ class BrowserWolf3DRuntime {
     if (this.mode === "dying" || this.mode === "fizzle" || this.mode === "getpsyched") {
       return;
     }
+    // Any-key message overlay (WL_MENU.C Message + IN_Ack): the next keypress dismisses it.
+    if (this.mode === "message") {
+      if (down && !event.repeat) {
+        event.preventDefault();
+        this.audio.resume();
+        this.resolveMessage();
+      }
+      return;
+    }
     // Y/N confirm dialog (WL_MENU.C Confirm): Y accepts, N or Esc declines. Swallows other keys.
     if (this.mode === "confirm") {
       if (down && !event.repeat) {
@@ -2486,9 +2519,19 @@ class BrowserWolf3DRuntime {
     }
     if (down) {
       this.pressedScans.add(scan);
-      // WL_PLAY.C CheckKeys retail cheat: M+L+I held → full health/ammo/keys + chaingun.
+      // WL_PLAY.C CheckKeys retail cheat: M+L+I held → full health/ammo/keys + chaingun, then the
+      // STR_CHEATER message (which warns the high score is forfeit).
       if (!event.repeat && this.pressedScans.has(sc_M) && this.pressedScans.has(sc_L) && this.pressedScans.has(sc_I)) {
         this.applyMLICheat();
+        this.pressedScans.clear();
+        this.showMessage(CHEATER_MESSAGE, () => this.returnToGame());
+        return;
+      }
+      // WL_PLAY.C CheckKeys: B+A+T held → the Commander Keen flavor message (no state change).
+      if (!event.repeat && this.pressedScans.has(sc_B) && this.pressedScans.has(sc_A) && this.pressedScans.has(sc_T)) {
+        this.pressedScans.clear();
+        this.showMessage(KEEN_MESSAGE, () => this.returnToGame());
+        return;
       }
     } else {
       this.pressedScans.delete(scan);
