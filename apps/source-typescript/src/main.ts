@@ -168,7 +168,7 @@ import {
 } from "./WOLFSRC/TS_SAVE_LAYOUT";
 import { Died, DrawPlayScreen, SetupGameLevel } from "./WOLFSRC/WL_GAME.C";
 import { CheckHighScore, DrawHighScores, LevelCompleted, Victory, Write, type LevelCompletedSummary, type VictorySummary } from "./WOLFSRC/WL_INTER.C";
-import { Scores, type HighScore } from "./WOLFSRC/ID_US_1.C";
+import { Scores, US_SetWindowState, type HighScore } from "./WOLFSRC/ID_US_1.C";
 import { parseDemo, type WolfDemo } from "./WOLFSRC/TS_DEMO";
 import { HIGHSCORESPIC } from "./WOLFSRC/TS_WL6_ASSETS";
 import { ThreeDRefresh } from "./WOLFSRC/WL_DRAW.C";
@@ -191,11 +191,13 @@ import {
   NewMenu,
   SaveGameNames,
   SaveGamesAvail,
+  Message,
   SetupControlPanel,
   ShootSnd,
   SndItems,
   SndMenu,
 } from "./WOLFSRC/WL_MENU.C";
+import { CURGAME } from "./WOLFSRC/FOREIGN.H";
 import {
   InitRedShifts,
   PlayLoop,
@@ -400,7 +402,7 @@ const ENDLEVEL_MUS = 16; // floor-completed intermission (WL_INTER.C LevelComple
 const ROSTER_MUS = 23; // high-score table (WL_MENU.C CheckHighScore)
 const URAHERO_MUS = 24; // episode victory (WL_INTER.C Victory)
 
-type RuntimeMode = "boot" | "menu" | "episode" | "difficulty" | "play" | "intermission" | "victory" | "highscores" | "demo" | "loadsave" | "dying" | "fizzle" | "getpsyched" | "intro" | "sound";
+type RuntimeMode = "boot" | "menu" | "episode" | "difficulty" | "play" | "intermission" | "victory" | "highscores" | "demo" | "loadsave" | "dying" | "fizzle" | "getpsyched" | "intro" | "sound" | "confirm";
 
 // In-progress level-start dissolve (ID_VH.C FizzleFade): reveal `target` into the surface in the
 // 17-bit LFSR pixel order over several frames.
@@ -486,6 +488,9 @@ class BrowserWolf3DRuntime {
   private tickAccumulator = 0;
   private t0Accumulator = 0; // real-time accumulator (ms) for 700 Hz AdLib timer servicing outside "play"
   private frames = 0;
+  // Pending Y/N confirm dialog (WL_MENU.C Confirm) callbacks, set while mode === "confirm".
+  private confirmOnYes: (() => void) | null = null;
+  private confirmOnNo: (() => void) | null = null;
   // "Get Psyched!" loading screen (WL_INTER.C PreloadGraphics) state: deadline + how the level resumes.
   private getPsychedDeadline = 0;
   // Pre-menu attract intro (WL_MAIN.C DemoLoop: PG13 -> title -> credits) state.
@@ -851,6 +856,30 @@ class BrowserWolf3DRuntime {
     this.present("MENU_SOUND");
   }
 
+  // Draw a Y/N confirm box over the current screen (WL_MENU.C Confirm → Message) and wait for the
+  // answer. `onYes`/`onNo` run on Y / (N or Esc). The underlying screen must already be presented;
+  // Message overlays the centered text box. Used for the "erase current game?" prompt etc.
+  private showConfirm(text: string, onYes: () => void, onNo: () => void): void {
+    US_SetWindowState(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT); // fullscreen window so Message centers on screen
+    Message(text, { font: this.menuChunks[STARTFONT + 1] ?? undefined });
+    VW_UpdateScreen();
+    this.confirmOnYes = onYes;
+    this.confirmOnNo = onNo;
+    this.mode = "confirm";
+    this.present("CONFIRM");
+  }
+
+  private resolveConfirm(yes: boolean): void {
+    const action = yes ? this.confirmOnYes : this.confirmOnNo;
+    this.confirmOnYes = null;
+    this.confirmOnNo = null;
+    if (yes) {
+      ShootSnd();
+    }
+    this.audio.syncFromSoundState(true);
+    action?.();
+  }
+
   private menuPicOptions(): { chunks: readonly (Uint8Array | null)[]; pictable?: Uint8Array; inGame: boolean } {
     return {
       chunks: this.menuChunks,
@@ -953,11 +982,19 @@ class BrowserWolf3DRuntime {
         return;
       case sc_Enter:
       case sc_Space:
-      case sc_Control:
-        ShootSnd();
-        this.audio.syncFromSoundState(true);
-        this.beginGame(this.selectedEpisode, NewItems.curpos);
+      case sc_Control: {
+        const episode = this.selectedEpisode;
+        const difficulty = NewItems.curpos;
+        // WL_MENU.C CP_NewGame: if a game is already in progress, confirm before erasing it.
+        if (this.hasGame) {
+          this.showConfirm(CURGAME, () => this.beginGame(episode, difficulty), () => this.showMainMenu());
+        } else {
+          ShootSnd();
+          this.audio.syncFromSoundState(true);
+          this.beginGame(episode, difficulty);
+        }
         return;
+      }
       case sc_Escape:
         this.showEpisodeMenu();
         return;
@@ -2179,6 +2216,21 @@ class BrowserWolf3DRuntime {
     }
     // The death + level-start fizzle + Get-Psyched screens run to completion non-interactively.
     if (this.mode === "dying" || this.mode === "fizzle" || this.mode === "getpsyched") {
+      return;
+    }
+    // Y/N confirm dialog (WL_MENU.C Confirm): Y accepts, N or Esc declines. Swallows other keys.
+    if (this.mode === "confirm") {
+      if (down && !event.repeat) {
+        if (event.code === "KeyY" || event.code === "Enter") {
+          event.preventDefault();
+          this.audio.resume();
+          this.resolveConfirm(true);
+        } else if (event.code === "KeyN" || event.code === "Escape") {
+          event.preventDefault();
+          this.audio.resume();
+          this.resolveConfirm(false);
+        }
+      }
       return;
     }
     // Pre-menu attract intro (PG13/title/credits): any key skips straight to the main menu, exactly
