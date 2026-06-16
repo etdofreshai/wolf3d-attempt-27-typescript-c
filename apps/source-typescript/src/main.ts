@@ -106,6 +106,8 @@ import {
 import { PM_Startup } from "./WOLFSRC/ID_PM.C";
 import {
   SD_DebugState,
+  SD_MusicOff,
+  SD_MusicOn,
   SD_PlaySound,
   SD_ResetSoundState,
   SD_SetDigiDevice,
@@ -362,7 +364,11 @@ const FIZZLE_STEPS_PER_FRAME = 4096; // LFSR steps consumed per rendered frame d
 // AdLib music mode services the timer at ~700 Hz; at the 70 Hz tic rate that's 10 t0 services/tic.
 // SDL_t0Service's own dispatch then yields 700 Hz music, 140 Hz sound effects, and 70 Hz TimeCount.
 const T0_SERVICES_PER_TIC = 10;
+const PLAYLOOP_T0_SERVICES = 2; // t0 ticks PlayLoopStepMemory already services per tic (controls.tics*2)
 const MENUSONG = 14; // WONDERIN_MUS — the control-panel / main-menu song (WL_MENU.C StartCPMusic)
+const ENDLEVEL_MUS = 16; // floor-completed intermission (WL_INTER.C LevelCompleted)
+const ROSTER_MUS = 23; // high-score table (WL_MENU.C CheckHighScore)
+const URAHERO_MUS = 24; // episode victory (WL_INTER.C Victory)
 
 type RuntimeMode = "boot" | "menu" | "episode" | "difficulty" | "play" | "intermission" | "victory" | "highscores" | "demo" | "loadsave" | "dying" | "fizzle";
 
@@ -849,6 +855,7 @@ class BrowserWolf3DRuntime {
 
   // Start the current level's song (WL_PLAY.C StartMusic picks it per episode/map from SONGS).
   private startLevelMusic(): void {
+    this.currentSong = -1; // always (re)start the level song — same-map respawn restarts it (WL_PLAY.C StartMusic)
     const episode = this.gamestateU16(GAMESTATE_EPISODE_OFFSET);
     const mapon = this.gamestateU16(GAMESTATE_MAPON_OFFSET);
     this.playSong(SONGS[(episode * 10 + mapon) % SONGS.length]);
@@ -1134,6 +1141,7 @@ class BrowserWolf3DRuntime {
     this.mode = "play";
     this.lastFrameTime = 0;
     this.tickAccumulator = 0;
+    this.startLevelMusic(); // restore the level song after a menu/control panel (WL_PLAY.C StartMusic)
     this.renderFrame();
   }
 
@@ -1288,7 +1296,9 @@ class BrowserWolf3DRuntime {
       },
     });
     this.audio.syncFromSoundState();
-    for (let i = 0; i < T0_SERVICES_PER_TIC; i++) {
+    // PlayLoop already serviced controls.tics*2 (=2) t0 ticks during its control poll, so top up
+    // to the DOS 10/tic — servicing all 10 here would be 12/tic and play AdLib music ~20% too fast.
+    for (let i = 0; i < T0_SERVICES_PER_TIC - PLAYLOOP_T0_SERVICES; i++) {
       SDL_t0Service(); // 700 Hz timer: advances IMF music, sound effects, and TimeCount in step
     }
     // Capture this tic's palette-shift level so the rendered frame can flash red (damage) or
@@ -1313,6 +1323,7 @@ class BrowserWolf3DRuntime {
         // Show the floor-completed bonus-tally intermission screen with the counting-up animation;
         // a keypress skips to the finals (or, once done, advances to the queued next level).
         this.startIntermissionAnim(summary);
+        this.playSong(ENDLEVEL_MUS); // WL_INTER.C LevelCompleted switches to the intermission song
         const episode = this.gamestateU16(GAMESTATE_EPISODE_OFFSET);
         let mapon = this.gamestateU16(GAMESTATE_MAPON_OFFSET);
         if (mapon === 9) {
@@ -1334,6 +1345,7 @@ class BrowserWolf3DRuntime {
         // Show the "you win!" victory screen with the averages counting up; a keypress skips to
         // the finals, then records the score → high scores (the faithful WL6 episode ending).
         this.startVictoryAnim(Victory(this.dgroup));
+        this.playSong(URAHERO_MUS); // WL_INTER.C Victory plays the hero theme
         this.dgroup.setU16(nearOffsetForRuntimeSymbol("_playstate"), 0);
         this.mode = "victory";
         break;
@@ -1626,6 +1638,7 @@ class BrowserWolf3DRuntime {
   // `entryIndex` >= 0 the player is typing that row's name — redraw it with a trailing cursor.
   private showHighScores(entryIndex = -1): void {
     this.mode = "highscores";
+    this.playSong(ROSTER_MUS); // WL_MENU.C CheckHighScore plays the roster song
     this.highScoreEntryIndex = entryIndex;
     const lookup = (picnum: number): Uint8Array | undefined =>
       this.highScoreChunks[picnum] ?? this.menuChunks[picnum] ?? undefined;
@@ -1880,6 +1893,7 @@ class BrowserWolf3DRuntime {
       if (this.paused) {
         event.preventDefault();
         this.paused = false;
+        SD_MusicOn();              // resume the song (WL_PLAY.C CheckKeys SD_MusicOn after pause)
         this.pressedScans.clear(); // the resuming key shouldn't leak into held movement
         this.renderFrame();        // redraw the live frame, clearing PAUSEDPIC
         return;
@@ -1888,6 +1902,7 @@ class BrowserWolf3DRuntime {
         event.preventDefault();
         this.audio.resume();
         this.paused = true;
+        SD_MusicOff(); // silence the song while paused (WL_PLAY.C CheckKeys SD_MusicOff)
         this.pressedScans.clear();
         this.drawPaused();
         return;
