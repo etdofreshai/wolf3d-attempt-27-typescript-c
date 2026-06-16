@@ -610,9 +610,9 @@ class BrowserWolf3DRuntime {
     requestAnimationFrame(this.tick);
   }
 
-  // Begin the pre-menu attract intro (WL_MAIN.C DemoLoop: StartCPMusic(INTROSONG); PG13(); then the
-  // title → credits rotation). Each stage auto-advances after a hold or is skipped by any keypress;
-  // after credits the main menu opens. The menu's own idle timer then drives the attract demos.
+  // Begin the attract sequence at boot (WL_MAIN.C DemoLoop: StartCPMusic(INTROSONG); PG13() once; then
+  // the infinite while(1) rotation). PG13 shows once, then the loop is Title → Credits → High Scores →
+  // Demo → Title → … (see advanceIntro + stepDemo). Any keypress during any stage breaks out to the menu.
   private startIntro(): void {
     this.mode = "intro";
     this.introStage = 0;
@@ -623,6 +623,22 @@ class BrowserWolf3DRuntime {
     this.introFadeDir = "in";
     this.introFadeStep = 0;
     this.introDeadline = performance.now() + INTRO_PG13_MS;
+  }
+
+  // Re-enter the attract rotation at the TITLE page — DOS DemoLoop's while(1) top, which shows PG13
+  // only once before the loop (WL_MAIN.C:1480-1486). Used after a demo finishes and when the menu sits
+  // idle, so the attract keeps cycling Title → Credits → High Scores → Demo instead of chaining
+  // demo→demo or stalling on the menu.
+  private enterAttract(): void {
+    this.mode = "intro";
+    this.introStage = 1;
+    this.lastFrameTime = 0;
+    this.t0Accumulator = 0;
+    this.playSong(INTROSONG); // DemoLoop restarts INTROSONG after each demo (WL_MAIN.C:1549)
+    this.drawIntroStage(1);
+    this.introFadeDir = "in";
+    this.introFadeStep = 0;
+    this.introDeadline = performance.now() + INTRO_TITLE_MS;
   }
 
   // Draw one attract-intro stage into the buffer (0 = PG13, 1 = title, 2 = credits). The palette is
@@ -638,9 +654,14 @@ class BrowserWolf3DRuntime {
     } else if (stage === 1) {
       CA_CacheScreen(TITLEPIC); // unpack the full-screen title art into the video buffer
       this.introScreenTag = "TITLE";
-    } else {
+    } else if (stage === 2) {
       CA_CacheScreen(CREDITSPIC); // full-screen credits art
       this.introScreenTag = "CREDITS";
+    } else {
+      // stage 3: high scores — a first-class screen in the DOS attract rotation (WL_MAIN.C DemoLoop
+      // draws DrawHighScores between Credits and the demo). Keep INTROSONG playing, no entry cursor.
+      this.drawHighScoreTable(-1);
+      this.introScreenTag = "HIGHSCORES";
     }
   }
 
@@ -670,8 +691,11 @@ class BrowserWolf3DRuntime {
         } else if (this.introStage === 2) {
           this.drawIntroStage(2);
           this.introDeadline = frameTime + INTRO_CREDITS_MS;
+        } else if (this.introStage === 3) {
+          this.drawIntroStage(3); // high scores (DemoLoop's Title → Credits → High Scores → Demo)
+          this.introDeadline = frameTime + INTRO_CREDITS_MS;
         } else {
-          this.showMainMenu(); // intro finished → land on the control panel
+          this.startDemo(this.lastDemo); // after high scores, play the next attract demo
           return;
         }
         this.introFadeDir = "in";
@@ -770,9 +794,10 @@ class BrowserWolf3DRuntime {
       if (this.mode === "intermission") {
         this.advanceBJBreathe();
       }
-      // Attract mode: auto-start the demo loop after the main menu sits idle (the title loop).
+      // Attract mode: after the main menu sits idle, re-enter the full attract rotation (Title →
+      // Credits → High Scores → Demo), not straight into a demo — closer to DOS than jumping to PlayDemo.
       if (this.mode === "menu" && frameTime - this.lastInputTime > MENU_IDLE_MS) {
-        this.startDemo(this.lastDemo);
+        this.enterAttract();
       }
       this.audio.serviceAdLib();
       requestAnimationFrame(this.tick);
@@ -1760,6 +1785,7 @@ class BrowserWolf3DRuntime {
     VL_SetPalette(WL_MAIN.gamepal);
     VL_SetBufferOffset(0);
     VL_SetScreen(0, 0);
+    this.startLevelMusic(); // WL_GAME.C PlayDemo plays the demo map's song (was left on INTROSONG)
     this.demoState = { demo, index: 0, demoIndex: demoIndex % DEMO_COUNT };
     this.mode = "demo";
     this.lastFrameTime = 0;
@@ -1804,7 +1830,9 @@ class BrowserWolf3DRuntime {
     }
     this.renderFrame();
     if (ended || a.index >= a.demo.commands.length) {
-      this.startDemo(a.demoIndex + 1); // next demo in the attract loop
+      // DOS PlayDemo returns to DemoLoop's loop top, which redraws Title → Credits → High Scores before
+      // the NEXT demo — it does not chain demo→demo. lastDemo was already advanced in startDemo.
+      this.enterAttract();
     }
   }
 
@@ -2399,12 +2427,10 @@ class BrowserWolf3DRuntime {
     } catch { /* ignore corrupt storage */ }
   }
 
-  private showHighScores(entryIndex = -1): void {
-    this.mode = "highscores";
-    this.toMenuPage(); // page-0-align so a leftover play page/screenofs doesn't shift the table
-    VL_SetPalette(WL_MAIN.gamepal); // game over may have left a damage/death tint
-    this.playSong(ROSTER_MUS); // WL_MENU.C CheckHighScore plays the roster song
-    this.highScoreEntryIndex = entryIndex;
+  // Render the high-score table into the buffer (WL_INTER.C DrawHighScores). Shared by the post-game
+  // high-scores screen (showHighScores) and the attract-rotation high-scores stage (drawIntroStage 3);
+  // the caller owns the page-align, palette, song, and present.
+  private drawHighScoreTable(entryIndex: number): void {
     const lookup = (picnum: number): Uint8Array | undefined =>
       this.highScoreChunks[picnum] ?? this.menuChunks[picnum] ?? undefined;
     DrawHighScores({
@@ -2416,6 +2442,15 @@ class BrowserWolf3DRuntime {
       VW_SetFontState({ px: 4 * 8, py: 76 + 16 * entryIndex, fontcolor: 15, fontnumber: 0 });
       VW_DrawPropString(`${Scores[entryIndex]?.name ?? ""}_`); // re-draw the name + a typing cursor
     }
+  }
+
+  private showHighScores(entryIndex = -1): void {
+    this.mode = "highscores";
+    this.toMenuPage(); // page-0-align so a leftover play page/screenofs doesn't shift the table
+    VL_SetPalette(WL_MAIN.gamepal); // game over may have left a damage/death tint
+    this.playSong(ROSTER_MUS); // WL_MENU.C CheckHighScore plays the roster song
+    this.highScoreEntryIndex = entryIndex;
+    this.drawHighScoreTable(entryIndex);
     this.present("HIGHSCORES");
   }
 
