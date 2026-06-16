@@ -172,7 +172,7 @@ import {
 import { Died, DrawPlayBorder, DrawPlayScreen, SetupGameLevel } from "./WOLFSRC/WL_GAME.C";
 import { BJ_Breathe, CheckHighScore, DrawHighScores, LevelCompleted, Victory, Write, type LevelCompletedSummary, type VictorySummary } from "./WOLFSRC/WL_INTER.C";
 import { CacheLayoutGraphics, EndText, HelpScreens, ShowArticle, type TextDrawOperation } from "./WOLFSRC/WL_TEXT.C";
-import { Scores, US_CPrint, US_RestoreWindow, US_SetWindowState, type HighScore } from "./WOLFSRC/ID_US_1.C";
+import { Scores, US_CPrint, US_Print, US_RestoreWindow, US_SetWindowState, type HighScore } from "./WOLFSRC/ID_US_1.C";
 import { parseDemo, type WolfDemo } from "./WOLFSRC/TS_DEMO";
 import { HIGHSCORESPIC } from "./WOLFSRC/TS_WL6_ASSETS";
 import { ThreeDRefresh } from "./WOLFSRC/WL_DRAW.C";
@@ -185,6 +185,7 @@ import {
   DrawNewEpisode,
   DrawNewGame,
   DrawSoundMenu,
+  DrawWindow,
   EpisodeSelect,
   LSItems,
   LSMenu,
@@ -361,6 +362,7 @@ const VGA_PAGE_BYTES = 80 * 208;
 const TICK_MS = 1000 / 70;
 const MAIN_NEW_GAME = 0;
 const MAIN_SOUND = 1; // WL_MENU.C MainMenu[1] = "Sound" → CP_Sound
+const MAIN_CONTROL = 2; // WL_MENU.C MainMenu[2] = "Control" → CP_Control
 const MAIN_LOAD_GAME = 3;
 const MAIN_CHANGE_VIEW = 5; // WL_MENU.C MainMenu[5] = "Change View" → CP_ChangeView
 const MAIN_READ_THIS = 6; // WL_MENU.C MainMenu[6] = "Read This!" → CP_ReadThis → HelpScreens
@@ -412,7 +414,7 @@ const ENDLEVEL_MUS = 16; // floor-completed intermission (WL_INTER.C LevelComple
 const ROSTER_MUS = 23; // high-score table (WL_MENU.C CheckHighScore)
 const URAHERO_MUS = 24; // episode victory (WL_INTER.C Victory)
 
-type RuntimeMode = "boot" | "menu" | "episode" | "difficulty" | "play" | "intermission" | "victory" | "highscores" | "demo" | "loadsave" | "dying" | "fizzle" | "getpsyched" | "intro" | "sound" | "confirm" | "endtext" | "message" | "changeview";
+type RuntimeMode = "boot" | "menu" | "episode" | "difficulty" | "play" | "intermission" | "victory" | "highscores" | "demo" | "loadsave" | "dying" | "fizzle" | "getpsyched" | "intro" | "sound" | "confirm" | "endtext" | "message" | "changeview" | "control";
 
 // WL_PLAY.C CheckKeys cheat messages (FOREIGN.H STR_CHEATER1..5 / the B-A-T Commander Keen string).
 const CHEATER_MESSAGE = "You now have 100% Health,\n99 Ammo and both Keys!\n\nNote that you have basically\neliminated your chances of\ngetting a high score!";
@@ -494,6 +496,8 @@ class BrowserWolf3DRuntime {
   private demoState: DemoState | null = null;
   private lastDemo = 0; // session-persistent attract demo index (WL_MAIN.C DemoLoop LastDemo++%4)
   private mouseEnabled = true; // WL_MENU.C mouseenabled (default MousePresent); gates mouse-look polling
+  private menuFromPlay = false; // an options menu opened in-game (F-key) returns to play, not the menu
+  private controlCursor = 0; // cursor row in the Control menu
   // Timestamp (performance.now) of the last user input; the menu auto-starts demos when idle.
   private lastInputTime = 0;
   private mode: RuntimeMode = "boot";
@@ -815,13 +819,25 @@ class BrowserWolf3DRuntime {
   // cursor on the current selection. DrawSoundMenu renders the windows + on/off marks from the live
   // SoundMode/DigiMode/MusicMode. The browser app drives it directly instead of CP_Sound's blocking
   // loop; selecting an item applies that mode (mirroring CP_Sound's per-item switch).
-  private showSoundMenu(): void {
+  private showSoundMenu(fromPlay = false): void {
+    this.menuFromPlay = fromPlay;
     SndItems.curpos = this.currentSoundCursor();
     DrawSoundMenu(this.menuPicOptions());
     DrawMenuGun(SndItems, this.menuPicOptions());
     VW_UpdateScreen();
     this.mode = "sound";
     this.present("MENU_SOUND");
+  }
+
+  // Return from an in-game options menu/screen to either the game (if opened with F-key during play)
+  // or the main menu.
+  private exitOptions(): void {
+    if (this.menuFromPlay && this.hasGame) {
+      this.menuFromPlay = false;
+      this.returnToGame();
+    } else {
+      this.showMainMenu();
+    }
   }
 
   // The SndItems cursor row that matches the currently-active mode in each section (so the menu
@@ -853,7 +869,7 @@ class BrowserWolf3DRuntime {
       case sc_Escape:
         ShootSnd();
         this.audio.syncFromSoundState(true);
-        this.showMainMenu();
+        this.exitOptions();
         return;
     }
   }
@@ -996,6 +1012,55 @@ class BrowserWolf3DRuntime {
     }
   }
 
+  // Control options (WL_MENU.C CP_Control). The DOS panel also rebinds keyboard/joystick, but those
+  // are DOS-scancode/hardware specific; the browser-relevant settings are mouse-look enable and mouse
+  // sensitivity (the rest of the bindings are fixed WASD+arrows). Up/Down pick a row; Left/Right (or
+  // Enter) change it; ESC saves + exits. Reachable from the main menu (item 2) and in-game F6.
+  private showControlMenu(fromPlay: boolean): void {
+    this.menuFromPlay = fromPlay;
+    this.controlCursor = 0;
+    this.mode = "control";
+    this.drawControlMenu();
+  }
+
+  private drawControlMenu(): void {
+    VL_SetBufferOffset(displayPageBase(displayofs));
+    VWB_Bar(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0x29); // darker red so the BKGDCOLOR window stands out
+    DrawWindow(40, 50, 240, 100, 0x2d);               // bordered BKGDCOLOR window (fill + outline)
+    US_RestoreWindow({ x: 56, y: 60, w: 208, h: 80, px: 56, py: 62 }); // text print area inside it
+    VW_SetFontState({ fontnumber: 1, fontcolor: 0x13, backcolor: 0x2d }); // HIGHLIGHT on BKGDCOLOR
+    US_Print("        Control\n\n");
+    US_Print(`${this.controlCursor === 0 ? ">" : " "} Mouse:  ${this.mouseEnabled ? "Enabled " : "Disabled"}\n\n`);
+    US_Print(`${this.controlCursor === 1 ? ">" : " "} Mouse Sensitivity: ${WL_MAIN.mouseadjustment}\n\n\n`);
+    US_Print("  Up/Down pick, Left/Right\n  or Enter change, ESC exit");
+    VW_UpdateScreen();
+    this.present("MENU_CONTROL");
+  }
+
+  private handleControlMenuScan(scan: ScanCode): void {
+    if (scan === sc_UpArrow) { this.controlCursor = Math.max(0, this.controlCursor - 1); this.drawControlMenu(); return; }
+    if (scan === sc_DownArrow) { this.controlCursor = Math.min(1, this.controlCursor + 1); this.drawControlMenu(); return; }
+    if (scan === sc_LeftArrow || scan === sc_RightArrow || scan === sc_Enter || scan === sc_Space || scan === sc_Control) {
+      if (this.controlCursor === 0) {
+        this.mouseEnabled = !this.mouseEnabled;
+      } else {
+        const delta = scan === sc_LeftArrow ? -1 : 1; // Enter/Right increase, wrapping 9→1
+        let s = WL_MAIN.mouseadjustment + delta;
+        if (s < 1) s = 9; if (s > 9) s = 1;
+        WL_MAIN.SetMouseAdjustment(s);
+      }
+      ShootSnd();
+      this.audio.syncFromSoundState(true);
+      this.saveConfig();
+      this.drawControlMenu();
+      return;
+    }
+    if (scan === sc_Escape) {
+      this.saveConfig();
+      this.exitOptions();
+    }
+  }
+
   private menuPicOptions(): { chunks: readonly (Uint8Array | null)[]; pictable?: Uint8Array; inGame: boolean } {
     return {
       chunks: this.menuChunks,
@@ -1020,6 +1085,9 @@ class BrowserWolf3DRuntime {
         break;
       case "changeview":
         this.handleChangeViewScan(scan);
+        break;
+      case "control":
+        this.handleControlMenuScan(scan);
         break;
       case "endtext":
         this.handleEndTextScan(scan);
@@ -1147,6 +1215,11 @@ class BrowserWolf3DRuntime {
         ShootSnd();
         this.audio.syncFromSoundState(true);
         this.showSoundMenu();
+        return;
+      case MAIN_CONTROL:
+        ShootSnd();
+        this.audio.syncFromSoundState(true);
+        this.showControlMenu(false);
         return;
       case MAIN_CHANGE_VIEW:
         ShootSnd();
@@ -2648,12 +2721,26 @@ class BrowserWolf3DRuntime {
       this.showLoadSaveScreen("load", true);
       return;
     }
+    // In-game Sound options (WL_PLAY.C CheckKeys → US_ControlPanel(F4) → CP_Sound).
+    if (down && !event.repeat && scan === sc_F4) {
+      event.preventDefault();
+      this.pressedScans.clear();
+      this.showSoundMenu(true);
+      return;
+    }
     // In-game Change View (WL_PLAY.C CheckKeys → US_ControlPanel(F5) → CP_ChangeView): resize the
     // viewport, then resume play.
     if (down && !event.repeat && scan === sc_F5) {
       event.preventDefault();
       this.pressedScans.clear();
       this.showChangeView(true);
+      return;
+    }
+    // In-game Control options (WL_PLAY.C CheckKeys → US_ControlPanel(F6) → CP_Control).
+    if (down && !event.repeat && scan === sc_F6) {
+      event.preventDefault();
+      this.pressedScans.clear();
+      this.showControlMenu(true);
       return;
     }
     // In-game End Game (WL_PLAY.C CheckKeys → US_ControlPanel(F7) → CP_CheckQuick): confirm, then
@@ -2665,6 +2752,31 @@ class BrowserWolf3DRuntime {
       this.showConfirm(ENDGAMESTR, () => {
         this.hasGame = false;
         this.recordHighScoreAndShow(completed);
+      }, () => this.returnToGame());
+      return;
+    }
+    // In-game F8/F9 quicksave/quickload (WL_PLAY.C CheckKeys → CP_CheckQuick): open the slot screen.
+    if (down && !event.repeat && scan === sc_F8) {
+      event.preventDefault();
+      this.pressedScans.clear();
+      this.showLoadSaveScreen("save", true);
+      return;
+    }
+    if (down && !event.repeat && scan === sc_F9 && this.hasSavedGame()) {
+      event.preventDefault();
+      this.pressedScans.clear();
+      this.showLoadSaveScreen("load", true);
+      return;
+    }
+    // In-game Quit (WL_PLAY.C CheckKeys → US_ControlPanel(F10) → CP_Quit): a random taunt + confirm;
+    // the browser returns to the attract title on Y rather than exiting.
+    if (down && !event.repeat && scan === sc_F10) {
+      event.preventDefault();
+      this.pressedScans.clear();
+      const index = Math.min((US_RndT() & 0x7) + (US_RndT() & 1), endStrings.length - 1);
+      this.showConfirm(endStrings[index], () => {
+        this.hasGame = false;
+        this.startIntro();
       }, () => this.returnToGame());
       return;
     }
